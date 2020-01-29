@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\BedrockRespProtocol.csproj" />
+    <ProjectReference Include="..\..\src\BedrockRespProtocol\BedrockRespProtocol.csproj" />
   </ItemGroup>
 
 </Project>
