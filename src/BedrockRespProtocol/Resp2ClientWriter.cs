@@ -35,19 +35,23 @@ namespace BedrockRespProtocol
             writer.Write(SimpleStringCommandPrefix);
             writer.WriteNumeric((ulong)frame.PayloadBytes);
             writer.Write(NewLine);
-            switch (frame.Payload)
+
+            if (frame.IsBytes(out var bytes))
             {
-                case string s:
-                    writer.WriteAsciiNoValidation(s);
-                    break;
-                // case Utf8String?
-                default:
-                    JustNope();
-                    break;
+                writer.Write(bytes);
             }
+            else if (frame.IsString(out var s))
+            {
+                writer.WriteAsciiNoValidation(s);
+            }
+            else
+            {
+                JustNope();
+            }
+            
+
             writer.Write(NewLine);
             writer.Commit();
-
             static void JustNope() => throw new NotSupportedException();
         }
 

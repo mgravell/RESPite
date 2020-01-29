@@ -24,7 +24,13 @@ namespace SimpleClient
 
             var protocol = new RespClientProtocol(connection);
 
-            await protocol.SendAsync(RedisFrame.Ping);
+            for (int i = 0; i < 1000; i++)
+            {
+                await protocol.SendAsync(RedisFrame.Ping);
+
+                var pong = await protocol.ReadAsync();
+                Console.WriteLine(pong.ToString());
+            }
         }
     }
 }
