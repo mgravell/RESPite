@@ -1,0 +1,53 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29709.97
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A95AEB27-DAED-4500-A426-B5A9F0210984}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BedrockRespProtocol", "src\BedrockRespProtocol.csproj", "{4A6A30DC-FD22-4532-B461-B7940E5C6A60}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0E485508-66D7-44BB-B789-814BF1D2812A}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BedrockRespProtocolTests", "tests\BedrockRespProtocolTests.csproj", "{AB290A81-30C9-4A4D-90D7-9FFDECC11948}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "general", "general", "{CC88D51B-8EF9-47EB-8280-E9A0A78B5855}"
+	ProjectSection(SolutionItems) = preProject
+		global.json = global.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "external", "external", "{915F1DC8-890B-4C74-9C35-BC43F0406B55}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Bedrock.Framework", "..\BedrockFramework\src\Bedrock.Framework\Bedrock.Framework.csproj", "{43F320D2-0717-476A-88FC-499FDE8236BF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4A6A30DC-FD22-4532-B461-B7940E5C6A60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4A6A30DC-FD22-4532-B461-B7940E5C6A60}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4A6A30DC-FD22-4532-B461-B7940E5C6A60}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4A6A30DC-FD22-4532-B461-B7940E5C6A60}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AB290A81-30C9-4A4D-90D7-9FFDECC11948}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB290A81-30C9-4A4D-90D7-9FFDECC11948}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB290A81-30C9-4A4D-90D7-9FFDECC11948}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB290A81-30C9-4A4D-90D7-9FFDECC11948}.Release|Any CPU.Build.0 = Release|Any CPU
+		{43F320D2-0717-476A-88FC-499FDE8236BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43F320D2-0717-476A-88FC-499FDE8236BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43F320D2-0717-476A-88FC-499FDE8236BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43F320D2-0717-476A-88FC-499FDE8236BF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{4A6A30DC-FD22-4532-B461-B7940E5C6A60} = {A95AEB27-DAED-4500-A426-B5A9F0210984}
+		{AB290A81-30C9-4A4D-90D7-9FFDECC11948} = {0E485508-66D7-44BB-B789-814BF1D2812A}
+		{43F320D2-0717-476A-88FC-499FDE8236BF} = {915F1DC8-890B-4C74-9C35-BC43F0406B55}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {6FFF7D37-6A5E-471D-8CEC-C4A91D3BD624}
+	EndGlobalSection
+EndGlobal
