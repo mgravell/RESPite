@@ -2,9 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\BedrockFramework\src\Bedrock.Framework.Experimental\Bedrock.Framework.Experimental.csproj" />
     <ProjectReference Include="..\..\..\BedrockFramework\src\Bedrock.Framework\Bedrock.Framework.csproj" />
     <ProjectReference Include="..\Resp\Resp.csproj" />
   </ItemGroup>
