@@ -13,11 +13,11 @@ namespace SimpleClient
 {
     class Program
     {
-        static async Task Main(string[] args)
+        static async Task Main()
         {
             var endpoint = new IPEndPoint(IPAddress.Loopback, 6379);
             await ExecuteBedrock(endpoint, 1000);
-            await ExecuteStackExchagneRedis(endpoint, 1000);
+            await ExecuteStackExchangeRedis(endpoint, 1000);
         }
 
         static async Task ExecuteBedrock(EndPoint endpoint, int count)
@@ -45,7 +45,7 @@ namespace SimpleClient
             Console.WriteLine($"{Me()}: time for {count} ops: {timer.ElapsedMilliseconds}ms");
         }
 
-        static async Task ExecuteStackExchagneRedis(EndPoint endpoint, int count)
+        static async Task ExecuteStackExchangeRedis(EndPoint endpoint, int count)
         {
             using var muxer = await ConnectionMultiplexer.ConnectAsync(new ConfigurationOptions
             {

@@ -10,13 +10,13 @@ namespace BedrockRespProtocol
 {
     public sealed class RespClientProtocol
     {
-        private readonly ConnectionContext _connection;
+        // private readonly ConnectionContext _connection;
         private readonly ProtocolReader _reader;
         private readonly ProtocolWriter _writer;
 
         public RespClientProtocol(ConnectionContext connection)
         {
-            _connection = connection;
+            // _connection = connection;
             _reader = connection.CreateReader();
             _writer = connection.CreateWriter();
         }

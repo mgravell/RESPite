@@ -57,6 +57,8 @@ namespace BedrockRespProtocol
 
         private static void WriteArray(RedisArray frame, IBufferWriter<byte> output)
         {   // varadic commands
+            GC.KeepAlive(frame);
+            GC.KeepAlive(output);
             throw new NotImplementedException();
         }
     }

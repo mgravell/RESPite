@@ -19,12 +19,11 @@ namespace BedrockRespProtocol
                 return false;
             }
 
-            switch (input.First.Span[0])
+            return (input.First.Span[0]) switch
             {
-                case (byte)'+': return TryParseSimpleString(input, ref consumed, ref examined, out message);
-                default:
-                    throw new NotImplementedException();
-            }
+                (byte)'+' => TryParseSimpleString(input, ref consumed, ref examined, out message),
+                _ => throw new NotImplementedException(),
+            };
         }
 
         private static ReadOnlySpan<byte> NewLine => new byte[] { (byte)'\r', (byte)'\n' };
