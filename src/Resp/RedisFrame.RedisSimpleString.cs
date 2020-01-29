@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Resp
@@ -102,6 +103,12 @@ namespace Resp
             {
                 value = _value.Span;
                 return true;
+            }
+
+            private protected override void OnDispose()
+            {
+                if (MemoryMarshal.TryGetArray(_value, out var segment) && segment.Offset == 0)
+                    ArrayPool<byte>.Shared.Return(segment.Array);
             }
         }
     }

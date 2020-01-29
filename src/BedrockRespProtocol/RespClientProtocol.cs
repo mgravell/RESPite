@@ -33,13 +33,14 @@ namespace BedrockRespProtocol
         {
             var result = _reader.ReadAsync<RedisFrame>(MessageReader, cancellationToken);
             // avoid the async machinery if we already have the result on the pipe
-            return result.IsCompletedSuccessfully ? new ValueTask<RedisFrame>(Validate(result.Result)) : Awaited(result);
+            return result.IsCompletedSuccessfully ? new ValueTask<RedisFrame>(Validate(_reader, result.Result)) : Awaited(_reader, result);
 
-            static async ValueTask<RedisFrame> Awaited(ValueTask<ProtocolReadResult<RedisFrame>> result)
-                => Validate(await result);
+            static async ValueTask<RedisFrame> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<RedisFrame>> result)
+                => Validate(reader, await result);
 
-            static RedisFrame Validate(in ProtocolReadResult<RedisFrame> result)
+            static RedisFrame Validate(ProtocolReader reader, in ProtocolReadResult<RedisFrame> result)
             {
+                reader.Advance();
                 if (result.IsCanceled) ThrowCanceled();
                 if (result.IsCompleted) ThrowAborted();
                 return result.Message;
