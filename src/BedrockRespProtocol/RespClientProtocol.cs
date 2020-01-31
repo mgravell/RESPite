@@ -20,6 +20,21 @@ namespace BedrockRespProtocol
             _reader = connection.CreateReader();
             _writer = connection.CreateWriter();
         }
+        public async ValueTask<TimeSpan> PingAsync(CancellationToken cancellationToken = default)
+        {
+            var before = DateTime.UtcNow;
+            await SendAsync(RedisFrame.Ping, cancellationToken);
+            using var pong = await ReadAsync(cancellationToken);
+            var after = DateTime.UtcNow;
+            if (pong is RedisSimpleString rss && rss.Equals("PONG", StringComparison.OrdinalIgnoreCase))
+            {
+                return after - before;
+            }
+            else
+            {
+                throw new InvalidOperationException("huh: " + pong.ToString());
+            }
+        }
 
         public ValueTask SendAsync(RedisFrame frame, CancellationToken cancellationToken = default)
             => _writer.WriteAsync<RedisFrame>(MessageWriter, frame, cancellationToken);

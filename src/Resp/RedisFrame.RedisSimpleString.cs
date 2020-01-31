@@ -10,6 +10,7 @@ namespace Resp
         public static RedisSimpleString Empty => RedisSimpleStringEmpty.Instance;
 
         public abstract int PayloadBytes { get; }
+        public abstract int PayloadChars { get; }
 
         public static RedisSimpleString Create(string value)
             => value.Length == 0 ? Empty : new RedisSimpleStringString(value);
@@ -39,6 +40,24 @@ namespace Resp
             return new RedisSimpleStringMemory(FrameFlags.None, new ReadOnlyMemory<byte>(lease, 0, value.Length));
         }
 
+        public bool Equals(string value, StringComparison comparisonType = StringComparison.Ordinal) => Equals(value.AsSpan(), comparisonType);
+        public bool Equals(ReadOnlySpan<char> value, StringComparison comparisonType = StringComparison.Ordinal)
+        {
+            if (value.Length != PayloadChars) return false;
+            if (IsChars(out var c)) return value.Equals(c, comparisonType);
+            if (IsBytes(out var b)) return b.Length <= 128 ? FastCompare(b, value, comparisonType) : SlowCompare(b, value, comparisonType);
+            return false;
+
+            static bool FastCompare(ReadOnlySpan<byte> x, ReadOnlySpan<char> y, StringComparison comparisonType)
+            {
+                Span<char> xC = stackalloc char[Encoding.ASCII.GetMaxCharCount(x.Length)];
+                var count = Encoding.ASCII.GetChars(x, xC);
+                return y.Equals(xC.Slice(0, count), comparisonType);
+            }
+            static bool SlowCompare(ReadOnlySpan<byte> x, ReadOnlySpan<char> y, StringComparison comparisonType)
+                => throw new NotImplementedException();
+        }
+
         public unsafe static RedisSimpleString Create(ReadOnlySequence<byte> value)
         {
             if (value.IsEmpty) return Empty;
@@ -55,6 +74,7 @@ namespace Resp
             private RedisSimpleStringEmpty() : base(FrameFlags.Preserved) { }
 
             public override int PayloadBytes => 0;
+            public override int PayloadChars => 0;
             public override string ToString() => "";
 
             public override bool IsBytes(out ReadOnlySpan<byte> value)
@@ -79,6 +99,7 @@ namespace Resp
             private readonly string _value;
 
             public override int PayloadBytes => Encoding.ASCII.GetByteCount(_value);
+            public override int PayloadChars => _value.Length;
 
             internal RedisSimpleStringString(string value) : base(FrameFlags.None)
                 => _value = value;
@@ -102,6 +123,7 @@ namespace Resp
             private readonly ReadOnlyMemory<byte> _value;
 
             public override int PayloadBytes => _value.Length;
+            public override int PayloadChars => Encoding.ASCII.GetCharCount(_value.Span);
 
             internal RedisSimpleStringMemory(FrameFlags flags, ReadOnlyMemory<byte> value) : base(flags)
                 => _value = value;
