@@ -39,6 +39,15 @@ namespace Resp
             return new RedisSimpleStringMemory(FrameFlags.None, new ReadOnlyMemory<byte>(lease, 0, value.Length));
         }
 
+        public unsafe static RedisSimpleString Create(ReadOnlySequence<byte> value)
+        {
+            if (value.IsEmpty) return Empty;
+            int len = checked((int)value.Length);
+            var lease = ArrayPool<byte>.Shared.Rent(len);
+            value.CopyTo(lease);
+            return new RedisSimpleStringMemory(FrameFlags.None, new ReadOnlyMemory<byte>(lease, 0, len));
+        }
+
         private RedisSimpleString(FrameFlags flags) : base(flags) { }
         private sealed class RedisSimpleStringEmpty : RedisSimpleString
         {

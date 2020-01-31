@@ -2,7 +2,6 @@
 using Resp;
 using System;
 using System.Buffers;
-using System.Text;
 
 namespace BedrockRespProtocol
 {
@@ -26,13 +25,12 @@ namespace BedrockRespProtocol
             };
         }
 
-        private static ReadOnlySpan<byte> NewLine => new byte[] { (byte)'\r', (byte)'\n' };
-
         private bool TryParseSimpleString(in ReadOnlySequence<byte> input, ref SequencePosition consumed, ref SequencePosition examined, out RedisFrame message)
         {
             var sequenceReader = new SequenceReader<byte>(input);
 
-            if (sequenceReader.TryReadTo(out ReadOnlySpan<byte> payloadPlusPrefix, NewLine))
+            if (sequenceReader.TryReadTo(out ReadOnlySequence<byte> payloadPlusPrefix, (byte)'\r')
+                && sequenceReader.TryRead(out var n) && n == '\n')
             {
                 message = RedisSimpleString.Create(payloadPlusPrefix.Slice(1));
                 consumed = examined = sequenceReader.Position;
