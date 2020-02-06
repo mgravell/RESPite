@@ -16,7 +16,7 @@ namespace SimpleClient
         static async Task Main()
         {
             var endpoint = new IPEndPoint(IPAddress.Loopback, 6379);
-            await ExecuteBedrock(endpoint, 1000);
+            await ExecuteBedrock(endpoint, 50000);
             // await ExecuteStackExchangeRedis(endpoint, 1000);
         }
 
@@ -31,10 +31,23 @@ namespace SimpleClient
 
             var protocol = new RespClientProtocol(connection);
 
-            await protocol.SendAsync(RedisFrame.Ping);
-            using (await protocol.ReadAsync()) { }
+            //await protocol.SendAsync(RedisFrame.Ping);
+            //using (await protocol.ReadAsync()) { }
 
-            var timer = Stopwatch.StartNew();
+            Stopwatch timer;
+
+            timer = Stopwatch.StartNew();
+            for (int i = 0; i < count; i++)
+            {
+                await protocol.PingRawAsync();
+                //await protocol.SendAsync(RedisFrame.Ping);
+
+                //using var pong = await protocol.ReadAsync();
+            }
+            timer.Stop();
+            Console.WriteLine($"{Me()}: time for {count} ops (val-type): {timer.ElapsedMilliseconds}ms");
+
+            timer = Stopwatch.StartNew();
             for (int i = 0; i < count; i++)
             {
                 await protocol.PingAsync();
@@ -43,7 +56,9 @@ namespace SimpleClient
                 //using var pong = await protocol.ReadAsync();
             }
             timer.Stop();
-            Console.WriteLine($"{Me()}: time for {count} ops: {timer.ElapsedMilliseconds}ms");
+            Console.WriteLine($"{Me()}: time for {count} ops (ref-type): {timer.ElapsedMilliseconds}ms");
+
+
         }
 
         static async Task ExecuteStackExchangeRedis(EndPoint endpoint, int count)

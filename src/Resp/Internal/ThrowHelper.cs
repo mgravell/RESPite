@@ -12,5 +12,13 @@ namespace Resp.Internal
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void ArgumentOutOfRange(string paramName)
             => throw new ArgumentOutOfRangeException(paramName);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void FrameTypeNotImplemented(FrameType type)
+            => throw new NotImplementedException($"Frame type not implemented: {type}");
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void NotImplemented([CallerMemberName] string message = null)
+            => throw new NotImplementedException(message);
     }
 }

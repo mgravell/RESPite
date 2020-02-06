@@ -8,7 +8,7 @@ using System.Buffers.Text;
 
 namespace BedrockRespProtocol
 {
-    internal sealed class Resp2ClientWriter : IMessageWriter<RedisFrame>
+    internal sealed class Resp2ClientWriter : IMessageWriter<RedisFrame>, IMessageWriter<RawFrame>
     {
         internal static Resp2ClientWriter Instance { get; } = new Resp2ClientWriter();
         private Resp2ClientWriter() { }
@@ -22,6 +22,10 @@ namespace BedrockRespProtocol
                 default: throw new NotSupportedException();
             }
         }
+
+        void IMessageWriter<RawFrame>.WriteMessage(RawFrame message, IBufferWriter<byte> output)
+            => message.Write(output);
+
 
         private static ReadOnlySpan<byte> SimpleStringCommandPrefix => new byte[] { (byte)'*', (byte)'1', (byte)'\r', (byte)'\n', (byte)'$' };
         private static ReadOnlySpan<byte> NewLine => new byte[] { (byte)'\r', (byte)'\n' };

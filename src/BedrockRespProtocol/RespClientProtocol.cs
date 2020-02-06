@@ -23,21 +23,31 @@ namespace BedrockRespProtocol
         public async ValueTask<TimeSpan> PingAsync(CancellationToken cancellationToken = default)
         {
             var before = DateTime.UtcNow;
-            await SendAsync(RedisFrame.Ping, cancellationToken);
-            using var pong = await ReadAsync(cancellationToken);
+            await SendAsync(RedisFrame.Ping, cancellationToken).ConfigureAwait(false);
+            using var pong = await ReadAsync(cancellationToken).ConfigureAwait(false);
             var after = DateTime.UtcNow;
-            if (pong is RedisSimpleString rss && rss.Equals("PONG", StringComparison.OrdinalIgnoreCase))
-            {
-                return after - before;
-            }
-            else
-            {
-                throw new InvalidOperationException("huh: " + pong.ToString());
-            }
+            if (!(pong is RedisSimpleString rss && rss.Equals("PONG", StringComparison.OrdinalIgnoreCase))) Wat();
+            return after - before;
         }
 
+        public async ValueTask<TimeSpan> PingRawAsync(CancellationToken cancellationToken = default)
+        {
+            var before = DateTime.UtcNow;
+            await SendAsync(RawFrame.Ping, cancellationToken).ConfigureAwait(false);
+            using var pong = await ReadRawAsync(cancellationToken).ConfigureAwait(false);
+            var after = DateTime.UtcNow;
+            if (!pong.IsShortAlphaIgnoreCase(Pong)) Wat();
+            return after - before;
+        }
+        static void Wat() => throw new InvalidOperationException("something went terribly wrong");
+
+        private static ReadOnlySpan<byte> Pong => new byte[] { (byte)'p', (byte)'o', (byte)'n', (byte)'g' };
+
         public ValueTask SendAsync(RedisFrame frame, CancellationToken cancellationToken = default)
-            => _writer.WriteAsync<RedisFrame>(MessageWriter, frame, cancellationToken);
+            => _writer.WriteAsync<RedisFrame>(Resp2ClientWriter.Instance, frame, cancellationToken);
+
+        public ValueTask SendAsync(RawFrame frame, CancellationToken cancellationToken = default)
+            => _writer.WriteAsync<RawFrame>(Resp2ClientWriter.Instance, frame, cancellationToken);
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         static void ThrowCanceled() => throw new OperationCanceledException();
@@ -45,15 +55,21 @@ namespace BedrockRespProtocol
         static void ThrowAborted() => throw new ConnectionAbortedException();
 
         public ValueTask<RedisFrame> ReadAsync(CancellationToken cancellationToken = default)
+            => ReadAsync<RedisFrame>(_reader, Resp2ClientReader.Instance, cancellationToken);
+
+        public ValueTask<RawFrame> ReadRawAsync(CancellationToken cancellationToken = default)
+            => ReadAsync<RawFrame>(_reader, Resp2ClientReader.Instance, cancellationToken);
+
+        private static ValueTask<T> ReadAsync<T>(ProtocolReader source, IMessageReader<T> parser, CancellationToken cancellationToken)
         {
-            var result = _reader.ReadAsync<RedisFrame>(MessageReader, cancellationToken);
+            var result = source.ReadAsync<T>(parser, cancellationToken);
             // avoid the async machinery if we already have the result on the pipe
-            return result.IsCompletedSuccessfully ? new ValueTask<RedisFrame>(Validate(_reader, result.Result)) : Awaited(_reader, result);
+            return result.IsCompletedSuccessfully ? new ValueTask<T>(Validate(source, result.Result)) : Awaited(source, result);
 
-            static async ValueTask<RedisFrame> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<RedisFrame>> result)
-                => Validate(reader, await result);
+            static async ValueTask<T> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<T>> result)
+                => Validate(reader, await result.ConfigureAwait(false));
 
-            static RedisFrame Validate(ProtocolReader reader, in ProtocolReadResult<RedisFrame> result)
+            static T Validate(ProtocolReader reader, in ProtocolReadResult<T> result)
             {
                 reader.Advance();
                 if (result.IsCanceled) ThrowCanceled();
@@ -61,8 +77,5 @@ namespace BedrockRespProtocol
                 return result.Message;
             }
         }
-
-        private IMessageWriter<RedisFrame> MessageWriter => Resp2ClientWriter.Instance;
-        private IMessageReader<RedisFrame> MessageReader => Resp2ClientReader.Instance;
     }
 }

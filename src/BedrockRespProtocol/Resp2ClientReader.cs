@@ -5,7 +5,7 @@ using System.Buffers;
 
 namespace BedrockRespProtocol
 {
-    internal sealed class Resp2ClientReader : IMessageReader<RedisFrame>
+    internal sealed class Resp2ClientReader : IMessageReader<RedisFrame>, IMessageReader<RawFrame>
     {
         internal static Resp2ClientReader Instance { get; } = new Resp2ClientReader();
         private Resp2ClientReader() { }
@@ -34,6 +34,17 @@ namespace BedrockRespProtocol
             {
                 message = RedisSimpleString.Create(payloadPlusPrefix.Slice(1));
                 consumed = examined = sequenceReader.Position;
+                return true;
+            }
+            message = default;
+            return false;
+        }
+
+        bool IMessageReader<RawFrame>.TryParseMessage(in ReadOnlySequence<byte> input, ref SequencePosition consumed, ref SequencePosition examined, out RawFrame message)
+        {
+            if (RawFrame.TryParse(input, out message, out var end))
+            {
+                examined = consumed = end;
                 return true;
             }
             message = default;
