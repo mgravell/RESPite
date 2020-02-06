@@ -2,6 +2,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -86,40 +87,54 @@ namespace Resp
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool EqualsShortAlphaIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> lowerCaseValue)
+        {
+            return value.Length switch
+            {
+                // 0x20 is 00100000, which is the bit which **for purely alpha** can be used
+                // to lower-casify; note that for non-alpha, this is an invalid thing, so
+                // this should *only* be used when the comparison value is known to be alpha
+
+                // OK
+                2 => (BitConverter.ToInt16(value) | 0x2020) == BitConverter.ToInt16(lowerCaseValue),
+                // PONG
+                4 => (BitConverter.ToInt32(value) | 0x20202020) == BitConverter.ToInt32(lowerCaseValue),
+                _ => EqualsSlow(value, lowerCaseValue),
+            };
+
+            static bool EqualsSlow(ReadOnlySpan<byte> value, ReadOnlySpan<byte> lowerCaseValue)
+            {
+                // compare in 8-byte chunks as var as possible; could also look at SIMD, but...
+                // how large values are we expecting, really?
+                var value64 = MemoryMarshal.Cast<byte, long>(value);
+                var lowerCaseValue64 = MemoryMarshal.Cast<byte, long>(lowerCaseValue);
+                for (int i = 0; i < value64.Length; i++)
+                {
+                    if ((value64[i] | 0x2020202020202020) != lowerCaseValue64[i]) return false;
+                }
+                for (int i = value64.Length * 8; i < value.Length; i++)
+                {
+                    if ((value[i] | 0x20) != lowerCaseValue[i]) return false;
+                }
+                return true;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsShortAlphaIgnoreCase(ReadOnlySpan<byte> lowerCaseValue)
         {
             var val = _value;
             if (val.Length != lowerCaseValue.Length) return false;
 
-            return _value.IsSingleSegment ? Equals(_value.First.Span, lowerCaseValue)
+            return _value.IsSingleSegment ? EqualsShortAlphaIgnoreCase(_value.First.Span, lowerCaseValue)
                 : CopyLocalEquals(_value, lowerCaseValue);
-
-            static bool Equals(ReadOnlySpan<byte> value, ReadOnlySpan<byte> lowerCaseValue)
-            {
-                switch (value.Length)
-                {
-                    // 0x20 is 00100000, which is the bit which **for purely alpha** can be used
-                    // to lower-casify; note that for non-alpha, this is an invalid thing, so
-                    // this should *only* be used when the comparison value is known to be alpha
-                    case 2: // OK
-                        return (BitConverter.ToInt16(value) | 0x2020) == BitConverter.ToInt16(lowerCaseValue);
-                    case 4: // PONG
-                        return (BitConverter.ToInt32(value) | 0x20202020) == BitConverter.ToInt32(lowerCaseValue);
-                    default:
-                        for (int i = 0; i < value.Length; i++)
-                        {
-                            if ((value[i] | 0x20) != lowerCaseValue[i]) return false;
-                        }
-                        return true;
-                }
-                
-            }
 
             static bool CopyLocalEquals(in ReadOnlySequence<byte> value, ReadOnlySpan<byte> lowerCaseValue)
             {
                 Span<byte> local = stackalloc byte[lowerCaseValue.Length];
                 value.CopyTo(local);
-                return Equals(local, lowerCaseValue);
+                return EqualsShortAlphaIgnoreCase(local, lowerCaseValue);
             }
         }
 
