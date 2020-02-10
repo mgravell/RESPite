@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SimpleClient
@@ -23,35 +24,76 @@ namespace SimpleClient
 
         static async Task Main()
         {
-            await ExecuteSocketAsync(ServerEndpoint, 50000);
+            await ExecuteSocketAsync(10000, 10);
         }
 
-        static async ValueTask ExecuteSocketAsync(EndPoint endpoint, int count)
+        static RespConnection[] CreateClients(int count)
         {
-            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
-            using var ns = new NetworkStream(socket, true);
+            var clients = new RespConnection[count];
 
-            var connection = RespConnection.Create(socket);
-
-            Stopwatch timer;
-
-            timer = Stopwatch.StartNew();
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < clients.Length; i++)
             {
-                await connection.PingRawAsync();
-            }
-            timer.Stop();
-            Console.WriteLine($"{Me()}: time for {count} ops (async): {timer.ElapsedMilliseconds}ms");
-
-            timer = Stopwatch.StartNew();
-            for (int i = 0; i < count; i++)
-            {
+                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
+                var connection = RespConnection.Create(socket);
                 connection.PingRaw();
+
+                clients[i] = connection;
             }
-            timer.Stop();
-            Console.WriteLine($"{Me()}: time for {count} ops (sync): {timer.ElapsedMilliseconds}ms");
+
+            return clients;
+
         }
+
+        static async Task RunClientAsync(RespConnection client, int pingsPerClient)
+        {
+            for (int i = 0; i < pingsPerClient; i++)
+            {
+                await client.PingRawAsync();
+            }
+        }
+        static void RunClient(RespConnection client, int pingsPerClient)
+        {
+            for (int i = 0; i < pingsPerClient; i++)
+            {
+                client.PingRaw();
+            }
+        }
+
+        static async ValueTask ExecuteSocketAsync(int pingsPerClient, int clientCount)
+        {
+            var clients = CreateClients(clientCount);
+            var totalPings = pingsPerClient * clientCount;
+
+            Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
+
+            var tasks = new Task[clientCount];
+            Stopwatch timer = Stopwatch.StartNew();
+            for (int i = 0; i < tasks.Length; i++)
+            {
+                var client = clients[i];
+                tasks[i] = Task.Run(() => RunClientAsync(client, pingsPerClient));
+            }
+            await Task.WhenAll(tasks);
+            timer.Stop();
+
+            Console.WriteLine($"async: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
+
+            var threads = new Thread[clientCount];
+            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient);
+            timer = Stopwatch.StartNew();
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i] = new Thread(starter);
+                threads[i].Start(clients[i]);
+            }
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i].Join();
+            }
+            Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
+        }
+
         static async Task ExecuteBedrockAsync(EndPoint endpoint, int count)
         {
             var serviceProvider = new ServiceCollection().BuildServiceProvider();
