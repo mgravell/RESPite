@@ -23,7 +23,7 @@ public class RedisPingPong : IAsyncDisposable
 {
     private ConnectionMultiplexer _muxer;
     private IServer _server;
-    private RespClientProtocol _protocol;
+    private RespConnection _protocol;
     private ConnectionContext _connection;
 
     [Benchmark]

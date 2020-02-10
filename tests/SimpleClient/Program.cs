@@ -32,14 +32,14 @@ namespace SimpleClient
             socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
             using var ns = new NetworkStream(socket, true);
 
-            RespClientProtocol protocol = new RespStreamProtocol(ns);
+            var connection = RespConnection.Create(socket);
 
             Stopwatch timer;
 
             timer = Stopwatch.StartNew();
             for (int i = 0; i < count; i++)
             {
-                await protocol.PingRawAsync();
+                await connection.PingRawAsync();
             }
             timer.Stop();
             Console.WriteLine($"{Me()}: time for {count} ops (async): {timer.ElapsedMilliseconds}ms");
@@ -47,7 +47,7 @@ namespace SimpleClient
             timer = Stopwatch.StartNew();
             for (int i = 0; i < count; i++)
             {
-                protocol.PingRaw();
+                connection.PingRaw();
             }
             timer.Stop();
             Console.WriteLine($"{Me()}: time for {count} ops (sync): {timer.ElapsedMilliseconds}ms");
@@ -61,7 +61,7 @@ namespace SimpleClient
 
             await using var connection = await client.ConnectAsync(endpoint);
 
-            RespClientProtocol protocol = new RespBedrockProtocol(connection);
+            var protocol = new RespBedrockProtocol(connection);
 
             //await protocol.SendAsync(RedisFrame.Ping);
             //using (await protocol.ReadAsync()) { }
