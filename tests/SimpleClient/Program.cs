@@ -6,6 +6,7 @@ using StackExchange.Redis;
 using System;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
@@ -13,14 +14,45 @@ namespace SimpleClient
 {
     class Program
     {
-        static async Task Main()
+        private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
+        static async Task Main2()
         {
-            var endpoint = new IPEndPoint(IPAddress.Loopback, 6379);
-            await ExecuteBedrock(endpoint, 50000);
+            await ExecuteBedrockAsync(ServerEndpoint, 50000);
             // await ExecuteStackExchangeRedis(endpoint, 1000);
         }
 
-        static async Task ExecuteBedrock(EndPoint endpoint, int count)
+        static async Task Main()
+        {
+            await ExecuteSocketAsync(ServerEndpoint, 50000);
+        }
+
+        static async ValueTask ExecuteSocketAsync(EndPoint endpoint, int count)
+        {
+            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
+            using var ns = new NetworkStream(socket, true);
+
+            RespClientProtocol protocol = new RespStreamProtocol(ns);
+
+            Stopwatch timer;
+
+            timer = Stopwatch.StartNew();
+            for (int i = 0; i < count; i++)
+            {
+                await protocol.PingRawAsync();
+            }
+            timer.Stop();
+            Console.WriteLine($"{Me()}: time for {count} ops (async): {timer.ElapsedMilliseconds}ms");
+
+            timer = Stopwatch.StartNew();
+            for (int i = 0; i < count; i++)
+            {
+                protocol.PingRaw();
+            }
+            timer.Stop();
+            Console.WriteLine($"{Me()}: time for {count} ops (sync): {timer.ElapsedMilliseconds}ms");
+        }
+        static async Task ExecuteBedrockAsync(EndPoint endpoint, int count)
         {
             var serviceProvider = new ServiceCollection().BuildServiceProvider();
             var client = new ClientBuilder(serviceProvider)
@@ -29,7 +61,7 @@ namespace SimpleClient
 
             await using var connection = await client.ConnectAsync(endpoint);
 
-            var protocol = new RespClientProtocol(connection);
+            RespClientProtocol protocol = new RespBedrockProtocol(connection);
 
             //await protocol.SendAsync(RedisFrame.Ping);
             //using (await protocol.ReadAsync()) { }
@@ -47,16 +79,16 @@ namespace SimpleClient
             timer.Stop();
             Console.WriteLine($"{Me()}: time for {count} ops (val-type): {timer.ElapsedMilliseconds}ms");
 
-            timer = Stopwatch.StartNew();
-            for (int i = 0; i < count; i++)
-            {
-                await protocol.PingAsync();
-                //await protocol.SendAsync(RedisFrame.Ping);
+            //timer = Stopwatch.StartNew();
+            //for (int i = 0; i < count; i++)
+            //{
+            //    await protocol.PingAsync();
+            //    //await protocol.SendAsync(RedisFrame.Ping);
 
-                //using var pong = await protocol.ReadAsync();
-            }
-            timer.Stop();
-            Console.WriteLine($"{Me()}: time for {count} ops (ref-type): {timer.ElapsedMilliseconds}ms");
+            //    //using var pong = await protocol.ReadAsync();
+            //}
+            //timer.Stop();
+            //Console.WriteLine($"{Me()}: time for {count} ops (ref-type): {timer.ElapsedMilliseconds}ms");
 
 
         }

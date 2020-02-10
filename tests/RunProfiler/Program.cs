@@ -30,14 +30,7 @@ public class RedisPingPong : IAsyncDisposable
     public Task SERedis() => _server.PingAsync();
 
     [Benchmark]
-    public Task Bedrock() => BedrockPingPong();
-
-    async Task BedrockPingPong()
-    {
-        await _protocol.SendAsync(RedisFrame.Ping);
-
-        using var pong = await _protocol.ReadAsync();
-    }
+    public Task Bedrock() => _protocol.PingRawAsync().AsTask();
 
     public ValueTask DisposeAsync()
     {
@@ -54,7 +47,7 @@ public class RedisPingPong : IAsyncDisposable
             EndPoints = { endpoint }
         });
         _server = _muxer.GetServer(endpoint);
-        await _server.PingAsync();
+        await SERedis();
 
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
         var client = new ClientBuilder(serviceProvider)
@@ -63,8 +56,8 @@ public class RedisPingPong : IAsyncDisposable
 
         _connection = await client.ConnectAsync(endpoint);
 
-        _protocol = new RespClientProtocol(_connection);
+        _protocol = new RespBedrockProtocol(_connection);
 
-        await BedrockPingPong();
+        await Bedrock();
     }
 }
