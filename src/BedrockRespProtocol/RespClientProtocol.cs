@@ -1,4 +1,5 @@
 ﻿using Bedrock.Framework.Protocols;
+using BedrockRespProtocol.Internal;
 using Microsoft.AspNetCore.Connections;
 using Resp;
 using System.Threading;
@@ -32,23 +33,19 @@ namespace BedrockRespProtocol
             return vt.IsCompletedSuccessfully ? vt.Result : vt.AsTask().Result;
         }
 
-
         public override ValueTask SendAsync(RawFrame frame, CancellationToken cancellationToken)
-            => _writer.WriteAsync<RawFrame>(Resp2ClientWriter.Instance, frame, cancellationToken);
+            => _writer.WriteAsync<RawFrame>(RespFormatter.Instance, frame, cancellationToken);
 
         public override ValueTask<RawFrame> ReceiveAsync(CancellationToken cancellationToken)
-            => ReadAsync<RawFrame>(_reader, Resp2ClientReader.Instance, cancellationToken);
-
-        private static ValueTask<T> ReadAsync<T>(ProtocolReader source, IMessageReader<T> parser, CancellationToken cancellationToken)
         {
-            var result = source.ReadAsync<T>(parser, cancellationToken);
+            var result = _reader.ReadAsync<RawFrame>(RespFormatter.Instance, cancellationToken);
             // avoid the async machinery if we already have the result on the pipe
-            return result.IsCompletedSuccessfully ? new ValueTask<T>(Validate(source, result.Result)) : Awaited(source, result);
+            return result.IsCompletedSuccessfully ? new ValueTask<RawFrame>(Validate(_reader, result.Result)) : Awaited(_reader, result);
 
-            static async ValueTask<T> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<T>> result)
+            static async ValueTask<RawFrame> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<RawFrame>> result)
                 => Validate(reader, await result.ConfigureAwait(false));
 
-            static T Validate(ProtocolReader reader, in ProtocolReadResult<T> result)
+            static RawFrame Validate(ProtocolReader reader, in ProtocolReadResult<RawFrame> result)
             {
                 reader.Advance();
                 if (result.IsCanceled) ThrowCanceled();
