@@ -17,7 +17,7 @@ namespace Resp
         public abstract ValueTask SendAsync(RawFrame frame, CancellationToken cancellationToken = default);
         public abstract ValueTask<RawFrame> ReceiveAsync(CancellationToken cancellationToken = default);
 
-        public TimeSpan PingRaw()
+        public TimeSpan Ping()
         {
             var before = DateTime.UtcNow;
             Send(RawFrame.Ping);
@@ -26,7 +26,7 @@ namespace Resp
             if (!pong.IsShortAlphaIgnoreCase(Pong)) Wat();
             return after - before;
         }
-        public async ValueTask<TimeSpan> PingRawAsync(CancellationToken cancellationToken = default)
+        public async ValueTask<TimeSpan> PingAsync(CancellationToken cancellationToken = default)
         {
             var before = DateTime.UtcNow;
             await SendAsync(RawFrame.Ping, cancellationToken).ConfigureAwait(false);

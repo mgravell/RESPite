@@ -1,6 +1,7 @@
 ﻿using Bedrock.Framework;
 using BedrockRespProtocol;
 using Microsoft.Extensions.DependencyInjection;
+using Pipelines.Sockets.Unofficial;
 using Resp;
 using StackExchange.Redis;
 using System;
@@ -16,15 +17,14 @@ namespace SimpleClient
     class Program
     {
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
-        static async Task Main2()
-        {
-            await ExecuteBedrockAsync(ServerEndpoint, 50000);
-            // await ExecuteStackExchangeRedis(endpoint, 1000);
-        }
-
         static async Task Main()
         {
-            await ExecuteSocketAsync(10000, 10);
+            // await ExecuteBedrockAsync(ServerEndpoint, 50000);
+            for (int i = 0; i < 3; i++)
+            {
+                await ExecuteSocketAsync(10000, 10);
+                await ExecuteStackExchangeRedis(10000, 10);
+            }
         }
 
         static RespConnection[] CreateClients(int count)
@@ -34,10 +34,11 @@ namespace SimpleClient
             for (int i = 0; i < clients.Length; i++)
             {
                 var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                SocketConnection.SetRecommendedClientOptions(socket);
                 socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
                 var connection = RespConnection.Create(socket);
-                connection.PingRaw();
-
+                connection.Ping();
+                
                 clients[i] = connection;
             }
 
@@ -49,23 +50,39 @@ namespace SimpleClient
         {
             for (int i = 0; i < pingsPerClient; i++)
             {
-                await client.PingRawAsync();
+                await client.PingAsync();
+            }
+        }
+        static async Task RunClientAsync(IServer client, int pingsPerClient)
+        {
+            for (int i = 0; i < pingsPerClient; i++)
+            {
+                await client.PingAsync();
             }
         }
         static void RunClient(RespConnection client, int pingsPerClient)
         {
             for (int i = 0; i < pingsPerClient; i++)
             {
-                client.PingRaw();
+                client.Ping();
+            }
+        }
+        static void RunClient(IServer client, int pingsPerClient)
+        {
+            for (int i = 0; i < pingsPerClient; i++)
+            {
+                client.Ping();
             }
         }
 
         static async ValueTask ExecuteSocketAsync(int pingsPerClient, int clientCount)
         {
-            var clients = CreateClients(clientCount);
             var totalPings = pingsPerClient * clientCount;
-
+            Console.WriteLine();
+            Console.WriteLine(Me());
             Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
+
+            var clients = CreateClients(clientCount);
 
             var tasks = new Task[clientCount];
             Stopwatch timer = Stopwatch.StartNew();
@@ -113,7 +130,7 @@ namespace SimpleClient
             timer = Stopwatch.StartNew();
             for (int i = 0; i < count; i++)
             {
-                await protocol.PingRawAsync();
+                await protocol.PingAsync();
                 //await protocol.SendAsync(RedisFrame.Ping);
 
                 //using var pong = await protocol.ReadAsync();
@@ -135,22 +152,43 @@ namespace SimpleClient
 
         }
 
-        static async Task ExecuteStackExchangeRedis(EndPoint endpoint, int count)
+        static async Task ExecuteStackExchangeRedis(int pingsPerWorker, int workers)
         {
+            int totalPings = pingsPerWorker * workers;
+            Console.WriteLine();
+            Console.WriteLine(Me());
+            Console.WriteLine($"{workers} clients, {pingsPerWorker} pings each, total {totalPings}");
+
             using var muxer = await ConnectionMultiplexer.ConnectAsync(new ConfigurationOptions
             {
-                EndPoints = { endpoint }
+                EndPoints = { ServerEndpoint }
             });
-            var server = muxer.GetServer(endpoint);
-            await server.PingAsync();
-
-            var timer = Stopwatch.StartNew();
-            for (int i = 0; i < count; i++)
+            var server = muxer.GetServer(ServerEndpoint);
+            
+            var tasks = new Task[workers];
+            Stopwatch timer = Stopwatch.StartNew();
+            for (int i = 0; i < tasks.Length; i++)
             {
-                await server.PingAsync();
+                tasks[i] = Task.Run(() => RunClientAsync(server, pingsPerWorker));
             }
+            await Task.WhenAll(tasks);
             timer.Stop();
-            Console.WriteLine($"{Me()}: time for {count} ops: {timer.ElapsedMilliseconds}ms");
+
+            Console.WriteLine($"async: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
+
+            var threads = new Thread[workers];
+            ThreadStart starter = () => RunClient(server, pingsPerWorker);
+            timer = Stopwatch.StartNew();
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i] = new Thread(starter);
+                threads[i].Start();
+            }
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i].Join();
+            }
+            Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
         }
 
         static string Me([CallerMemberName] string caller = null) => caller;

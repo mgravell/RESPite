@@ -30,7 +30,7 @@ public class RedisPingPong : IAsyncDisposable
     public Task SERedis() => _server.PingAsync();
 
     [Benchmark]
-    public Task Bedrock() => _protocol.PingRawAsync().AsTask();
+    public Task Bedrock() => _protocol.PingAsync().AsTask();
 
     public ValueTask DisposeAsync()
     {
