@@ -93,11 +93,9 @@ namespace Resp
             var bytes = MemoryMarshal.TryGetArray<byte>(memory, out var segment)
                 ? _stream.Read(segment.Array, segment.Offset, segment.Count)
                 : _stream.Read(memory.Span);
-            bool result = Complete(writer, bytes);
-            FlushSync(writer);
-            return result;
+            return Complete(writer, bytes);
         }
-        static bool Complete(PipeWriter writer, int bytes)
+        static bool Complete(IBufferWriter<byte> writer, int bytes)
         {
             if (bytes > 0)
             {
@@ -116,22 +114,13 @@ namespace Resp
                 ? new ValueTask<int>(_stream.ReadAsync(segment.Array, segment.Offset, segment.Count, cancellationToken))
                 : _stream.ReadAsync(memory, cancellationToken);
 
-            if (!pending.IsCompletedSuccessfully) return Awaited(writer, pending, cancellationToken);
+            if (!pending.IsCompletedSuccessfully) return Awaited(writer, pending);
 
-            bool result = Complete(writer, pending.Result);
-            var flush = writer.FlushAsync(cancellationToken);
-            if (!flush.IsCompletedSuccessfully) return AwaitedFlush(flush, result);
-            return new ValueTask<bool>(result);
+            return new ValueTask<bool>(Complete(writer, pending.Result));
 
-            static async ValueTask<bool> Awaited(PipeWriter writer, ValueTask<int> pending, CancellationToken cancellationToken)
+            static async ValueTask<bool> Awaited(IBufferWriter<byte> writer, ValueTask<int> pending)
             {
                 var result = Complete(writer, await pending.ConfigureAwait(false));
-                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
-                return result;
-            }
-            static async ValueTask<bool> AwaitedFlush(ValueTask<FlushResult> flush, bool result)
-            {
-                await flush.ConfigureAwait(false);
                 return result;
             }
         }
