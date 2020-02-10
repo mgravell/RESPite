@@ -20,5 +20,13 @@ namespace Resp.Internal
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void NotImplemented([CallerMemberName] string message = null)
             => throw new NotImplementedException(message);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void UnknownSequenceVariety()
+            => throw new NotSupportedException("The ReadOnlySequence variety was not understood");
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void FrameStorageKindNotImplemented(FrameStorageKind storage)
+            => throw new NotImplementedException($"Frame strorage kind not implemented: {storage}");
     }
 }

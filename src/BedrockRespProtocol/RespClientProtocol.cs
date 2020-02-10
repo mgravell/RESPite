@@ -34,14 +34,14 @@ namespace BedrockRespProtocol
         {
             var before = DateTime.UtcNow;
             await SendAsync(RawFrame.Ping, cancellationToken).ConfigureAwait(false);
-            using var pong = await ReadRawAsync(cancellationToken).ConfigureAwait(false);
+            var pong = await ReadRawAsync(cancellationToken).ConfigureAwait(false);
             var after = DateTime.UtcNow;
             if (!pong.IsShortAlphaIgnoreCase(Pong)) Wat();
             return after - before;
         }
         static void Wat() => throw new InvalidOperationException("something went terribly wrong");
 
-        private static ReadOnlySpan<byte> Pong => new byte[] { (byte)'p', (byte)'o', (byte)'n', (byte)'g' };
+        private static readonly ulong Pong = RawFrame.EncodeShortASCII("pong");
 
         public ValueTask SendAsync(RedisFrame frame, CancellationToken cancellationToken = default)
             => _writer.WriteAsync<RedisFrame>(Resp2ClientWriter.Instance, frame, cancellationToken);
