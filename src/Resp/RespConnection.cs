@@ -1,5 +1,4 @@
-﻿using Pipelines.Sockets.Unofficial;
-using System;
+﻿using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
@@ -8,10 +7,10 @@ using System.Threading.Tasks;
 
 namespace Resp
 {
-    public abstract class RespConnection
+    public abstract class RespConnection : IDisposable
     {
         public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
-        public static RespConnection Create(Socket socket) => new StreamRespConnection(new NetworkStream(socket, true));
+        public static RespConnection Create(Socket socket) => new SocketRespConnection(socket);
         public abstract void Send(in RawFrame frame);
         public abstract RawFrame Receive();
         public abstract ValueTask SendAsync(RawFrame frame, CancellationToken cancellationToken = default);
@@ -22,16 +21,14 @@ namespace Resp
         [MethodImpl(MethodImplOptions.NoInlining)]
         protected static void ThrowEndOfStream() => throw new EndOfStreamException();
         [MethodImpl(MethodImplOptions.NoInlining)]
-        protected static void ThrowAborted() => throw new ConnectionAbortedException();
+        protected static void ThrowAborted() => throw new InvalidOperationException("operation aborted");
 
-        //public async ValueTask<TimeSpan> PingAsync(CancellationToken cancellationToken = default)
-        //{
-        //    var before = DateTime.UtcNow;
-        //    await SendAsync(RedisFrame.Ping, cancellationToken).ConfigureAwait(false);
-        //    using var pong = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        //    var after = DateTime.UtcNow;
-        //    if (!(pong is RedisSimpleString rss && rss.Equals("PONG", StringComparison.OrdinalIgnoreCase))) Wat();
-        //    return after - before;
-        //}
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing) { }
     }
 }

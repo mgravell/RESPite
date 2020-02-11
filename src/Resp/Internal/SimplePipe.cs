@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace Resp.Internal
 {
-    internal sealed class SimplePipe : IBufferWriter<byte>
+    internal sealed class SimplePipe : IBufferWriter<byte>, IDisposable
     {
         public void Clear()
         {
@@ -13,6 +13,8 @@ namespace Resp.Internal
             _startIndex = _endIndex = _writeCapacity = 0;
             node?.RecycleBefore(null);
         }
+
+        public void Dispose() => Clear();
 
         private Segment _startSegment, _endSegment;
         private int _startIndex, _endIndex, _writeCapacity;

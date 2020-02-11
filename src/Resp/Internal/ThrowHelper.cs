@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 
 namespace Resp.Internal
@@ -28,5 +29,16 @@ namespace Resp.Internal
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void FrameStorageKindNotImplemented(FrameStorageKind storage)
             => throw new NotImplementedException($"Frame strorage kind not implemented: {storage}");
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Argument(string message, string paramName)
+            => throw new ArgumentException(message, paramName);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Argument(string paramName) => Argument("Invalid value", paramName);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Socket(SocketError socketError)
+            => throw new SocketException((int)socketError);
     }
 }

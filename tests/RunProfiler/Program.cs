@@ -5,6 +5,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.DependencyInjection;
+using Pipelines.Sockets.Unofficial;
 using Resp;
 using Resp.Redis;
 using StackExchange.Redis;
@@ -27,21 +28,25 @@ public class RedisPingPong : IAsyncDisposable
 {
     private ConnectionMultiplexer _muxer;
     private IServer _server;
-    private RespConnection _bedrock, _directSocket;
-    private Socket _socket;
+    private RespConnection _bedrock, _socket, _stream;
+
     private ConnectionContext _connection;
 
     [BenchmarkCategory("Async")]
-    [Benchmark(Baseline = true)]
+    [Benchmark(Baseline = true, Description = nameof(SERedis))]
     public Task SERedisAsync() => _server.PingAsync();
 
     [BenchmarkCategory("Async")]
-    [Benchmark]
+    [Benchmark(Description = nameof(Bedrock))]
     public Task BedrockAsync() => _bedrock.PingAsync().AsTask();
 
     [BenchmarkCategory("Async")]
-    [Benchmark]
-    public Task DirectSocketAsync() => _directSocket.PingAsync().AsTask();
+    [Benchmark(Description = nameof(Socket))]
+    public Task SocketAsync() => _socket.PingAsync().AsTask();
+
+    [BenchmarkCategory("Async")]
+    [Benchmark(Description = nameof(Stream))]
+    public Task StreamAsync() => _stream.PingAsync().AsTask();
 
     [BenchmarkCategory("Sync")]
     [Benchmark(Baseline = true)]
@@ -53,12 +58,17 @@ public class RedisPingPong : IAsyncDisposable
 
     [BenchmarkCategory("Sync")]
     [Benchmark]
-    public void DirectSocket() => _directSocket.Ping();
+    public void Socket() => _socket.Ping();
+
+    [BenchmarkCategory("Sync")]
+    [Benchmark]
+    public void Stream() => _stream.Ping();
 
 
     public ValueTask DisposeAsync()
     {
         _muxer?.Dispose();
+        _stream?.Dispose();
         _socket?.Dispose();
         return _connection == null ? default : _connection.DisposeAsync();
     }
@@ -83,9 +93,16 @@ public class RedisPingPong : IAsyncDisposable
         _bedrock = new RespBedrockProtocol(_connection);
         await BedrockAsync();
 
-        _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        _socket.Connect(endpoint);
-        _directSocket = RespConnection.Create(_socket);
-        await DirectSocketAsync();
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        SocketConnection.SetRecommendedClientOptions(socket);
+        socket.Connect(endpoint);
+        _socket = RespConnection.Create(socket);
+        await SocketAsync();
+
+        socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        SocketConnection.SetRecommendedClientOptions(socket);
+        socket.Connect(endpoint);
+        _stream = RespConnection.Create(new NetworkStream(socket));
+        await SocketAsync();
     }
 }
