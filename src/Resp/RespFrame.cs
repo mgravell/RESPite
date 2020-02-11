@@ -1,6 +1,7 @@
 ﻿using Resp.Internal;
 using System;
 using System.Buffers;
+using System.Buffers.Text;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -50,7 +51,7 @@ namespace Resp
         SequenceSegmentFrame, // overlapped = start index/end index, obj0 = start segment, obj1 = end segment
     }
 
-    public readonly struct RawFrame
+    public readonly struct RespFrame
     {
         private readonly ulong _overlapped64;
         private readonly FrameStorageKind _storage;
@@ -58,11 +59,28 @@ namespace Resp
         private readonly byte _aux;
         private readonly object _obj0, _obj1;
 
-        public static readonly RawFrame Ping = Command("PING");
+        public static readonly RespFrame Ping = Command("PING");
 
         private static Encoding ASCII => Encoding.ASCII;
+        private static Encoding UTF8 => Encoding.UTF8;
 
-        private RawFrame(ulong overlapped64, FrameStorageKind storage, FrameType type,
+        public override int GetHashCode() => throw new NotSupportedException();
+        public override bool Equals(object obj) => throw new NotSupportedException();
+
+        public override string ToString()
+        {
+            switch(_storage)
+            {
+                case FrameStorageKind.ArraySegmentByte:
+                    int start = Overlap(_overlapped64, out var length);
+                    return $"{_type}: {UTF8.GetString(new ReadOnlySpan<byte>((byte[])_obj0, start, length))}";
+                default:
+                    return $"{_type}: {_storage}";
+            }
+        }
+
+
+        private RespFrame(ulong overlapped64, FrameStorageKind storage, FrameType type,
             object obj0 = null, object obj1 = null, byte aux = 0, FrameType subType = FrameType.Unknown)
         {
             _overlapped64 = overlapped64;
@@ -78,6 +96,13 @@ namespace Resp
         private static ulong Overlap(int x, int y) => ((ulong)((uint)x) << 32) | (uint)y;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int Overlap(ulong value, out int y)
+        {
+            y = (int)(uint)value;
+            return (int)(uint)(value >> 32);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Span<byte> AsSpan(ref ulong value)
             => MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref value), sizeof(ulong));
 
@@ -88,47 +113,54 @@ namespace Resp
             return val;
         }
 
-        private static RawFrame Command(string command)
+        public static ulong EncodeShortUTF8(string value)
+        {
+            ulong val = 0;
+            UTF8.GetBytes(value.AsSpan(), AsSpan(ref val));
+            return val;
+        }
+
+        private static RespFrame Command(string command)
         {
             var len = ASCII.GetByteCount(command);
             if (len <= sizeof(ulong))
             {
                 ulong val = EncodeShortASCII(command);
-                return new RawFrame(val, FrameStorageKind.InlinedBytes, FrameType.Array, aux: (byte)len, subType: FrameType.BlobString);
+                return new RespFrame(val, FrameStorageKind.InlinedBytes, FrameType.Array, aux: (byte)len, subType: FrameType.BlobString);
             }
             else
             {
                 var arr = ASCII.GetBytes(command);
-                return new RawFrame(Overlap(0, len), FrameStorageKind.ArraySegmentByte, FrameType.Array, arr, subType: FrameType.BlobString);
+                return new RespFrame(Overlap(0, len), FrameStorageKind.ArraySegmentByte, FrameType.Array, arr, subType: FrameType.BlobString);
             }
         }
 
-        private static RawFrame Create(FrameType type, ReadOnlySequence<byte> payload)
+        private static RespFrame Create(FrameType type, ReadOnlySequence<byte> payload)
         {
             var len = payload.Length;
             if (len <= sizeof(ulong))
             {
                 ulong val = 0;
                 if (len != 0) payload.CopyTo(AsSpan(ref val));
-                return new RawFrame(val, FrameStorageKind.InlinedBytes, type, aux: (byte)len);
+                return new RespFrame(val, FrameStorageKind.InlinedBytes, type, aux: (byte)len);
             }
             else if (payload.IsSingleSegment)
             {
                 var memory = payload.First;
                 if (MemoryMarshal.TryGetArray(memory, out var segment))
                 {
-                    return new RawFrame(Overlap(segment.Offset, segment.Count), FrameStorageKind.ArraySegmentByte, type, segment.Array);
+                    return new RespFrame(Overlap(segment.Offset, segment.Count), FrameStorageKind.ArraySegmentByte, type, segment.Array);
                 }
                 else if (MemoryMarshal.TryGetMemoryManager(memory, out MemoryManager<byte> manager, out var start, out var length))
                 {
-                    return new RawFrame(Overlap(start, length), FrameStorageKind.MemoryManagerByte, type, manager);
+                    return new RespFrame(Overlap(start, length), FrameStorageKind.MemoryManagerByte, type, manager);
                 }
             }
             SequencePosition seqStart = payload.Start, seqEnd = payload.End;
             if (seqStart.GetObject() is ReadOnlySequenceSegment<byte> segStart
                 && seqEnd.GetObject() is ReadOnlySequenceSegment<byte> segEnd)
             {
-                return new RawFrame(Overlap(seqStart.GetInteger(), seqEnd.GetInteger()),
+                return new RespFrame(Overlap(seqStart.GetInteger(), seqEnd.GetInteger()),
                     FrameStorageKind.SequenceSegmentByte, type, segStart, segEnd);
             }
             ThrowHelper.UnknownSequenceVariety();
@@ -141,13 +173,19 @@ namespace Resp
             {
                 switch (_storage)
                 {
-                    case FrameStorageKind.ArraySegmentFrame:
-                    case FrameStorageKind.MemoryManagerFrame:
-                    case FrameStorageKind.SequenceSegmentFrame:
-                        ThrowHelper.FrameStorageKindNotImplemented(_storage);
-                        break;
                     case FrameStorageKind.InlinedBytes when IsBlob(_subType):
                         WriteUnitAggregateInlinedBlob(output);
+                        break;
+                    case FrameStorageKind.ArraySegmentFrame:
+                        int start = Overlap(_overlapped64, out var length);
+                        Write(output, _type, new ReadOnlySpan<RespFrame>((RespFrame[])_obj0, start, length));
+                        break;
+                    case FrameStorageKind.MemoryManagerFrame:
+                        start = Overlap(_overlapped64, out length);
+                        Write(output, _type, ((MemoryManager<RespFrame>)_obj0).Memory.Span.Slice(start, length));
+                        break;
+                    case FrameStorageKind.SequenceSegmentFrame:
+                        ThrowHelper.FrameStorageKindNotImplemented(_storage);
                         break;
                     default:
                         WriteUnitAggregate(output);
@@ -160,12 +198,30 @@ namespace Resp
             }
         }
 
+        private void Write(IBufferWriter<byte> output, FrameType type, ReadOnlySpan<RespFrame> frames)
+        {
+            // {type}{count}\r\n
+            // {payload0}\r\n
+            // {payload1}\r\n
+            // {payload...}\r\n
+
+            var span = output.GetSpan(16);
+            span[0] = GetPrefix(type);
+            int count = WriteRawUInt32(span.Slice(1), (uint)frames.Length) + 1;
+            span[count++] = (byte)'\r';
+            span[count++] = (byte)'\n';
+            output.Advance(count);
+
+            for (int i = 0; i < frames.Length; i++)
+                frames[i].Write(output);
+        }
+
         //[MethodImpl(MethodImplOptions.AggressiveInlining)]
         //private static bool EqualsShortAlphaIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> lowerCaseValue)
         //{
         //    return value.Length switch
         //    {
-        
+
         //        // to lower-casify; note that for non-alpha, this is an invalid thing, so
         //        // this should *only* be used when the comparison value is known to be alpha
 
@@ -221,19 +277,39 @@ namespace Resp
         {
             // {type}{length}\r\n
             // {payload}\r\n
+            // unless null, which is
+            // {type}-1\r\n
             switch (_storage)
             {
                 case FrameStorageKind.InlinedBytes:
                     // length is 1 byte, payload is max 8 bytes, so: max 14 bytes
                     var span = output.GetSpan(14);
-                    span[0] = GetPrefix(type);
-                    span[1] = _aux;
-                    span[2] = (byte)'\r';
-                    span[3] = (byte)'\n';
-                    var payload = _overlapped64;
-                    MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref payload), _aux).CopyTo(span.Slice(4));
-                    span[4 + _aux] = (byte)'\r';
-                    span[5 + _aux] = (byte)'\n';
+                    if (_aux == byte.MaxValue)
+                    {
+                        NullBlobTemplate.CopyTo(span);
+                        span[0] = GetPrefix(type);
+                        output.Advance(5);
+                    }
+                    else
+                    {
+                        span[0] = GetPrefix(type);
+                        span[1] = (byte)('0' + _aux);
+                        span[2] = (byte)'\r';
+                        span[3] = (byte)'\n';
+                        var payload = _overlapped64;
+                        MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref payload), _aux).CopyTo(span.Slice(4));
+                        span[4 + _aux] = (byte)'\r';
+                        span[5 + _aux] = (byte)'\n';
+                        output.Advance(6 + _aux);
+                    }
+                    break;
+                case FrameStorageKind.StringSegment:
+                    int start = Overlap(_overlapped64, out var length);
+                    Write(output, type, ((string)_obj0).AsSpan(start, length));
+                    break;
+                case FrameStorageKind.ArraySegmentChar:
+                    start = Overlap(_overlapped64, out length);
+                    Write(output, type, new ReadOnlySpan<char>((char[])_obj0, start, length));
                     break;
                 default:
                     ThrowHelper.FrameStorageKindNotImplemented(_storage);
@@ -241,13 +317,92 @@ namespace Resp
             }
         }
 
-        private static ReadOnlySpan<byte> UnitAggregateBlobStringPrfix =>
+        private static void Write(IBufferWriter<byte> output, FrameType type, ReadOnlySpan<char> payload)
+        {
+            // {type}{length}\r\n
+            // {payload}\r\n
+            var len = UTF8.GetByteCount(payload);
+            var span = output.GetSpan(16);
+            span[0] = GetPrefix(type);
+            int bytes = WriteRawUInt32(span.Slice(1), (uint)len) + 1;
+            span[bytes++] = (byte)'\r';
+            span[bytes++] = (byte)'\n';
+
+            if (span.Length >= len + bytes + 2)
+            {
+                // it fits, yay
+                bytes += UTF8.GetBytes(payload, span.Slice(bytes));
+                span[bytes++] = (byte)'\r';
+                span[bytes++] = (byte)'\n';
+                output.Advance(bytes);
+            }
+            else
+            {
+                // it doesn't fit; close the current span and do it
+                // more gradually
+                output.Advance(bytes);
+                WriteUtf8(output, payload);
+                output.Write(NewLine);
+            }
+        }
+
+        [ThreadStatic]
+        private static Encoder s_PerThreadEncoder;
+        internal static Encoder GetPerThreadEncoder()
+        {
+            var encoder = s_PerThreadEncoder;
+            if (encoder == null)
+            {
+                s_PerThreadEncoder = encoder = UTF8.GetEncoder();
+            }
+            else
+            {
+                encoder.Reset();
+            }
+            return encoder;
+        }
+
+        private static void WriteUtf8(IBufferWriter<byte> output, ReadOnlySpan<char> payload)
+        {
+            var encoder = GetPerThreadEncoder();
+            bool final = false;
+            while (true)
+            {
+                var span = output.GetSpan(5); // get *some* memory - at least enough for 1 character (but hopefully lots more)
+                encoder.Convert(payload, span, final, out var charsUsed, out var bytesUsed, out var completed);
+                output.Advance(bytesUsed);
+
+                payload = payload.Slice(charsUsed);
+
+                if (payload.IsEmpty)
+                {
+                    if (completed) break; // fine
+                    if (final) throw new InvalidOperationException("String encode failed to complete");
+                    final = true; // flush the encoder to one more span, then exit
+                }
+            }
+        }
+
+        private static int WriteRawUInt32(Span<byte> span, uint value)
+        {
+            if (!Utf8Formatter.TryFormat(value, span, out var bytes)) ThrowHelper.Format();
+            return bytes;
+        }
+
+        private static ReadOnlySpan<byte> UnitAggregateBlobTemplate =>
             new byte[] { (byte)'\0', (byte)'1', (byte)'\r', (byte)'\n', (byte)'\0', (byte)'\0', (byte)'\r', (byte)'\n' };
+
+        private static ReadOnlySpan<byte> UnitAggregateNullBlobTemplate =>
+            new byte[] { (byte)'\0', (byte)'1', (byte)'\r', (byte)'\n', (byte)'\0', (byte)'-', (byte)'1', (byte)'\r', (byte)'\n' };
+        private static ReadOnlySpan<byte> NullBlobTemplate =>
+            new byte[] { (byte)'\0', (byte)'-', (byte)'1', (byte)'\r', (byte)'\n' };
+        private static ReadOnlySpan<byte> NewLine =>
+            new byte[] { (byte)'\r', (byte)'\n' };
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static bool IsBlob(FrameType frameType)
         {
-            switch(frameType)
+            switch (frameType)
             {
                 case FrameType.BlobError:
                 case FrameType.BlobString:
@@ -261,7 +416,7 @@ namespace Resp
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static bool IsAggregate(FrameType frameType)
         {
-            switch(frameType)
+            switch (frameType)
             {
                 case FrameType.Array:
                 case FrameType.Attribute:
@@ -278,16 +433,29 @@ namespace Resp
             // {type}1\r\n
             // {sub type}{length}\r\n
             // {payload}\r\n
+            // except null, which is
+            // {type}1\r\n
+            // {sub type}-1\r\n
             var span = output.GetSpan(18);
-            UnitAggregateBlobStringPrfix.CopyTo(span);
-            span[0] = GetPrefix(_type);
-            span[4] = GetPrefix(_subType);
-            span[5] = (byte)(_aux + (byte)'0');
-            var payload = _overlapped64;
-            MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref payload), _aux).CopyTo(span.Slice(8));
-            span[8 + _aux] = (byte)'\r';
-            span[9 + _aux] = (byte)'\n';
-            output.Advance(10 + _aux);
+            if (_aux == byte.MaxValue) // null
+            {
+                UnitAggregateNullBlobTemplate.CopyTo(span);
+                span[0] = GetPrefix(_type);
+                span[4] = GetPrefix(_subType);
+                output.Advance(9);
+            }
+            else
+            {
+                UnitAggregateBlobTemplate.CopyTo(span);
+                span[0] = GetPrefix(_type);
+                span[4] = GetPrefix(_subType);
+                span[5] = (byte)(_aux + (byte)'0');
+                var payload = _overlapped64;
+                MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref payload), _aux).CopyTo(span.Slice(8));
+                span[8 + _aux] = (byte)'\r';
+                span[9 + _aux] = (byte)'\n';
+                output.Advance(10 + _aux);
+            }
         }
         private void WriteUnitAggregate(IBufferWriter<byte> output)
         {
@@ -353,7 +521,7 @@ namespace Resp
 
 
 
-        public static bool TryParse(ReadOnlySequence<byte> input, out RawFrame frame, out SequencePosition end)
+        public static bool TryParse(ReadOnlySequence<byte> input, out RespFrame frame, out SequencePosition end)
         {
             end = default;
             if (!input.IsEmpty)
@@ -361,6 +529,10 @@ namespace Resp
                 var frameType = ParseType(input.First.Span[0]);
                 switch (frameType)
                 {
+                    case FrameType.BlobError:
+                    case FrameType.BlobString:
+                    case FrameType.VerbatimString:
+                        return TryParseBlob(input, frameType, out frame, ref end);
                     case FrameType.Double:
                     case FrameType.Boolean:
                     case FrameType.Null:
@@ -378,15 +550,61 @@ namespace Resp
             return false;
         }
 
-        private static bool TryParseLineTerminated(in ReadOnlySequence<byte> input, FrameType frameType, out RawFrame message, ref SequencePosition end)
+        static bool TryReadToEndOfLine(ref SequenceReader<byte> reader, out ReadOnlySequence<byte> payload)
         {
-            var sequenceReader = new SequenceReader<byte>(input);
+            if (reader.TryReadTo(out payload, (byte)'\r'))
+            {
+                if (!reader.TryRead(out var n)) return false;
+                if (n == '\n') return true;
+                ThrowHelper.ExpectedNewLine();
+            }
+            return false;
+        }
 
-            if (sequenceReader.TryReadTo(out ReadOnlySequence<byte> payloadPlusPrefix, (byte)'\r')
-                && sequenceReader.TryRead(out var n) && n == '\n')
+        private static bool TryParseLineTerminated(in ReadOnlySequence<byte> input, FrameType frameType, out RespFrame message, ref SequencePosition end)
+        {
+            var reader = new SequenceReader<byte>(input);
+
+            if (TryReadToEndOfLine(ref reader, out var payloadPlusPrefix))
             {
                 message = Create(frameType, payloadPlusPrefix.Slice(1));
-                end = sequenceReader.Position;
+                end = reader.Position;
+                return true;
+            }
+            message = default;
+            return false;
+        }
+
+
+        private static bool TryParseBlob(in ReadOnlySequence<byte> input, FrameType frameType, out RespFrame message, ref SequencePosition end)
+        {
+            var reader = new SequenceReader<byte>(input);
+
+            if (TryReadToEndOfLine(ref reader, out var payloadPlusPrefix))
+            {
+                payloadPlusPrefix = payloadPlusPrefix.Slice(1); // strip the prefix
+                int length, bytes;
+                if (payloadPlusPrefix.IsSingleSegment)
+                {
+                    if (!Utf8Parser.TryParse(payloadPlusPrefix.First.Span, out length, out bytes)) ThrowHelper.Format();
+                }
+                else if (payloadPlusPrefix.Length <= 20)
+                {
+                    Span<byte> local = stackalloc byte[20];
+                    payloadPlusPrefix.CopyTo(local);
+                    if (!Utf8Parser.TryParse(local, out length, out bytes)) ThrowHelper.Format();
+                }
+                else
+                {
+                    ThrowHelper.Format();
+                    length = bytes = 0;
+                }
+                if (bytes != payloadPlusPrefix.Length) ThrowHelper.Format();
+                
+                var arr = new RespFrame[length];
+                for (int i = 0; i < arr.Length; i++)
+                    if (!TryParseBlob)
+                end = reader.Position;
                 return true;
             }
             message = default;
@@ -454,6 +672,23 @@ namespace Resp
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static FrameType ParseType(byte value) => (FrameType)value;
+
+        public static RespFrame Create(FrameType type, params RespFrame[] values)
+            => new RespFrame(Overlap(0, values.Length), FrameStorageKind.ArraySegmentFrame, type, values);
+
+        public static implicit operator RespFrame(string value) => Create(FrameType.BlobString, value);
+
+        public static RespFrame Create(FrameType type, string value)
+        {
+            if (value == null) return new RespFrame(0, FrameStorageKind.InlinedBytes, type, aux: byte.MaxValue);
+            int len;
+            if (value.Length <= sizeof(ulong) && (len = UTF8.GetByteCount(value)) <= sizeof(ulong))
+            {
+                return new RespFrame(EncodeShortUTF8(value), FrameStorageKind.InlinedBytes, type, aux: (byte)len);
+            }
+            return new RespFrame(Overlap(0, value.Length), FrameStorageKind.StringSegment, type, value);
+        }
+
 
         //private readonly ReadOnlySequence<byte> _value;
         //public ReadOnlySequence<byte> Value => _value;

@@ -21,31 +21,31 @@ namespace BedrockRespProtocol
             _writer = connection.CreateWriter();
         }
 
-        public override void Send(in RawFrame frame)
+        public override void Send(in RespFrame frame)
         {
             var vt = SendAsync(frame, default);
             if (!vt.IsCompletedSuccessfully) vt.AsTask().Wait();
         }
 
-        public override RawFrame Receive()
+        public override RespFrame Receive()
         {
             var vt = ReceiveAsync(default);
             return vt.IsCompletedSuccessfully ? vt.Result : vt.AsTask().Result;
         }
 
-        public override ValueTask SendAsync(RawFrame frame, CancellationToken cancellationToken)
-            => _writer.WriteAsync<RawFrame>(RespFormatter.Instance, frame, cancellationToken);
+        public override ValueTask SendAsync(RespFrame frame, CancellationToken cancellationToken)
+            => _writer.WriteAsync<RespFrame>(RespFormatter.Instance, frame, cancellationToken);
 
-        public override ValueTask<RawFrame> ReceiveAsync(CancellationToken cancellationToken)
+        public override ValueTask<RespFrame> ReceiveAsync(CancellationToken cancellationToken)
         {
-            var result = _reader.ReadAsync<RawFrame>(RespFormatter.Instance, cancellationToken);
+            var result = _reader.ReadAsync<RespFrame>(RespFormatter.Instance, cancellationToken);
             // avoid the async machinery if we already have the result on the pipe
-            return result.IsCompletedSuccessfully ? new ValueTask<RawFrame>(Validate(_reader, result.Result)) : Awaited(_reader, result);
+            return result.IsCompletedSuccessfully ? new ValueTask<RespFrame>(Validate(_reader, result.Result)) : Awaited(_reader, result);
 
-            static async ValueTask<RawFrame> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<RawFrame>> result)
+            static async ValueTask<RespFrame> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<RespFrame>> result)
                 => Validate(reader, await result.ConfigureAwait(false));
 
-            static RawFrame Validate(ProtocolReader reader, in ProtocolReadResult<RawFrame> result)
+            static RespFrame Validate(ProtocolReader reader, in ProtocolReadResult<RespFrame> result)
             {
                 reader.Advance();
                 if (result.IsCanceled) ThrowCanceled();

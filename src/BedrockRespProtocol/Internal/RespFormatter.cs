@@ -5,15 +5,15 @@ using System.Buffers;
 
 namespace BedrockRespProtocol.Internal
 {
-    internal sealed class RespFormatter : IMessageReader<RawFrame>, IMessageWriter<RawFrame>
+    internal sealed class RespFormatter : IMessageReader<RespFrame>, IMessageWriter<RespFrame>
     {
         internal static RespFormatter Instance { get; } = new RespFormatter();
         private RespFormatter() { }
 
        
-        bool IMessageReader<RawFrame>.TryParseMessage(in ReadOnlySequence<byte> input, ref SequencePosition consumed, ref SequencePosition examined, out RawFrame message)
+        bool IMessageReader<RespFrame>.TryParseMessage(in ReadOnlySequence<byte> input, ref SequencePosition consumed, ref SequencePosition examined, out RespFrame message)
         {
-            if (RawFrame.TryParse(input, out message, out var end))
+            if (RespFrame.TryParse(input, out message, out var end))
             {
                 examined = consumed = end;
                 return true;
@@ -22,7 +22,7 @@ namespace BedrockRespProtocol.Internal
             return false;
         }
 
-        void IMessageWriter<RawFrame>.WriteMessage(RawFrame message, IBufferWriter<byte> output)
+        void IMessageWriter<RespFrame>.WriteMessage(RespFrame message, IBufferWriter<byte> output)
             => message.Write(output);
     }
 }

@@ -40,5 +40,12 @@ namespace Resp.Internal
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void Socket(SocketError socketError)
             => throw new SocketException((int)socketError);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void ExpectedNewLine()
+            => throw new InvalidOperationException("Protocol parsing error; expected newline");
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Format() => throw new FormatException();
     }
 }

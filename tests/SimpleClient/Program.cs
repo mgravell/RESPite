@@ -39,7 +39,7 @@ namespace SimpleClient
                 SocketConnection.SetRecommendedClientOptions(socket);
                 socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
                 var connection = RespConnection.Create(socket);
-                connection.Ping();
+                // connection.Ping();
                 
                 clients[i] = connection;
             }
@@ -50,9 +50,13 @@ namespace SimpleClient
 
         static async Task RunClientAsync(RespConnection client, int pingsPerClient)
         {
+            var frame = RespFrame.Create(FrameType.Array, "ping", "abc");
             for (int i = 0; i < pingsPerClient; i++)
             {
-                await client.PingAsync();
+                await client.SendAsync(frame).ConfigureAwait(false);
+                var reply = await client.ReceiveAsync().ConfigureAwait(false);
+                Console.WriteLine(reply.ToString());
+                // await client.PingAsync();
             }
         }
         static async Task RunClientAsync(IServer client, int pingsPerClient)
@@ -85,7 +89,7 @@ namespace SimpleClient
             Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
 
             var clients = CreateClients(clientCount);
-
+            await RunClientAsync(clients[0], 1);
             var tasks = new Task[clientCount];
             Stopwatch timer = Stopwatch.StartNew();
             for (int i = 0; i < tasks.Length; i++)
