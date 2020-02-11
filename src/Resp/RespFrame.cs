@@ -69,11 +69,14 @@ namespace Resp
 
         public override string ToString()
         {
-            switch(_storage)
+            switch (_storage)
             {
                 case FrameStorageKind.ArraySegmentByte:
                     int start = Overlap(_overlapped64, out var length);
                     return $"{_type}: {UTF8.GetString(new ReadOnlySpan<byte>((byte[])_obj0, start, length))}";
+                case FrameStorageKind.InlinedBytes:
+                    var val = _overlapped64;
+                    return $"{_type}: {UTF8.GetString(AsSpan(ref val).Slice(0, _aux))}";
                 default:
                     return $"{_type}: {_storage}";
             }
@@ -117,6 +120,13 @@ namespace Resp
         {
             ulong val = 0;
             UTF8.GetBytes(value.AsSpan(), AsSpan(ref val));
+            return val;
+        }
+
+        public static ulong EncodeShortBytes(ref SequenceReader<byte> reader, int length)
+        {
+            ulong val = 0;
+            if (!reader.TryCopyTo(AsSpan(ref val).Slice(0, length))) ThrowHelper.Argument(nameof(length));
             return val;
         }
 
@@ -523,16 +533,28 @@ namespace Resp
 
         public static bool TryParse(ReadOnlySequence<byte> input, out RespFrame frame, out SequencePosition end)
         {
-            end = default;
-            if (!input.IsEmpty)
+            var reader = new SequenceReader<byte>(input);
+            if (TryParse(ref reader, out frame))
             {
-                var frameType = ParseType(input.First.Span[0]);
+                end = reader.Position;
+                return true;
+            }
+            end = default;
+            frame = default;
+            return false;
+        }
+
+        private static bool TryParse(ref SequenceReader<byte> input, out RespFrame frame)
+        {
+            if (input.TryRead(out var prefix))
+            {
+                var frameType = ParseType(prefix);
                 switch (frameType)
                 {
                     case FrameType.BlobError:
                     case FrameType.BlobString:
                     case FrameType.VerbatimString:
-                        return TryParseBlob(input, frameType, out frame, ref end);
+                        return TryParseBlob(ref input, frameType, out frame);
                     case FrameType.Double:
                     case FrameType.Boolean:
                     case FrameType.Null:
@@ -540,7 +562,7 @@ namespace Resp
                     case FrameType.SimpleError:
                     case FrameType.Number:
                     case FrameType.BigNumber:
-                        return TryParseLineTerminated(input, frameType, out frame, ref end);
+                        return TryParseLineTerminated(ref input, frameType, out frame);
                     default:
                         ThrowHelper.FrameTypeNotImplemented(frameType);
                         break;
@@ -556,19 +578,16 @@ namespace Resp
             {
                 if (!reader.TryRead(out var n)) return false;
                 if (n == '\n') return true;
-                ThrowHelper.ExpectedNewLine();
+                ThrowHelper.ExpectedNewLine(n);
             }
             return false;
         }
 
-        private static bool TryParseLineTerminated(in ReadOnlySequence<byte> input, FrameType frameType, out RespFrame message, ref SequencePosition end)
+        private static bool TryParseLineTerminated(ref SequenceReader<byte> input, FrameType frameType, out RespFrame message)
         {
-            var reader = new SequenceReader<byte>(input);
-
-            if (TryReadToEndOfLine(ref reader, out var payloadPlusPrefix))
+            if (TryReadToEndOfLine(ref input, out var payload))
             {
-                message = Create(frameType, payloadPlusPrefix.Slice(1));
-                end = reader.Position;
+                message = Create(frameType, payload);
                 return true;
             }
             message = default;
@@ -576,22 +595,19 @@ namespace Resp
         }
 
 
-        private static bool TryParseBlob(in ReadOnlySequence<byte> input, FrameType frameType, out RespFrame message, ref SequencePosition end)
+        private static bool TryParseBlob(ref SequenceReader<byte> input, FrameType frameType, out RespFrame message)
         {
-            var reader = new SequenceReader<byte>(input);
-
-            if (TryReadToEndOfLine(ref reader, out var payloadPlusPrefix))
+            if (TryReadToEndOfLine(ref input, out var payload))
             {
-                payloadPlusPrefix = payloadPlusPrefix.Slice(1); // strip the prefix
                 int length, bytes;
-                if (payloadPlusPrefix.IsSingleSegment)
+                if (payload.IsSingleSegment)
                 {
-                    if (!Utf8Parser.TryParse(payloadPlusPrefix.First.Span, out length, out bytes)) ThrowHelper.Format();
+                    if (!Utf8Parser.TryParse(payload.First.Span, out length, out bytes)) ThrowHelper.Format();
                 }
-                else if (payloadPlusPrefix.Length <= 20)
+                else if (payload.Length <= 20)
                 {
                     Span<byte> local = stackalloc byte[20];
-                    payloadPlusPrefix.CopyTo(local);
+                    payload.CopyTo(local);
                     if (!Utf8Parser.TryParse(local, out length, out bytes)) ThrowHelper.Format();
                 }
                 else
@@ -599,15 +615,40 @@ namespace Resp
                     ThrowHelper.Format();
                     length = bytes = 0;
                 }
-                if (bytes != payloadPlusPrefix.Length) ThrowHelper.Format();
-                
-                var arr = new RespFrame[length];
-                for (int i = 0; i < arr.Length; i++)
-                    if (!TryParseBlob)
-                end = reader.Position;
-                return true;
+                if (bytes != payload.Length) ThrowHelper.Format();
+
+                if (input.Remaining >= length + 2)
+                {
+                    if (length <= sizeof(ulong))
+                    {
+                        message = new RespFrame(EncodeShortBytes(ref input, length), FrameStorageKind.InlinedBytes, frameType, aux: (byte)length);
+                    }
+                    else
+                    {
+                        var arr = new byte[length];
+                        message = new RespFrame(Overlap(0, length), FrameStorageKind.ArraySegmentByte, frameType, arr);
+                        if (!input.TryCopyTo(arr)) return false;
+                    }
+
+                    input.Advance(length); // note we already checked length
+                    if (TryAssertCRLF(ref input)) return true;
+                }
             }
             message = default;
+            return false;
+        }
+
+        static bool TryAssertCRLF(ref SequenceReader<byte> input)
+        {
+            if (input.TryRead(out var b))
+            {
+                if (b != (byte)'\r') ThrowHelper.ExpectedNewLine(b);
+                if (input.TryRead(out b))
+                {
+                    if (b != (byte)'\n') ThrowHelper.ExpectedNewLine(b);
+                    return true;
+                }
+            }
             return false;
         }
 

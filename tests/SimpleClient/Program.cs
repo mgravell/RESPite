@@ -10,6 +10,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,9 +24,9 @@ namespace SimpleClient
             // await ExecuteBedrockAsync(ServerEndpoint, 50000);
             for (int i = 0; i < 3; i++)
             {
-                await ExecuteSocketAsync(10000, 10);
+                await ExecuteSocketAsync(10000, 10, "abc");
                 await ExecuteStackExchangeRedis(10000, 10);
-                await ExecuteBedrockAsync(10000, 10);
+                await ExecuteBedrockAsync(10000, 10, "abc");
             }
         }
 
@@ -48,14 +49,13 @@ namespace SimpleClient
 
         }
 
-        static async Task RunClientAsync(RespConnection client, int pingsPerClient)
+        static async Task RunClientAsync(RespConnection client, int pingsPerClient, string payload)
         {
-            var frame = RespFrame.Create(FrameType.Array, "ping", "abc");
+            var frame = RespFrame.Create(FrameType.Array, "ping", payload);
             for (int i = 0; i < pingsPerClient; i++)
             {
                 await client.SendAsync(frame).ConfigureAwait(false);
                 var reply = await client.ReceiveAsync().ConfigureAwait(false);
-                Console.WriteLine(reply.ToString());
                 // await client.PingAsync();
             }
         }
@@ -81,21 +81,22 @@ namespace SimpleClient
             }
         }
 
-        static async ValueTask ExecuteSocketAsync(int pingsPerClient, int clientCount)
+        static async ValueTask ExecuteSocketAsync(int pingsPerClient, int clientCount, string payload)
         {
             var totalPings = pingsPerClient * clientCount;
             Console.WriteLine();
             Console.WriteLine(Me());
             Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
+            Console.WriteLine($"payload: '{payload}', {Encoding.UTF8.GetByteCount(payload)} bytes");
 
             var clients = CreateClients(clientCount);
-            await RunClientAsync(clients[0], 1);
+            await RunClientAsync(clients[0], 1, payload);
             var tasks = new Task[clientCount];
             Stopwatch timer = Stopwatch.StartNew();
             for (int i = 0; i < tasks.Length; i++)
             {
                 var client = clients[i];
-                tasks[i] = Task.Run(() => RunClientAsync(client, pingsPerClient));
+                tasks[i] = Task.Run(() => RunClientAsync(client, pingsPerClient, payload));
             }
             await Task.WhenAll(tasks);
             timer.Stop();
@@ -117,12 +118,13 @@ namespace SimpleClient
             Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
         }
 
-        static async Task ExecuteBedrockAsync(int pingsPerClient, int clientCount)
+        static async Task ExecuteBedrockAsync(int pingsPerClient, int clientCount, string payload)
         {
             var totalPings = pingsPerClient * clientCount;
             Console.WriteLine();
             Console.WriteLine(Me());
             Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
+            Console.WriteLine($"payload: '{payload}', {Encoding.UTF8.GetByteCount(payload)} bytes");
             var clients = new RespBedrockProtocol[clientCount];
             for (int i = 0; i < clients.Length; i++)
             {
@@ -140,7 +142,7 @@ namespace SimpleClient
             for (int i = 0; i < tasks.Length; i++)
             {
                 var client = clients[i];
-                tasks[i] = Task.Run(() => RunClientAsync(client, pingsPerClient));
+                tasks[i] = Task.Run(() => RunClientAsync(client, pingsPerClient, payload));
             }
             await Task.WhenAll(tasks);
             timer.Stop();
