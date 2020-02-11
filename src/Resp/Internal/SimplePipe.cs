@@ -27,8 +27,10 @@ namespace Resp.Internal
 
             if (segment == _endSegment && index == _endIndex)
             {
-                // burn the world
-                Clear();
+                // keep the last page; burn anything else
+                _startSegment.RecycleBefore(segment);
+                _startSegment = _endSegment;
+                _startIndex = 0;
             }
             else
             {
