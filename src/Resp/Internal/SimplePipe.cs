@@ -30,7 +30,7 @@ namespace Resp.Internal
                 // keep the last page; burn anything else
                 _startSegment.RecycleBefore(segment);
                 _startSegment = _endSegment;
-                _startIndex = 0;
+                _startIndex = _endIndex = 0;
             }
             else
             {

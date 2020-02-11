@@ -5,6 +5,7 @@ using BenchmarkDotNet.Running;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.DependencyInjection;
 using Resp;
+using Resp.Redis;
 using StackExchange.Redis;
 using System;
 using System.Net;

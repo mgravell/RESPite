@@ -3,6 +3,7 @@ using BedrockRespProtocol;
 using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
 using Resp;
+using Resp.Redis;
 using StackExchange.Redis;
 using System;
 using System.Diagnostics;
@@ -24,6 +25,7 @@ namespace SimpleClient
             {
                 await ExecuteSocketAsync(10000, 10);
                 await ExecuteStackExchangeRedis(10000, 10);
+                await ExecuteBedrockAsync(10000, 10);
             }
         }
 
@@ -111,43 +113,49 @@ namespace SimpleClient
             Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
         }
 
-        static async Task ExecuteBedrockAsync(EndPoint endpoint, int count)
+        static async Task ExecuteBedrockAsync(int pingsPerClient, int clientCount)
         {
-            var serviceProvider = new ServiceCollection().BuildServiceProvider();
-            var client = new ClientBuilder(serviceProvider)
-                .UseSockets()
-                .Build();
-
-            await using var connection = await client.ConnectAsync(endpoint);
-
-            var protocol = new RespBedrockProtocol(connection);
-
-            //await protocol.SendAsync(RedisFrame.Ping);
-            //using (await protocol.ReadAsync()) { }
-
-            Stopwatch timer;
-
-            timer = Stopwatch.StartNew();
-            for (int i = 0; i < count; i++)
+            var totalPings = pingsPerClient * clientCount;
+            Console.WriteLine();
+            Console.WriteLine(Me());
+            Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
+            var clients = new RespBedrockProtocol[clientCount];
+            for (int i = 0; i < clients.Length; i++)
             {
-                await protocol.PingAsync();
-                //await protocol.SendAsync(RedisFrame.Ping);
+                var serviceProvider = new ServiceCollection().BuildServiceProvider();
+                var client = new ClientBuilder(serviceProvider)
+                    .UseSockets()
+                    .Build();
 
-                //using var pong = await protocol.ReadAsync();
+                var connection = await client.ConnectAsync(ServerEndpoint);
+
+                clients[i] = new RespBedrockProtocol(connection);
             }
+            var tasks = new Task[clientCount];
+            Stopwatch timer = Stopwatch.StartNew();
+            for (int i = 0; i < tasks.Length; i++)
+            {
+                var client = clients[i];
+                tasks[i] = Task.Run(() => RunClientAsync(client, pingsPerClient));
+            }
+            await Task.WhenAll(tasks);
             timer.Stop();
-            Console.WriteLine($"{Me()}: time for {count} ops (val-type): {timer.ElapsedMilliseconds}ms");
 
-            //timer = Stopwatch.StartNew();
-            //for (int i = 0; i < count; i++)
-            //{
-            //    await protocol.PingAsync();
-            //    //await protocol.SendAsync(RedisFrame.Ping);
+            Console.WriteLine($"async: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
 
-            //    //using var pong = await protocol.ReadAsync();
-            //}
-            //timer.Stop();
-            //Console.WriteLine($"{Me()}: time for {count} ops (ref-type): {timer.ElapsedMilliseconds}ms");
+            var threads = new Thread[clientCount];
+            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient);
+            timer = Stopwatch.StartNew();
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i] = new Thread(starter);
+                threads[i].Start(clients[i]);
+            }
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i].Join();
+            }
+            Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
 
 
         }

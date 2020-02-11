@@ -17,29 +17,6 @@ namespace Resp
         public abstract ValueTask SendAsync(RawFrame frame, CancellationToken cancellationToken = default);
         public abstract ValueTask<RawFrame> ReceiveAsync(CancellationToken cancellationToken = default);
 
-        public TimeSpan Ping()
-        {
-            var before = DateTime.UtcNow;
-            Send(RawFrame.Ping);
-            var pong = Receive();
-            var after = DateTime.UtcNow;
-            if (!pong.IsShortAlphaIgnoreCase(Pong)) Wat();
-            return after - before;
-        }
-        public async ValueTask<TimeSpan> PingAsync(CancellationToken cancellationToken = default)
-        {
-            var before = DateTime.UtcNow;
-            await SendAsync(RawFrame.Ping, cancellationToken).ConfigureAwait(false);
-            var pong = await ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            var after = DateTime.UtcNow;
-            if (!pong.IsShortAlphaIgnoreCase(Pong)) Wat();
-            return after - before;
-        }
-
-        static void Wat() => throw new InvalidOperationException("something went terribly wrong");
-
-        private static readonly ulong Pong = RawFrame.EncodeShortASCII("pong");
-
         [MethodImpl(MethodImplOptions.NoInlining)]
         protected static void ThrowCanceled() => throw new OperationCanceledException();
         [MethodImpl(MethodImplOptions.NoInlining)]
