@@ -82,6 +82,7 @@ public class RedisPingPong : IAsyncDisposable
             EndPoints = { endpoint }
         });
         _server = _muxer.GetServer(endpoint);
+        SERedis();
         await SERedisAsync();
 
         var serviceProvider = new ServiceCollection().BuildServiceProvider();
@@ -91,18 +92,21 @@ public class RedisPingPong : IAsyncDisposable
 
         _connection = await client.ConnectAsync(endpoint);
         _bedrock = new RespBedrockProtocol(_connection);
+        Bedrock();
         await BedrockAsync();
 
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         SocketConnection.SetRecommendedClientOptions(socket);
         socket.Connect(endpoint);
         _socket = RespConnection.Create(socket);
+        Socket();
         await SocketAsync();
 
         socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         SocketConnection.SetRecommendedClientOptions(socket);
         socket.Connect(endpoint);
         _stream = RespConnection.Create(new NetworkStream(socket));
-        await SocketAsync();
+        Stream();
+        await StreamAsync();
     }
 }
