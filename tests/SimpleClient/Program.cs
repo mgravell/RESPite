@@ -21,12 +21,13 @@ namespace SimpleClient
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
         static async Task Main()
         {
+            var payload = new string('a', 2048);
             // await ExecuteBedrockAsync(ServerEndpoint, 50000);
             for (int i = 0; i < 3; i++)
             {
-                await ExecuteSocketAsync(10000, 10, "abc");
-                await ExecuteStackExchangeRedis(10000, 10);
-                await ExecuteBedrockAsync(10000, 10, "abc");
+                await ExecuteSocketAsync(10000, 10, payload);
+                await ExecuteStackExchangeRedis(10000, 10, payload);
+                await ExecuteBedrockAsync(10000, 10, payload);
             }
         }
 
@@ -59,11 +60,12 @@ namespace SimpleClient
                 // await client.PingAsync();
             }
         }
-        static async Task RunClientAsync(IServer client, int pingsPerClient)
+        static async Task RunClientAsync(IServer client, int pingsPerClient, RedisValue payload)
         {
             for (int i = 0; i < pingsPerClient; i++)
             {
-                await client.PingAsync();
+                await client.EchoAsync(payload).ConfigureAwait(false);
+                // await client.PingAsync();
             }
         }
         static void RunClient(RespConnection client, int pingsPerClient)
@@ -87,7 +89,7 @@ namespace SimpleClient
             Console.WriteLine();
             Console.WriteLine(Me());
             Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
-            Console.WriteLine($"payload: '{payload}', {Encoding.UTF8.GetByteCount(payload)} bytes");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload)} bytes");
 
             var clients = CreateClients(clientCount);
             await RunClientAsync(clients[0], 1, payload);
@@ -124,7 +126,7 @@ namespace SimpleClient
             Console.WriteLine();
             Console.WriteLine(Me());
             Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
-            Console.WriteLine($"payload: '{payload}', {Encoding.UTF8.GetByteCount(payload)} bytes");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload)} bytes");
             var clients = new RespBedrockProtocol[clientCount];
             for (int i = 0; i < clients.Length; i++)
             {
@@ -166,12 +168,15 @@ namespace SimpleClient
 
         }
 
-        static async Task ExecuteStackExchangeRedis(int pingsPerWorker, int workers)
+        static async Task ExecuteStackExchangeRedis(int pingsPerWorker, int workers, string sPayload)
         {
             int totalPings = pingsPerWorker * workers;
             Console.WriteLine();
             Console.WriteLine(Me());
             Console.WriteLine($"{workers} clients, {pingsPerWorker} pings each, total {totalPings}");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(sPayload)} bytes");
+
+            RedisValue payload = sPayload;
 
             using var muxer = await ConnectionMultiplexer.ConnectAsync(new ConfigurationOptions
             {
@@ -183,7 +188,7 @@ namespace SimpleClient
             Stopwatch timer = Stopwatch.StartNew();
             for (int i = 0; i < tasks.Length; i++)
             {
-                tasks[i] = Task.Run(() => RunClientAsync(server, pingsPerWorker));
+                tasks[i] = Task.Run(() => RunClientAsync(server, pingsPerWorker, payload));
             }
             await Task.WhenAll(tasks);
             timer.Stop();
