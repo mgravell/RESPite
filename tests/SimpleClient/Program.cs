@@ -3,7 +3,6 @@ using BedrockRespProtocol;
 using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
 using Resp;
-using Resp.Redis;
 using StackExchange.Redis;
 using System;
 using System.Diagnostics;
@@ -21,17 +20,20 @@ namespace SimpleClient
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
         static async Task Main()
         {
+            const int CLIENTS = 10, PER_CLIENT = 1000;
+
             var payload = new string('a', 2048);
             // await ExecuteBedrockAsync(ServerEndpoint, 50000);
             for (int i = 0; i < 3; i++)
             {
-                await ExecuteSocketAsync(10000, 10, payload);
-                await ExecuteStackExchangeRedis(10000, 10, payload);
-                await ExecuteBedrockAsync(10000, 10, payload);
+                await ExecuteSocketAsync(PER_CLIENT, CLIENTS, payload);
+                await ExecuteNetworkStreamAsync(PER_CLIENT, CLIENTS, payload);
+                await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, payload);
+                await ExecuteBedrockAsync(PER_CLIENT, CLIENTS, payload);
             }
         }
 
-        static RespConnection[] CreateClients(int count)
+        static RespConnection[] CreateClients(int count, bool asNetworkStream)
         {
             var clients = new RespConnection[count];
 
@@ -40,7 +42,7 @@ namespace SimpleClient
                 var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 SocketConnection.SetRecommendedClientOptions(socket);
                 socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
-                var connection = RespConnection.Create(socket);
+                var connection = asNetworkStream ? RespConnection.Create(new NetworkStream(socket)) : RespConnection.Create(socket);
                 // connection.Ping();
                 
                 clients[i] = connection;
@@ -68,30 +70,44 @@ namespace SimpleClient
                 // await client.PingAsync();
             }
         }
-        static void RunClient(RespConnection client, int pingsPerClient)
+        static void RunClient(RespConnection client, int pingsPerClient, string payload)
         {
+            var frame = RespFrame.Create(FrameType.Array, "ping", payload);
             for (int i = 0; i < pingsPerClient; i++)
             {
-                client.Ping();
+                client.Send(frame);
+                var reply = client.Receive();
+                // client.Ping();
             }
         }
-        static void RunClient(IServer client, int pingsPerClient)
+        static void RunClient(IServer client, int pingsPerClient, RedisValue payload)
         {
             for (int i = 0; i < pingsPerClient; i++)
             {
-                client.Ping();
+                client.Echo(payload);
             }
+        }
+        static void Log(string label, TimeSpan elapsed, long count, string payload)
+        {
+            var MiB = (count * 2 * Encoding.UTF8.GetByteCount(payload)) / (double)(1024 * 1024);
+            Console.WriteLine($"{label}: {(int)elapsed.TotalMilliseconds}ms, {count / elapsed.TotalSeconds:###,##0} ops/s, {MiB / elapsed.TotalSeconds:###,##0.00} MiB/s");
         }
 
-        static async ValueTask ExecuteSocketAsync(int pingsPerClient, int clientCount, string payload)
+        static ValueTask ExecuteSocketAsync(int pingsPerClient, int clientCount, string payload)
+            => ExecuteDirectAsync(pingsPerClient, clientCount, payload, false);
+
+        static ValueTask ExecuteNetworkStreamAsync(int pingsPerClient, int clientCount, string payload)
+            => ExecuteDirectAsync(pingsPerClient, clientCount, payload, true);
+
+        static async ValueTask ExecuteDirectAsync(int pingsPerClient, int clientCount, string payload, bool asNetworkStream, [CallerMemberName]string caller = null)
         {
             var totalPings = pingsPerClient * clientCount;
             Console.WriteLine();
-            Console.WriteLine(Me());
+            Console.WriteLine(caller);
             Console.WriteLine($"{clientCount} clients, {pingsPerClient} pings each, total {totalPings}");
             Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload)} bytes");
 
-            var clients = CreateClients(clientCount);
+            var clients = CreateClients(clientCount, asNetworkStream);
             await RunClientAsync(clients[0], 1, payload);
             var tasks = new Task[clientCount];
             Stopwatch timer = Stopwatch.StartNew();
@@ -102,11 +118,10 @@ namespace SimpleClient
             }
             await Task.WhenAll(tasks);
             timer.Stop();
-
-            Console.WriteLine($"async: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
-
+            Log("async", timer.Elapsed, totalPings, payload);
+            
             var threads = new Thread[clientCount];
-            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient);
+            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, payload);
             timer = Stopwatch.StartNew();
             for (int i = 0; i < threads.Length; i++)
             {
@@ -117,7 +132,8 @@ namespace SimpleClient
             {
                 threads[i].Join();
             }
-            Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
+            timer.Stop();
+            Log("sync", timer.Elapsed, totalPings, payload);
         }
 
         static async Task ExecuteBedrockAsync(int pingsPerClient, int clientCount, string payload)
@@ -148,11 +164,10 @@ namespace SimpleClient
             }
             await Task.WhenAll(tasks);
             timer.Stop();
-
-            Console.WriteLine($"async: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
+            Log("async", timer.Elapsed, totalPings, payload);
 
             var threads = new Thread[clientCount];
-            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient);
+            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, payload);
             timer = Stopwatch.StartNew();
             for (int i = 0; i < threads.Length; i++)
             {
@@ -163,12 +178,11 @@ namespace SimpleClient
             {
                 threads[i].Join();
             }
-            Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
-
-
+            timer.Stop();
+            Log("sync", timer.Elapsed, totalPings, payload);
         }
 
-        static async Task ExecuteStackExchangeRedis(int pingsPerWorker, int workers, string sPayload)
+        static async Task ExecuteStackExchangeRedisAsync(int pingsPerWorker, int workers, string sPayload)
         {
             int totalPings = pingsPerWorker * workers;
             Console.WriteLine();
@@ -192,11 +206,10 @@ namespace SimpleClient
             }
             await Task.WhenAll(tasks);
             timer.Stop();
-
-            Console.WriteLine($"async: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
+            Log("async", timer.Elapsed, totalPings, payload);
 
             var threads = new Thread[workers];
-            ThreadStart starter = () => RunClient(server, pingsPerWorker);
+            ThreadStart starter = () => RunClient(server, pingsPerWorker, payload);
             timer = Stopwatch.StartNew();
             for (int i = 0; i < threads.Length; i++)
             {
@@ -207,7 +220,8 @@ namespace SimpleClient
             {
                 threads[i].Join();
             }
-            Console.WriteLine($" sync: {timer.ElapsedMilliseconds}ms, {totalPings / timer.Elapsed.TotalSeconds:###,##0} ops/s");
+            timer.Stop();
+            Log("sync", timer.Elapsed, totalPings, payload);
         }
 
         static string Me([CallerMemberName] string caller = null) => caller;
