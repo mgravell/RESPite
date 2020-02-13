@@ -71,7 +71,7 @@ namespace Resp.Internal
 
         private Memory<byte> AppendNewBuffer(int sizeHint)
         {
-            sizeHint = Math.Min(sizeHint, 1024); // request at least a decent sized buffer
+            sizeHint = Math.Max(sizeHint, 1024); // request at least a decent sized buffer
             var oldFinal = _endSegment;
             if (oldFinal != null)
             {

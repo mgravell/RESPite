@@ -18,7 +18,7 @@ namespace SimpleClient
     class Program
     {
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
-        static void Main()
+        static void Main2()
         {
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             SocketConnection.SetRecommendedClientOptions(socket);
@@ -36,12 +36,11 @@ namespace SimpleClient
             timer.Stop();
             Log("sync", timer.Elapsed, 1000, payload);
         }
-        static async Task Main2()
+        static async Task Main()
         {
             const int CLIENTS = 10, PER_CLIENT = 1000;
 
             var payload = new string('a', 2048);
-            // await ExecuteBedrockAsync(ServerEndpoint, 50000);
             for (int i = 0; i < 3; i++)
             {
                 await ExecuteSocketAsync(PER_CLIENT, CLIENTS, payload);
