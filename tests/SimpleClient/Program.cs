@@ -18,7 +18,25 @@ namespace SimpleClient
     class Program
     {
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
-        static async Task Main()
+        static void Main()
+        {
+            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            SocketConnection.SetRecommendedClientOptions(socket);
+            socket.Connect(ServerEndpoint);
+            using var client = RespConnection.Create(socket);
+            var payload = new string('a', 2048);
+            var frame = RespFrame.Create(FrameType.Array, "ping", payload);
+            var timer = Stopwatch.StartNew();
+            for (int i = 0; i < 1000; i++)
+            {
+                client.Send(frame);
+                var reply = client.Receive();
+                // client.Ping();
+            }
+            timer.Stop();
+            Log("sync", timer.Elapsed, 1000, payload);
+        }
+        static async Task Main2()
         {
             const int CLIENTS = 10, PER_CLIENT = 1000;
 
@@ -41,7 +59,7 @@ namespace SimpleClient
             {
                 var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 SocketConnection.SetRecommendedClientOptions(socket);
-                socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
+                socket.Connect(ServerEndpoint);
                 var connection = asNetworkStream ? RespConnection.Create(new NetworkStream(socket)) : RespConnection.Create(socket);
                 // connection.Ping();
                 
