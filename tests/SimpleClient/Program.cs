@@ -75,7 +75,7 @@ namespace SimpleClient
             for (int i = 0; i < pingsPerClient; i++)
             {
                 await client.SendAsync(frame).ConfigureAwait(false);
-                var reply = await client.ReceiveAsync().ConfigureAwait(false);
+                _ = await client.ReceiveAsync().ConfigureAwait(false);
                 // await client.PingAsync();
             }
         }
@@ -93,7 +93,7 @@ namespace SimpleClient
             for (int i = 0; i < pingsPerClient; i++)
             {
                 client.Send(frame);
-                var reply = client.Receive();
+                _ = client.Receive();
                 // client.Ping();
             }
         }

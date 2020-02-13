@@ -58,7 +58,7 @@ namespace Resp.Internal
         {
             if (_endSegment != null)
             {
-                sizeHint = Math.Max(1, Math.Min(sizeHint, 64 * 1024)); // apply a reasonable upper bound
+                sizeHint = Math.Max(1, Math.Min(sizeHint, _maxBlockSize)); // apply a reasonable upper bound
                 var capacity = _endSegment.Memory.Length - _endIndex;
                 if (capacity >= sizeHint)
                 {
@@ -69,9 +69,18 @@ namespace Resp.Internal
             return AppendNewBuffer(sizeHint);
         }
 
+        private readonly int _minBlockSize, _maxBlockSize;
+        public SimplePipe(int minBlockSize = 4 * 1024, int maxBlockSize = 64 * 1024)
+        {
+            if (minBlockSize <= 0) ThrowHelper.ArgumentOutOfRange(nameof(minBlockSize));
+            if (maxBlockSize < minBlockSize) ThrowHelper.ArgumentOutOfRange(nameof(maxBlockSize));
+            _minBlockSize = minBlockSize;
+            _maxBlockSize = maxBlockSize;
+        }
+
         private Memory<byte> AppendNewBuffer(int sizeHint)
         {
-            sizeHint = Math.Max(sizeHint, 1024); // request at least a decent sized buffer
+            sizeHint = Math.Max(sizeHint, _minBlockSize); // request at least a decent sized buffer
             var oldFinal = _endSegment;
             if (oldFinal != null)
             {
