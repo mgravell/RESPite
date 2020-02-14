@@ -105,6 +105,17 @@ namespace Resp
             return (int)(uint)(value >> 32);
         }
 
+        public static Lifetime<Memory<RespFrame>> Lease(int length)
+        {
+            if (length < 0) ThrowHelper.ArgumentOutOfRange(nameof(length));
+            if (length == 0) return default;
+            var arr = ArrayPool<RespFrame>.Shared.Rent(length);
+
+            var memory = new Memory<RespFrame>(arr, 0, length);
+            memory.Span.Clear();
+            return new Lifetime<Memory<RespFrame>>(memory, (_, state) => ArrayPool<RespFrame>.Shared.Return((RespFrame[])state), arr);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Span<byte> AsSpan(ref ulong value)
             => MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref value), sizeof(ulong));
