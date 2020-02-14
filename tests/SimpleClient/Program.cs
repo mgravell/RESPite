@@ -42,7 +42,7 @@ namespace SimpleClient
         {
             const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
 
-            var payload = new string('a', 2048);
+            var payload = ""; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
             {
                 await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
@@ -73,7 +73,9 @@ namespace SimpleClient
 
         static async Task RunClientAsync(RespConnection client, int pingsPerClient, int pipelineDepth, string payload)
         {
-            var frame = RespFrame.Create(FrameType.Array, "ping", payload);
+            var frame = string.IsNullOrEmpty(payload)
+                ? RespFrame.Ping
+                : RespFrame.Create(FrameType.Array, "ping", payload);
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)
@@ -120,7 +122,9 @@ namespace SimpleClient
 
         static void RunClient(RespConnection client, int pingsPerClient, int pipelineDepth, string payload)
         {
-            var frame = RespFrame.Create(FrameType.Array, "ping", payload);
+            var frame = string.IsNullOrEmpty(payload)
+                ? RespFrame.Ping
+                : RespFrame.Create(FrameType.Array, "ping", payload);
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)
@@ -275,7 +279,7 @@ namespace SimpleClient
             Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(sPayload)} bytes");
 
             RedisValue payload = sPayload;
-            object[] args = new object[] { payload };
+            object[] args = string.IsNullOrEmpty(sPayload) ? Array.Empty<object>() : new object[] { payload };
             using var muxer = await ConnectionMultiplexer.ConnectAsync(new ConfigurationOptions
             {
                 EndPoints = { ServerEndpoint }
