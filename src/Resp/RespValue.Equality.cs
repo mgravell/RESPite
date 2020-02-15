@@ -24,7 +24,6 @@ namespace Resp
         bool IEquatable<RespValue>.Equals(RespValue other) => Equals(in other);
         public bool Equals(in RespValue other)
         {
-            if (other._type != _type) return false;
             if (other._storage == _storage && IsInlined)
             {
                 return other._overlapped64 == _overlapped64
@@ -36,41 +35,111 @@ namespace Resp
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool CompareBytes(in RespValue other)
         {
+            if (TryGetBytes(out var xb) && other.TryGetBytes(out var yb))
+            {
+                return SequenceEqual(xb, yb);
+            }
+            if (TryGetChars(out var xc) && other.TryGetChars(out var yc))
+            {
+                return SequenceEqual(xc, yc);
+            }
+
             using var xLife = GetSequence();
             using var yLife = other.GetSequence();
+            return SequenceEqual(xLife.Value, yLife.Value);
+        }
 
-            var x = xLife.Value;
-            var y = yLife.Value;
-            if (x.IsSingleSegment && y.IsSingleSegment)
+        static bool SequenceEqual<T>(ReadOnlySequence<T> x, ReadOnlySequence<T> y) where T : IEquatable<T>
+        {
+            if (x.IsSingleSegment & y.IsSingleSegment) return x.FirstSpan.SequenceEqual(y.FirstSpan);
+
+            if (x.Length != x.Length) return false;
+            while (!x.IsEmpty)
             {
-                return x.First.Span.SequenceEqual(y.First.Span);
+                var xs = x.FirstSpan;
+                var ys = y.FirstSpan;
+                var min = Math.Min(xs.Length, ys.Length);
+                if (min == 0) ThrowHelper.NotImplemented();
+                if (!xs.Slice(0, min).SequenceEqual(ys.Slice(0, min))) return false;
+                x = x.Slice(min);
+                y = y.Slice(min);
             }
-            throw new NotImplementedException("multi segment equality");
+            return true;
         }
 
         public override int GetHashCode()
         {
-            using var lifetime = GetSequence();
-            lifetime.Value // HASH
+            throw new NotImplementedException();
+        }
+
+        private bool TryGetBytes(out ReadOnlySequence<byte> bytes)
+        { 
+            switch (_storage)
+            {
+                //case FrameStorageKind.Utf8StringSegment:
+                    // TODO
+                case FrameStorageKind.ArraySegmentByte:
+                    var x = Overlap(_overlapped64, out var y);
+                    bytes = new ReadOnlySequence<byte>((byte[])_obj0, x, y);
+                    return true;
+                case FrameStorageKind.MemoryManagerByte:
+                    x = Overlap(_overlapped64, out y);
+                    bytes = new ReadOnlySequence<byte>(((MemoryManager<byte>)_obj0).Memory.Slice(x, y));
+                    return true;
+                case FrameStorageKind.SequenceSegmentByte:
+                    x = Overlap(_overlapped64, out y);
+                    bytes = new ReadOnlySequence<byte>(
+                        (ReadOnlySequenceSegment<byte>)_obj0, x,
+                        (ReadOnlySequenceSegment<byte>)_obj1, y);
+                    return true;
+                default:
+                    bytes = default;
+                    return false;
+            }
+        }
+
+        private bool TryGetChars(out ReadOnlySequence<char> chars)
+        {
+            switch (_storage)
+            {
+                case FrameStorageKind.StringSegment:
+                    var x = Overlap(_overlapped64, out var y);
+                    chars = new ReadOnlySequence<char>(((string)_obj0).AsMemory(x, y));
+                    return true;
+                case FrameStorageKind.ArraySegmentChar:
+                    x = Overlap(_overlapped64, out y);
+                    chars = new ReadOnlySequence<char>((char[])_obj0, x, y);
+                    return true;
+                case FrameStorageKind.MemoryManagerChar:
+                    x = Overlap(_overlapped64, out y);
+                    chars = new ReadOnlySequence<char>(((MemoryManager<char>)_obj0).Memory.Slice(x, y));
+                    return true;
+                case FrameStorageKind.SequenceSegmentChar:
+                    x = Overlap(_overlapped64, out y);
+                    chars = new ReadOnlySequence<char>(
+                        (ReadOnlySequenceSegment<char>)_obj0, x,
+                        (ReadOnlySequenceSegment<char>)_obj1, y);
+                    return true;
+                default:
+                    chars = default;
+                    return false;
+            }
         }
 
         private Lifetime<ReadOnlySequence<byte>> GetSequence()
         {
             if (IsAggregate(Type)) ThrowInvalidForType();
+
+            if (TryGetBytes(out var bytes))
+            {
+                return bytes;
+            }
+            if (TryGetChars(out var chars))
+            {
+                return Encode(chars);
+            }
             switch (_storage)
             {
-                case FrameStorageKind.ArraySegmentByte:
-                    var barr = (byte[])_obj0;
-                    var start = Overlap(_overlapped64, out var length);
-                    return new ReadOnlySequence<byte>(barr, start, length);
-                case FrameStorageKind.StringSegment:
-                    var s = (string)_obj0;
-                    start = Overlap(_overlapped64, out length);
-                    return Encode(s.AsSpan(start, length));
-                case FrameStorageKind.ArraySegmentChar:
-                    var carr = (char[])_obj0;
-                    start = Overlap(_overlapped64, out length);
-                    return Encode(new ReadOnlySpan<char>(carr, start, length));
                 case FrameStorageKind.InlinedBytes:
                     var lifetime = Rent(sizeof(ulong), out var buffer);
                     var tmp = _overlapped64;
@@ -81,13 +150,19 @@ namespace Resp
                     return default;
             }
 
-            static Lifetime<ReadOnlySequence<byte>> Encode(ReadOnlySpan<char> chars)
+            static Lifetime<ReadOnlySequence<byte>> Encode(in ReadOnlySequence<char> chars)
             {
-                
                 if (chars.IsEmpty) return default;
-                var len = UTF8.GetByteCount(chars);
+                int len = 0;
+                foreach(var block in chars)
+                {
+                    len += UTF8.GetByteCount(block.Span);
+                }
                 var lifetime = Rent(len, out var buffer);
-                UTF8.GetBytes(chars, buffer);
+                foreach (var block in chars)
+                {
+                    buffer = buffer.Slice(UTF8.GetBytes(block.Span, buffer));
+                }   
                 return lifetime;
             }
         }

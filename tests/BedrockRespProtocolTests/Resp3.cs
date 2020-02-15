@@ -11,9 +11,8 @@ namespace BedrockRespProtocolTests
     {
         // https://github.com/antirez/RESP3/blob/master/spec.md
         [Theory]
-        [InlineData(@"*1
-$1
-A", RespType.SimpleString, "A")]
+        [InlineData(@"$1
+A", RespType.BlobString, "A")]
         public void SimpleExamples(string payload, RespType type, string value)
         {
             var parsed = Parse(payload);
@@ -25,7 +24,7 @@ A", RespType.SimpleString, "A")]
         {
             var input = NormalizeLineEndingsAndEncode(payload);
             Assert.True(RespValue.TryParse(input, out var value, out var end));
-            Assert.Equal(input.End, end);
+            Assert.True(input.Slice(end).IsEmpty);
             return value;
         }
 
