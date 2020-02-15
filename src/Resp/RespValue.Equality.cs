@@ -26,6 +26,7 @@ namespace Resp
         {
             if (other._storage == _storage && IsInlined)
             {
+                // TODO: what about +/-0 ?
                 return other._overlapped64 == _overlapped64
                     && other._aux == _aux;
             }
