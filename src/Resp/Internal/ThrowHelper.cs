@@ -15,7 +15,7 @@ namespace Resp.Internal
             => throw new ArgumentOutOfRangeException(paramName);
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void FrameTypeNotImplemented(FrameType type)
+        internal static void FrameTypeNotImplemented(RespType type)
             => throw new NotImplementedException($"Frame type not implemented: {type}");
 
         [MethodImpl(MethodImplOptions.NoInlining)]

@@ -10,8 +10,8 @@
     <PackageReference Include="System.Memory" Version="4.5.3" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Update="RedisFrame.*.cs">
-      <DependentUpon>RedisFrame.cs</DependentUpon>
+    <Compile Update="RespValue.*.cs">
+      <DependentUpon>RespValue.cs</DependentUpon>
     </Compile>
   </ItemGroup>
 

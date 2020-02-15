@@ -12,10 +12,10 @@ namespace Resp
     {
         public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
         public static RespConnection Create(Socket socket) => new SocketRespConnection(socket);
-        public abstract void Send(in RespFrame frame);
-        public abstract RespFrame Receive();
-        public abstract ValueTask SendAsync(RespFrame frame, CancellationToken cancellationToken = default);
-        public abstract ValueTask<RespFrame> ReceiveAsync(CancellationToken cancellationToken = default);
+        public abstract void Send(in RespValue frame);
+        public abstract RespValue Receive();
+        public abstract ValueTask SendAsync(RespValue frame, CancellationToken cancellationToken = default);
+        public abstract ValueTask<RespValue> ReceiveAsync(CancellationToken cancellationToken = default);
 
         //public async ValueTask<RespFrame> RequestAsync(RespFrame frame, CancellationToken cancellationToken = default)
         //{

@@ -27,7 +27,7 @@ namespace SimpleClient
             socket.Connect(ServerEndpoint);
             using var client = RespConnection.Create(socket);
             var payload = new string('a', 2048);
-            var frame = RespFrame.Create(FrameType.Array, "ping", payload);
+            var frame = RespValue.Create(RespType.Array, "ping", payload);
             var timer = Stopwatch.StartNew();
             for (int i = 0; i < 1000; i++)
             {
@@ -74,8 +74,8 @@ namespace SimpleClient
         static async Task RunClientAsync(RespConnection client, int pingsPerClient, int pipelineDepth, string payload)
         {
             var frame = string.IsNullOrEmpty(payload)
-                ? RespFrame.Ping
-                : RespFrame.Create(FrameType.Array, "ping", payload);
+                ? RespValue.Ping
+                : RespValue.Create(RespType.Array, "ping", payload);
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)
@@ -113,9 +113,9 @@ namespace SimpleClient
             }
         }
 
-        static Lifetime<Memory<RespFrame>> Replicate(in RespFrame frame, int count)
+        static Lifetime<Memory<RespValue>> Replicate(in RespValue frame, int count)
         {
-            var lease = RespFrame.Lease(count);
+            var lease = RespValue.Lease(count);
             lease.Value.Span.Fill(frame);
             return lease;
         }
@@ -123,8 +123,8 @@ namespace SimpleClient
         static void RunClient(RespConnection client, int pingsPerClient, int pipelineDepth, string payload)
         {
             var frame = string.IsNullOrEmpty(payload)
-                ? RespFrame.Ping
-                : RespFrame.Create(FrameType.Array, "ping", payload);
+                ? RespValue.Ping
+                : RespValue.Create(RespType.Array, "ping", payload);
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)
