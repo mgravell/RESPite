@@ -3,6 +3,7 @@ using System;
 using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -69,19 +70,34 @@ namespace Resp
 
         public override string ToString()
         {
+            if (TryGetChars(out var chars))
+            {
+                if (chars.IsSingleSegment)
+                {
+                    if (MemoryMarshal.TryGetString(chars.First, out var s,
+                        out var start, out var length))
+                    {
+                        return s.Substring(start, length);
+                    }
+                    return new string(chars.First.Span);
+                }
+            }
+            if (TryGetBytes(out var bytes))
+            {
+                if (bytes.IsSingleSegment)
+                    return UTF8.GetString(bytes.First.Span);
+            }
             switch (_storage)
             {
-                case FrameStorageKind.ArraySegmentByte:
-                    int start = Overlap(_overlapped64, out var length);
-                    return $"{_type}: {UTF8.GetString(new ReadOnlySpan<byte>((byte[])_obj0, start, length))}";
                 case FrameStorageKind.InlinedBytes:
                     var val = _overlapped64;
-                    return $"{_type}: {UTF8.GetString(AsSpan(ref val).Slice(0, _aux))}";
+                    return UTF8.GetString(AsSpan(ref val).Slice(0, _aux));
                 case FrameStorageKind.InlinedInt64:
                     var i64 = (long)_overlapped64;
-                    return $"{_type}: {i64}";
+                    return i64.ToString(CultureInfo.InvariantCulture);
                 default:
-                    return $"{_type}: {_storage}";
+                    ThrowHelper.FrameStorageKindNotImplemented(_storage);
+                    return default;
             }
         }
 

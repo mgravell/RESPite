@@ -13,11 +13,18 @@ namespace BedrockRespProtocolTests
         [Theory]
         [InlineData(@"$1
 A", RespType.BlobString, "A")]
+        [InlineData(@"$11
+hello world", RespType.BlobString, "hello world")]
+        [InlineData(@"$0
+
+", RespType.BlobString, "")]
+        [InlineData(@"+hello world", RespType.SimpleString, "hello world")]
+        [InlineData(@"-ERR this is the error description", RespType.SimpleError, "ERR this is the error description")]
         public void SimpleExamples(string payload, RespType expectedType, string expectedValue)
         {
             var parsed = Parse(payload);
             Assert.Equal(expectedType, parsed.Type);
-            Assert.Equal(expectedValue, parsed);
+            Assert.Equal(expectedValue, (string)parsed);
         }
 
         [Fact]

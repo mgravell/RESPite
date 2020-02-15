@@ -15,5 +15,8 @@
 
         public static implicit operator RespValue(int value) => Create(RespType.Number, (long)value);
         public static implicit operator RespValue(long value) => Create(RespType.Number, value);
+
+
+        public static explicit operator string(in RespValue value) => value.ToString();
     }
 }
