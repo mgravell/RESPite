@@ -1,7 +1,7 @@
 ﻿using Resp;
-using System;
 using System.Buffers;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Xunit;
 
@@ -13,11 +13,52 @@ namespace BedrockRespProtocolTests
         [Theory]
         [InlineData(@"$1
 A", RespType.BlobString, "A")]
-        public void SimpleExamples(string payload, RespType type, string value)
+        public void SimpleExamples(string payload, RespType expectedType, string expectedValue)
         {
             var parsed = Parse(payload);
-            Assert.Equal(type, parsed.Type);
-            Assert.Equal(parsed, value);
+            Assert.Equal(expectedType, parsed.Type);
+            Assert.Equal(expectedValue, parsed);
+        }
+
+        [Fact]
+        public void UnaryBlobVector()
+        {
+            var parsed = Parse(@"*1
+$1
+A");
+            Assert.Equal(RespType.Array, parsed.Type);
+
+            using var lifetime = parsed.GetSubItems();
+            var item = lifetime.Value.ToArray().Single(); // lazy but effective
+            Assert.Equal(RespType.BlobString, item.Type);
+            Assert.Equal("A", item);
+        }
+
+        [Fact]
+        public void NestedCompisiteVector()
+        {
+            var parsed = Parse(@"*2
+*2
+:1
+:2
+#t");
+            Assert.Equal(RespType.Array, parsed.Type);
+
+            using var lifetime = parsed.GetSubItems();
+            var items = lifetime.Value.ToArray(); // lazy but effective
+            Assert.Equal(2, items.Length);
+
+            Assert.Equal(RespType.Array, items[0].Type);
+            using var inner = items[0].GetSubItems();
+            var innerItems = inner.Value.ToArray();
+            Assert.Equal(2, innerItems.Length);
+            Assert.Equal(RespType.Number, innerItems[0].Type);
+            Assert.Equal(1, innerItems[0]);
+            Assert.Equal(RespType.Number, innerItems[1].Type);
+            Assert.Equal(2, innerItems[1]);
+
+            Assert.Equal(RespType.Boolean, items[1].Type);
+            Assert.Equal(true, items[1]);
         }
 
         static RespValue Parse(string payload)

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 
 namespace Resp
 {
@@ -27,5 +28,7 @@ namespace Resp
 
         public static implicit operator T(in Lifetime<T> value) => value.Value;
         public static implicit operator Lifetime<T>(T value) => new Lifetime<T>(value);
+
+        internal Lifetime<T> WithValue(T value) => new Lifetime<T>(value, _onDispose, _state);
     }
 }

@@ -77,6 +77,9 @@ namespace Resp
                 case FrameStorageKind.InlinedBytes:
                     var val = _overlapped64;
                     return $"{_type}: {UTF8.GetString(AsSpan(ref val).Slice(0, _aux))}";
+                case FrameStorageKind.InlinedInt64:
+                    var i64 = (long)_overlapped64;
+                    return $"{_type}: {i64}";
                 default:
                     return $"{_type}: {_storage}";
             }
@@ -576,6 +579,13 @@ namespace Resp
                     case RespType.Number:
                     case RespType.BigNumber:
                         return TryParseLineTerminated(ref input, frameType, out frame);
+                    case RespType.Array:
+                    case RespType.Set:
+                    case RespType.Push:
+                        return TryParseAggregate(ref input, frameType, out frame, 1);
+                    case RespType.Map:
+                    case RespType.Attribute:
+                        return TryParseAggregate(ref input, frameType, out frame, 2);
                     default:
                         ThrowHelper.FrameTypeNotImplemented(frameType);
                         break;
@@ -607,12 +617,50 @@ namespace Resp
             return false;
         }
 
+        private static bool TryParseAggregate(ref SequenceReader<byte> input, RespType frameType, out RespValue message, int multiplier)
+        {
+            if (TryReadLength(ref input, out var length))
+            {
+                if (length == 0)
+                {
+                    message = new RespValue(Overlap(0, 0), FrameStorageKind.ArraySegmentFrame, frameType, Array.Empty<RespValue>());
+                    return true;
+                }
+                length *= multiplier;
+                if (length == 1)
+                {
+                    if (TryParse(ref input, out var unary))
+                    {
+                        if (unary.IsInlined)
+                        {
+                            message = new RespValue(unary._overlapped64, unary._storage, frameType, aux: unary._aux,
+                                subType: unary._type);
+                        }
+                        else
+                        {
+                            message = new RespValue(Overlap(0, 1), FrameStorageKind.ArraySegmentFrame, frameType,
+                                new[] { unary });
+                        }
+                        return true;
+                    }
+                }
+                var arr = new RespValue[length];
+                message = new RespValue(Overlap(0, length), FrameStorageKind.ArraySegmentFrame, frameType, arr);
+                for (int i = 0; i < length; i++)
+                {
+                    if (!TryParse(ref input, out arr[i])) return false;
+                }
+                return true;
+            }
+            message = default;
+            return false;
+        }
 
-        private static bool TryParseBlob(ref SequenceReader<byte> input, RespType frameType, out RespValue message)
+        private static bool TryReadLength(ref SequenceReader<byte> input, out int length)
         {
             if (TryReadToEndOfLine(ref input, out var payload))
             {
-                int length, bytes;
+                int bytes;
                 if (payload.IsSingleSegment)
                 {
                     if (!Utf8Parser.TryParse(payload.First.Span, out length, out bytes)) ThrowHelper.Format();
@@ -629,7 +677,16 @@ namespace Resp
                     length = bytes = 0;
                 }
                 if (bytes != payload.Length) ThrowHelper.Format();
+                return true;
+            }
+            length = default;
+            return false;
+        }
 
+        private static bool TryParseBlob(ref SequenceReader<byte> input, RespType frameType, out RespValue message)
+        {
+            if (TryReadLength(ref input, out var length))
+            {
                 if (input.Remaining >= length + 2)
                 {
                     if (length <= sizeof(ulong))
@@ -730,8 +787,6 @@ namespace Resp
         public static RespValue Create(RespType type, params RespValue[] values)
             => new RespValue(Overlap(0, values.Length), FrameStorageKind.ArraySegmentFrame, type, values);
 
-        public static implicit operator RespValue(string value) => Create(RespType.BlobString, value);
-
         public static RespValue Create(RespType type, string value)
         {
             if (value == null) return new RespValue(0, FrameStorageKind.InlinedBytes, type, aux: byte.MaxValue);
@@ -741,6 +796,11 @@ namespace Resp
                 return new RespValue(EncodeShortUTF8(value), FrameStorageKind.InlinedBytes, type, aux: (byte)len);
             }
             return new RespValue(Overlap(0, value.Length), FrameStorageKind.StringSegment, type, value);
+        }
+
+        public static RespValue Create(RespType type, long value)
+        {
+            return new RespValue((ulong)value, FrameStorageKind.InlinedInt64, type);
         }
 
 

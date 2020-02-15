@@ -15,6 +15,9 @@ namespace Resp
             {
                 case RespValue rv: typed = rv; break;
                 case string s: typed = s; break;
+                case int i32: typed = i32; break;
+                case long i64: typed = i64; break;
+                case bool b: typed = b; break;
                 // others
                 default: return false;
             }
@@ -24,6 +27,7 @@ namespace Resp
         bool IEquatable<RespValue>.Equals(RespValue other) => Equals(in other);
         public bool Equals(in RespValue other)
         {
+            if (_type != other._type) return false;
             if (other._storage == _storage && IsInlined)
             {
                 // TODO: what about +/-0 ?
@@ -71,6 +75,36 @@ namespace Resp
         public override int GetHashCode()
         {
             throw new NotImplementedException();
+        }
+
+        public Lifetime<ReadOnlySequence<RespValue>> GetSubItems()
+        {
+            if (!IsAggregate(_type)) ThrowInvalidForType();
+            switch (_storage)
+            {
+                case FrameStorageKind.ArraySegmentFrame:
+                    var x = Overlap(_overlapped64, out var y);
+                    return new ReadOnlySequence<RespValue>((RespValue[])_obj0, x, y);
+                case FrameStorageKind.MemoryManagerFrame:
+                    x = Overlap(_overlapped64, out y);
+                    return new ReadOnlySequence<RespValue>(((MemoryManager<RespValue>)_obj0).Memory.Slice(x, y));
+                case FrameStorageKind.SequenceSegmentFrame:
+                    x = Overlap(_overlapped64, out y);
+                    return new ReadOnlySequence<RespValue>(
+                        (ReadOnlySequenceSegment<RespValue>)_obj0, x,
+                        (ReadOnlySequenceSegment<RespValue>)_obj1, y);
+                default:
+                    if (IsAggregate(_type) & IsInlined)
+                    {
+                        var arr = ArrayPool<RespValue>.Shared.Rent(1);
+                        arr[0] = new RespValue(_overlapped64, FrameStorageKind.InlinedBytes, _subType, aux: _aux);
+                        return new Lifetime<ReadOnlySequence<RespValue>>(
+                            new ReadOnlySequence<RespValue>(arr, 0, 1),
+                            (_, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state), arr);
+                    }
+                    ThrowHelper.FrameStorageKindNotImplemented(_storage);
+                    return default;
+            }
         }
 
         private bool TryGetBytes(out ReadOnlySequence<byte> bytes)
@@ -127,6 +161,8 @@ namespace Resp
             }
         }
 
+        private static readonly ReadOnlySequence<byte> s_MinusOne
+            = new ReadOnlySequence<byte>(new byte[] { (byte)'-', (byte)'1' });
         private Lifetime<ReadOnlySequence<byte>> GetSequence()
         {
             if (IsAggregate(Type)) ThrowInvalidForType();
@@ -142,10 +178,18 @@ namespace Resp
             switch (_storage)
             {
                 case FrameStorageKind.InlinedBytes:
-                    var lifetime = Rent(sizeof(ulong), out var buffer);
+                    if (_aux == byte.MaxValue) return s_MinusOne;
+
+                    var lifetime = Rent(_aux, out var buffer);
                     var tmp = _overlapped64;
-                    AsSpan(ref tmp).CopyTo(buffer);
+                    AsSpan(ref tmp).Slice(0, _aux).CopyTo(buffer);
                     return lifetime;
+                case FrameStorageKind.InlinedInt64:
+                    lifetime = Rent(sizeof(ulong), out buffer);
+                    var i64 = (long)_overlapped64;
+                    if (!Utf8Formatter.TryFormat(i64, buffer, out var len))
+                        ThrowHelper.Format();
+                    return lifetime.WithValue(lifetime.Value.Slice(0, len));
                 default:
                     ThrowHelper.FrameStorageKindNotImplemented(_storage);
                     return default;
