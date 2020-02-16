@@ -27,7 +27,7 @@ namespace SimpleClient
             socket.Connect(ServerEndpoint);
             using var client = RespConnection.Create(socket);
             var payload = new string('a', 2048);
-            var frame = RespValue.Create(RespType.Array, "ping", payload);
+            var frame = RespValue.CreateAggregate(RespType.Array, "ping", payload);
             var timer = Stopwatch.StartNew();
             for (int i = 0; i < 1000; i++)
             {
@@ -42,7 +42,7 @@ namespace SimpleClient
         {
             const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
 
-            var payload = ""; //  new string('a', 2048);
+            var payload = "abc"; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
             {
                 await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
@@ -75,7 +75,7 @@ namespace SimpleClient
         {
             var frame = string.IsNullOrEmpty(payload)
                 ? RespValue.Ping
-                : RespValue.Create(RespType.Array, "ping", payload);
+                : RespValue.CreateAggregate(RespType.Array, "ping", payload);
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)
@@ -124,7 +124,7 @@ namespace SimpleClient
         {
             var frame = string.IsNullOrEmpty(payload)
                 ? RespValue.Ping
-                : RespValue.Create(RespType.Array, "ping", payload);
+                : RespValue.CreateAggregate(RespType.Array, "ping", payload);
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)

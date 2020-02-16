@@ -21,9 +21,9 @@ namespace BedrockRespProtocol
             _writer = connection.CreateWriter();
         }
 
-        public override void Send(in RespValue frame)
+        public override void Send(in RespValue value)
         {
-            var vt = SendAsync(frame, default);
+            var vt = SendAsync(value, default);
             if (!vt.IsCompletedSuccessfully) vt.AsTask().Wait();
         }
 

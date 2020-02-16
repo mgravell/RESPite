@@ -44,9 +44,9 @@ namespace Resp
             }
         }
 
-        private bool TryReadFrame(out RespValue frame)
+        private bool TryRead(out RespValue value)
         {
-            if (RespValue.TryParse(_inBuffer.GetBuffer(), out frame, out var end))
+            if (RespValue.TryParse(_inBuffer.GetBuffer(), out value, out var end))
             {
                 _inBuffer.ConsumeTo(end);
                 return true;
@@ -54,9 +54,9 @@ namespace Resp
             return false;
         }
 
-        public sealed override void Send(in RespValue frame)
+        public sealed override void Send(in RespValue value)
         {
-            frame.Write(_outBuffer);
+            value.Write(_outBuffer);
             var buffer = _outBuffer.GetBuffer();
             if (!buffer.IsEmpty)
             {
@@ -64,9 +64,9 @@ namespace Resp
                 _outBuffer.ConsumeTo(buffer.End);
             }
         }
-        public sealed override ValueTask SendAsync(RespValue frame, CancellationToken cancellationToken = default)
+        public sealed override ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default)
         {
-            frame.Write(_outBuffer);
+            value.Write(_outBuffer);
             var buffer = _outBuffer.GetBuffer();
             if (!buffer.IsEmpty)
             {
@@ -129,24 +129,24 @@ namespace Resp
 
         public sealed override RespValue Receive()
         {
-            RespValue frame;
-            while (!TryReadFrame(out frame))
+            RespValue value;
+            while (!TryRead(out value))
             {
                 if (!ReadMore()) ThrowEndOfStream();
             }
-            return frame;
+            return value;
         }
 
         public sealed override ValueTask<RespValue> ReceiveAsync(CancellationToken cancellationToken = default)
         {
-            RespValue frame;
-            while (!TryReadFrame(out frame))
+            RespValue value;
+            while (!TryRead(out value))
             {
                 var read = ReadMoreAsync(cancellationToken);
                 if (!read.IsCompletedSuccessfully) return Awaited(this, read, cancellationToken);
                 if (!read.Result) ThrowEndOfStream();
             }
-            return new ValueTask<RespValue>(frame);
+            return new ValueTask<RespValue>(value);
 
             static async ValueTask<RespValue> Awaited(SimpleRespConnection obj, ValueTask<bool> pending, CancellationToken cancellationToken)
             {
@@ -154,7 +154,7 @@ namespace Resp
                 while (true)
                 {
                     if (!await pending.ConfigureAwait(false)) ThrowEndOfStream();
-                    if (obj.TryReadFrame(out var frame)) return frame;
+                    if (obj.TryRead(out var value)) return value;
                     pending = obj.ReadMoreAsync(cancellationToken);
                 }
             }

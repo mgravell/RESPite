@@ -12,22 +12,10 @@ namespace Resp
     {
         public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
         public static RespConnection Create(Socket socket) => new SocketRespConnection(socket);
-        public abstract void Send(in RespValue frame);
+        public abstract void Send(in RespValue value);
         public abstract RespValue Receive();
-        public abstract ValueTask SendAsync(RespValue frame, CancellationToken cancellationToken = default);
+        public abstract ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default);
         public abstract ValueTask<RespValue> ReceiveAsync(CancellationToken cancellationToken = default);
-
-        //public async ValueTask<RespFrame> RequestAsync(RespFrame frame, CancellationToken cancellationToken = default)
-        //{
-        //    await SendAsync(frame, cancellationToken).ConfigureAwait(false);
-        //    return await ReceiveAsync(cancellationToken).ConfigureAwait(false);
-        //}
-
-        //public RespFrame RequestAsync(RespFrame frame)
-        //{
-        //    Send(frame);
-        //    return Receive();
-        //}
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         protected static void ThrowCanceled() => throw new OperationCanceledException();

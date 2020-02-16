@@ -29,7 +29,7 @@ namespace Resp.Redis
 
         private static void Wat() => throw new InvalidOperationException("something went terribly wrong");
 
-        private static readonly ulong Pong = RespValue.EncodeShortASCII("pong");
+        private static readonly RespValue Pong = "pong";
 
         //TODO: add IEnumerable<T> variant
         public static Lifetime<ReadOnlyMemory<RespValue>> Batch(this RespConnection connection, ReadOnlyMemory<RespValue> values)
@@ -64,16 +64,19 @@ namespace Resp.Redis
 
             await connection.SendAsync(values.Span[0]).ConfigureAwait(false); // send the first immediately
             int len = values.Length;
-            if (len > 1) BeginSendInBackground(connection, values.Slice(1));
+            Task pending = null;
+            if (len > 1) pending = BeginSendInBackground(connection, values.Slice(1));
             var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
             for (int i = 0; i < len; i++)
             {
                 arr[i] = await connection.ReceiveAsync().ConfigureAwait(false);
             }
+            if (pending != null) await pending.ConfigureAwait(false);
+
             return new Lifetime<ReadOnlyMemory<RespValue>>(new ReadOnlyMemory<RespValue>(arr, 0, len),
                 (_, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state), arr);
 
-            static void BeginSendInBackground(RespConnection connection, ReadOnlyMemory<RespValue> values)
+            static Task BeginSendInBackground(RespConnection connection, ReadOnlyMemory<RespValue> values)
                 => Task.Run(async () =>
                 {
                     for (int i = 0; i < values.Length; i++)

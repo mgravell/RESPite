@@ -1,4 +1,5 @@
 ﻿using Resp;
+using System;
 using System.Buffers;
 using System.IO;
 using System.Linq;
@@ -22,42 +23,52 @@ hello world", RespType.BlobString, "hello world")]
         [InlineData(@"-ERR this is the error description", RespType.SimpleError, "ERR this is the error description")]
         public void SimpleExamples(string payload, RespType expectedType, string expectedValue)
         {
-            var parsed = Parse(payload);
+            var parsed = Parse(ref payload);
             Assert.Equal(expectedType, parsed.Type);
             Assert.Equal(expectedValue, (string)parsed);
+
+            AssertWrite(parsed, payload);
+        }
+
+        static void AssertWrite(in RespValue value, string expected)
+        {
+            var buffer = new ArrayBufferWriter<byte>();
+            value.Write(buffer);
+            Assert.Equal(expected, Encoding.UTF8.GetString(buffer.WrittenSpan));
         }
 
         [Fact]
         public void UnaryBlobVector()
         {
-            var parsed = Parse(@"*1
+            string payload = @"*1
 $1
-A");
+A";
+            var parsed = Parse(ref payload);
             Assert.Equal(RespType.Array, parsed.Type);
 
-            using var lifetime = parsed.GetSubItems();
-            var item = lifetime.Value.ToArray().Single(); // lazy but effective
+            Assert.True(parsed.IsUnitAggregate(out var item));
             Assert.Equal(RespType.BlobString, item.Type);
             Assert.Equal("A", item);
+
+            AssertWrite(parsed, payload);
         }
 
         [Fact]
         public void NestedCompisiteVector()
         {
-            var parsed = Parse(@"*2
+            string payload = @"*2
 *2
 :1
 :2
-#t");
+#t";
+            var parsed = Parse(ref payload);
             Assert.Equal(RespType.Array, parsed.Type);
 
-            using var lifetime = parsed.GetSubItems();
-            var items = lifetime.Value.ToArray(); // lazy but effective
+            var items = parsed.GetSubValues().ToArray(); // lazy but effective
             Assert.Equal(2, items.Length);
 
             Assert.Equal(RespType.Array, items[0].Type);
-            using var inner = items[0].GetSubItems();
-            var innerItems = inner.Value.ToArray();
+            var innerItems = items[0].GetSubValues().ToArray(); // lazy but effective
             Assert.Equal(2, innerItems.Length);
             Assert.Equal(RespType.Number, innerItems[0].Type);
             Assert.Equal(1, innerItems[0]);
@@ -66,21 +77,28 @@ A");
 
             Assert.Equal(RespType.Boolean, items[1].Type);
             Assert.Equal(true, items[1]);
+
+            AssertWrite(parsed, payload);
         }
 
-        static RespValue Parse(string payload)
+        static RespValue Parse(ref string payload)
         {
-            var input = NormalizeLineEndingsAndEncode(payload);
+            var input = NormalizeLineEndingsAndEncode(ref payload);
             Assert.True(RespValue.TryParse(input, out var value, out var end));
             Assert.True(input.Slice(end).IsEmpty);
             return value;
         }
 
-        static ReadOnlySequence<byte> NormalizeLineEndingsAndEncode(string value)
+        static ReadOnlySequence<byte> NormalizeLineEndingsAndEncode(ref string value)
         {
             // this is not very efficient; it does not need to be
 
-            if (string.IsNullOrEmpty(value)) return default;
+            if (string.IsNullOrEmpty(value))
+            {
+                value = "";
+                return default;
+            }
+
             // in case the source is not reliable re \r, \n, \r\n
             var sb = new StringBuilder(value.Length);
             var sr = new StringReader(value);
@@ -89,7 +107,8 @@ A");
             {
                 sb.Append(line).Append("\r\n");
             }
-            var arr = Encoding.UTF8.GetBytes(sb.ToString());
+            value = sb.ToString();
+            var arr = Encoding.UTF8.GetBytes(value);
             return new ReadOnlySequence<byte>(arr);
         }
     }

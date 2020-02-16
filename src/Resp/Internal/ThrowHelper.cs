@@ -15,8 +15,8 @@ namespace Resp.Internal
             => throw new ArgumentOutOfRangeException(paramName);
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void FrameTypeNotImplemented(RespType type)
-            => throw new NotImplementedException($"Frame type not implemented: {type}");
+        internal static void RespTypeNotImplemented(RespType type)
+            => throw new NotImplementedException($"RESP type not implemented: {type}");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void NotImplemented([CallerMemberName] string message = null)
@@ -27,8 +27,8 @@ namespace Resp.Internal
             => throw new NotSupportedException("The ReadOnlySequence variety was not understood");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void FrameStorageKindNotImplemented(FrameStorageKind storage)
-            => throw new NotImplementedException($"Frame strorage kind not implemented: {storage}");
+        internal static void StorageKindNotImplemented(StorageKind storage)
+            => throw new NotImplementedException($"Storage kind not implemented: {storage}");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void Argument(string message, string paramName)
@@ -47,5 +47,9 @@ namespace Resp.Internal
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void Format() => throw new FormatException();
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Invalid(string message)
+            => throw new InvalidOperationException(message);
     }
 }
