@@ -187,5 +187,26 @@ namespace Resp.Internal
                 ThrowHelper.Format();
             Commit(bytes);
         }
+
+        internal RespType Downgrade(RespType type)
+        {
+            switch(type)
+            {
+                case RespType.Boolean:
+                case RespType.Double:
+                case RespType.BigNumber:
+                    if (Version < RespVersion.RESP3) return RespType.SimpleString;
+                    break;
+                case RespType.VerbatimString:
+                    if (Version < RespVersion.RESP3) return RespType.BlobString;
+                    break;
+                case RespType.Push:
+                case RespType.Map:
+                case RespType.Set:
+                    if (Version < RespVersion.RESP3) return RespType.Array;
+                    break;
+            }
+            return type;
+        }
     }
 }

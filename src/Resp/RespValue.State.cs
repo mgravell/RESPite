@@ -41,6 +41,8 @@ namespace Resp
             public State(RespType type, StorageKind storage, int startOffset,
                 int endOffsetOrLength, RespType subType = RespType.Unknown) : this()
             {
+                if (type == RespType.Null & storage == StorageKind.Empty)
+                    storage = StorageKind.Null;
                 Storage = storage;
                 StartOffset = startOffset;
                 EndOffset = endOffsetOrLength;

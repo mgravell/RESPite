@@ -85,8 +85,10 @@ namespace Resp
                 if (bytes.IsSingleSegment)
                     return UTF8.GetString(bytes.First.Span);
             }
+            
             switch (_state.Storage)
             {
+                case StorageKind.Empty:
                 case StorageKind.Null:
                     return "";
                 case StorageKind.InlinedBytes:
@@ -218,13 +220,15 @@ namespace Resp
                     WriteUnitAggregateInlinedBlob(ref writer);
                     break;
                 default:
+                    var type = Type;
+                    if (writer.Version < RespVersion.RESP3) type = writer.Downgrade(type);
                     if (IsUnitAggregate(out var value))
                     {
-                        WriteUnitAggregate(ref writer, Type, in value);
+                        WriteUnitAggregate(ref writer, type, in value);
                     }
                     else
                     {
-                        WriteAggregate(ref writer, Type, GetSubValues());
+                        WriteAggregate(ref writer, type, GetSubValues());
                     }
                     break;
             }
@@ -393,6 +397,7 @@ namespace Resp
 
         private void WriteValue(ref RespWriter writer, RespType type)
         {
+            if (writer.Version < RespVersion.RESP3) type = writer.Downgrade(type);
             switch (type)
             {
                 case RespType.Null:
@@ -566,9 +571,9 @@ namespace Resp
             // {type}1\r\n
             // {sub type}{length}\r\n
             // {payload}\r\n
-            writer.Write(_state.Type);
+            writer.Write(writer.Downgrade(_state.Type));
             writer.Write(OneNewLine);
-            writer.Write(_state.SubType);
+            writer.Write(writer.Downgrade(_state.SubType));
             writer.Write(_state.PayloadLength);
             writer.WriteLine();
             writer.Write(_state.AsSpan());
@@ -593,20 +598,22 @@ namespace Resp
             new byte[] { (byte)'-', (byte)'1', (byte)'\r', (byte)'\n' };
         static void WriteNull(ref RespWriter writer, RespType type)
         {
-            switch (type)
+            if (writer.Version >= RespVersion.RESP3)
             {
-                case RespType.Null:
-                    // _\r\n
-                    writer.Write(Resp3Null);
-                    break;
-                default:
-                    // {type}-1\r\n
-                    // (then the payload)
-                    writer.Write(type);
-                    writer.Write(Resp2NullPayload);
-                    break;
+                // _\r\n is the only null in RESP3
+                writer.Write(Resp3Null);
             }
-
+            else
+            {
+                if (type == RespType.Null)
+                {   // this'll have to do
+                    type = RespType.BlobString;
+                }
+                // {type}-1\r\n
+                // (then the payload)
+                writer.Write(type);
+                writer.Write(Resp2NullPayload);
+            }
         }
 
         private static ReadOnlySpan<byte> OneNewLine =>
@@ -772,12 +779,8 @@ namespace Resp
                 switch (length)
                 {
                     case -1:
-                        if (TryAssertCRLF(ref input))
-                        {
-                            message = new RespValue(new State(type));
-                            return true;
-                        }
-                        break;
+                        message = new RespValue(new State(type));
+                        return true;
                     case 0:
                         if (TryAssertCRLF(ref input))
                         {
