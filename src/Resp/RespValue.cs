@@ -516,48 +516,76 @@ namespace Resp
                     span[offset++] = (byte)'\n';
                     output.Advance(offset);
                     break;
-                case StorageKind.StringSegment:
-                    Write(output, type, ((string)_obj0).AsSpan(
-                        _state.StartOffset, _state.Length));
-                    break;
-                case StorageKind.ArraySegmentChar:
-                    Write(output, type, new ReadOnlySpan<char>((char[])_obj0,
-                        _state.StartOffset, _state.Length));
-                    break;
                 default:
-                    ThrowHelper.StorageKindNotImplemented(_state.Storage);
+                    if (TryGetChars(out var chars))
+                    {
+                        WriteLengthPrefix(output, type, CountUtf8(chars));
+                        WriteUtf8(output, chars);
+                        output.Write(NewLine);
+                    }
+                    else if (TryGetBytes(out var bytes))
+                    {
+                        WriteLengthPrefix(output, type, bytes.Length);
+                        Write(output, bytes);
+                        output.Write(NewLine);
+                    }
+                    else
+                    {
+                        ThrowHelper.StorageKindNotImplemented(_state.Storage);
+                    }
                     break;
             }
-        }
 
-        private static void Write(IBufferWriter<byte> output, RespType type, ReadOnlySpan<char> payload)
-        {
-            // {type}{length}\r\n
-            // {payload}\r\n
-            var len = UTF8.GetByteCount(payload);
-            var span = output.GetSpan(16);
-            span[0] = GetPrefix(type);
-            if (!Utf8Formatter.TryFormat((uint)len, span.Slice(1), out var bytes))
-                ThrowHelper.Format();
-            bytes++; // for the prefix
-            span[bytes++] = (byte)'\r';
-            span[bytes++] = (byte)'\n';
-
-            if (span.Length >= len + bytes + 2)
+            static void WriteLengthPrefix(IBufferWriter<byte> output, RespType type, long length)
             {
-                // it fits, yay
-                bytes += UTF8.GetBytes(payload, span.Slice(bytes));
+                // {type}{length}\r\n
+                var span = output.GetSpan(24);
+                span[0] = GetPrefix(type);
+                if (!Utf8Formatter.TryFormat((ulong)length, span.Slice(1), out var bytes))
+                    ThrowHelper.Format();
+                bytes++; // for the prefix
                 span[bytes++] = (byte)'\r';
                 span[bytes++] = (byte)'\n';
                 output.Advance(bytes);
             }
+        }
+        long CountUtf8(in ReadOnlySequence<char> payload)
+        {
+            if (payload.IsSingleSegment)
+            {
+                return UTF8.GetByteCount(payload.FirstSpan);
+            }
             else
             {
-                // it doesn't fit; close the current span and do it
-                // more gradually
-                output.Advance(bytes);
-                WriteUtf8(output, payload);
-                output.Write(NewLine);
+                long count = 0;
+                foreach (var segment in payload)
+                    count += UTF8.GetByteCount(segment.Span);
+                return count;
+            }
+        }
+        private static void WriteUtf8(IBufferWriter<byte> output, in ReadOnlySequence<char> payload)
+        {
+            if (payload.IsSingleSegment)
+            {
+                WriteUtf8(output, payload.FirstSpan);
+            }
+            else
+            {
+                foreach (var segment in payload)
+                    WriteUtf8(output, segment.Span);
+            }
+        }
+
+        private static void Write(IBufferWriter<byte> output, in ReadOnlySequence<byte> payload)
+        {
+            if (payload.IsSingleSegment)
+            {
+                output.Write(payload.FirstSpan);
+            }
+            else
+            {
+                foreach (var segment in payload)
+                    output.Write(segment.Span);
             }
         }
 

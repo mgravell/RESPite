@@ -21,11 +21,23 @@ hello world", RespType.BlobString, "hello world")]
 ", RespType.BlobString, "")]
         [InlineData(@"+hello world", RespType.SimpleString, "hello world")]
         [InlineData(@"-ERR this is the error description", RespType.SimpleError, "ERR this is the error description")]
-        public void SimpleExamples(string payload, RespType expectedType, string expectedValue)
+        [InlineData(@":1234", RespType.Number, "1234")]
+        [InlineData(@"_", RespType.Null, "")]
+        [InlineData(@",1.23", RespType.Double, "1.23")]
+        [InlineData(@",+inf", RespType.Double, "+inf")]
+        [InlineData(@",-inf", RespType.Double, "-inf")]
+        [InlineData(@"#t", RespType.Boolean, "t")]
+        [InlineData(@"#f", RespType.Boolean, "f")]
+        [InlineData(@"!21
+SYNTAX invalid syntax", RespType.BlobError, "SYNTAX invalid syntax")]
+        [InlineData(@"=15
+txt:Some string", RespType.VerbatimString, "txt:Some string")]
+        [InlineData("(3492890328409238509324850943850943825024385", RespType.BigNumber, "3492890328409238509324850943850943825024385")]
+        public void SimpleExamples(string payload, RespType expectedType, string expectedText)
         {
             var parsed = Parse(ref payload);
             Assert.Equal(expectedType, parsed.Type);
-            Assert.Equal(expectedValue, (string)parsed);
+            Assert.Equal(expectedText, (string)parsed);
 
             AssertWrite(parsed, payload);
         }
