@@ -1,5 +1,4 @@
-﻿using Resp.Internal;
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -8,7 +7,7 @@ namespace Resp
     partial struct RespValue
     {
         [StructLayout(LayoutKind.Explicit, Pack = 0, Size = 16)]
-        readonly struct State : IEquatable<State>
+        private readonly struct State : IEquatable<State>
         {
             public override bool Equals(object obj) => obj is State typed && Equals(typed);
             public bool Equals(in State other)
@@ -41,8 +40,6 @@ namespace Resp
             public State(RespType type, StorageKind storage, int startOffset,
                 int endOffsetOrLength, RespType subType = RespType.Unknown) : this()
             {
-                if (type == RespType.Null & storage == StorageKind.Empty)
-                    storage = StorageKind.Null;
                 Storage = storage;
                 StartOffset = startOffset;
                 EndOffset = endOffsetOrLength;
@@ -82,17 +79,17 @@ namespace Resp
                 SubType = subType;
             }
 
-            internal Span<byte> AsWritableSpan()
-                => MemoryMarshal.CreateSpan(
-                    ref Unsafe.As<long, byte>(ref Unsafe.AsRef(in Int64)), PayloadLength);
+            internal Span<byte> AsWritableSpan() => MemoryMarshal.CreateSpan(
+                ref Unsafe.AsRef(in Byte), PayloadLength);
 
 
-            internal ReadOnlySpan<byte> AsSpan()
-                => MemoryMarshal.CreateReadOnlySpan(
-                    ref Unsafe.As<long, byte>(ref Unsafe.AsRef(in Int64)), PayloadLength);
+            internal ReadOnlySpan<byte> AsSpan() => MemoryMarshal.CreateReadOnlySpan(
+                ref Unsafe.AsRef(in Byte), PayloadLength);
 
             public const int InlineSize = 12;
 
+            [FieldOffset(0)]
+            public readonly byte Byte;
             [FieldOffset(0)]
             public readonly double Double;
             [FieldOffset(0)]

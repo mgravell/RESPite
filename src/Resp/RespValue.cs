@@ -151,7 +151,8 @@ namespace Resp
             var len = payload.Length;
             if (len == 0)
             {
-                return new RespValue(new State(type, StorageKind.Empty, 0, 0));
+                return new RespValue(new State(type,
+                    type == RespType.Null ? StorageKind.Null : StorageKind.Empty, 0, 0));
             }
             else if (len <= State.InlineSize)
             {
