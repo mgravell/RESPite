@@ -43,7 +43,9 @@ namespace Resp
             {
                 return false;
             }
-            return IsAggregate(Type) ? CompareAggregate(in other) : CompareBytes(in other);
+            return GetAggregateArity(Type) == 0
+                ? CompareBytes(in other)
+                : CompareAggregate(in other);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -162,7 +164,7 @@ namespace Resp
             = new ReadOnlySequence<byte>(new byte[] { (byte)'-', (byte)'1' });
         private Lifetime<ReadOnlySequence<byte>> GetSequence()
         {
-            if (IsAggregate(Type)) ThrowInvalidForType();
+            if (GetAggregateArity(Type) != 0) ThrowInvalidForType();
 
             if (TryGetBytes(out var bytes))
             {

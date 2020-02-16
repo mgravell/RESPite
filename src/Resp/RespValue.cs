@@ -187,7 +187,7 @@ namespace Resp
 
         public void Write(IBufferWriter<byte> output)
         {
-            if (IsAggregate(_state.Type))
+            if (GetAggregateArity(_state.Type) != 0)
             {
                 WriteAggregate(output);
             }
@@ -222,7 +222,7 @@ namespace Resp
                     break;
             }
 
-            
+
             //    case StorageKind.ArraySegmentRespValue:
             //        Write(output, _state.Type, new ReadOnlySpan<RespValue>((RespValue[])_obj0,
             //            _state.StartOffset, _state.Length));
@@ -271,9 +271,9 @@ namespace Resp
         }
         public bool IsUnitAggregate(out RespValue value)
         {
-            if (IsAggregate(_state.Type))
+            if (GetAggregateArity(_state.Type) == 1)
             {
-                switch(_state.Storage)
+                switch (_state.Storage)
                 {
                     case StorageKind.Empty:
                     case StorageKind.Null:
@@ -324,7 +324,8 @@ namespace Resp
 
             var span = output.GetSpan(24);
             span[0] = GetPrefix(aggregateType);
-            if (!Utf8Formatter.TryFormat((ulong)values.Length, span.Slice(1), out var count))
+            if (!Utf8Formatter.TryFormat((ulong)(values.Length / GetAggregateArity(aggregateType)),
+                span.Slice(1), out var count))
                 ThrowHelper.Format();
             count++; // for the prefix
             span[count++] = (byte)'\r';
@@ -452,7 +453,7 @@ namespace Resp
             }
             else
             {
-                switch(_state.Storage)
+                switch (_state.Storage)
                 {
                     case StorageKind.Null: // treat like empty in this case
                     case StorageKind.Empty:
@@ -659,18 +660,19 @@ namespace Resp
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static bool IsAggregate(RespType type)
+        static int GetAggregateArity(RespType type)
         {
             switch (type)
             {
-                case RespType.Array:
-                case RespType.Attribute:
                 case RespType.Map:
+                case RespType.Attribute:
+                    return 2;
+                case RespType.Array:
                 case RespType.Set:
                 case RespType.Push:
-                    return true;
+                    return 1;
                 default:
-                    return false;
+                    return 0;
             }
         }
         private void WriteUnitAggregateInlinedBlob(IBufferWriter<byte> output)
@@ -872,7 +874,8 @@ namespace Resp
                     ThrowHelper.Format();
                     length = bytes = 0;
                 }
-                if (bytes != payload.Length) ThrowHelper.Format();
+                if (bytes != payload.Length)
+                    ThrowHelper.Format();
                 return true;
             }
             length = default;
@@ -883,7 +886,7 @@ namespace Resp
         {
             if (TryReadLength(ref input, out var length))
             {
-                switch(length)
+                switch (length)
                 {
                     case -1:
                         if (TryAssertCRLF(ref input))
@@ -948,16 +951,24 @@ namespace Resp
 
         public static RespValue CreateAggregate(RespType type, params RespValue[] values)
         {
-            if (!IsAggregate(type)) ThrowHelper.Argument(nameof(type));
+            var arity = GetAggregateArity(type);
+            if (arity == 0) ThrowHelper.Argument(nameof(type));
             if (values == null) return new RespValue(new State(type));
+            if (values.Length == 0) return new RespValue(new State(type, StorageKind.Empty, 0, 0));
+
+            if ((values.Length % arity) != 0) ThrowHelper.Argument(nameof(values));
             return new RespValue(new State(type, StorageKind.ArraySegmentRespValue, 0, values.Length), values);
         }
 
         public static RespValue Create(RespType type, string value)
         {
-            if (IsAggregate(type)) ThrowHelper.Argument(nameof(type));
+            if (GetAggregateArity(type) != 0) ThrowHelper.Argument(nameof(type));
             if (value == null) return new RespValue(new State(type));
             int len;
+            if (value.Length == 0)
+            {
+                return new RespValue(new State(type, StorageKind.Empty, 0, 0));
+            }
             if (value.Length <= State.InlineSize && (len = UTF8.GetByteCount(value)) <= State.InlineSize)
             {
                 var state = new State((byte)len, type);
@@ -969,14 +980,16 @@ namespace Resp
 
         public static RespValue Create(RespType type, long value)
         {
-            if (IsAggregate(type)) ThrowHelper.Argument(nameof(type));
+            if (GetAggregateArity(type) != 0) ThrowHelper.Argument(nameof(type));
             return new RespValue(new State(type, value));
         }
 
         public static RespValue Create(RespType type, double value)
         {
-            if (IsAggregate(type)) ThrowHelper.Argument(nameof(type));
+            if (GetAggregateArity(type) != 0) ThrowHelper.Argument(nameof(type));
             return new RespValue(new State(type, value));
         }
+
+        public static RespValue Null { get; } = new RespValue(new State(RespType.Null));
     }
 }

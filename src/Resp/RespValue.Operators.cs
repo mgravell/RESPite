@@ -1,4 +1,7 @@
-﻿namespace Resp
+﻿using System.Buffers;
+using System.Numerics;
+
+namespace Resp
 {
     partial struct RespValue
     {
@@ -24,7 +27,6 @@
             if (double.IsNegativeInfinity(value)) return s_NegativeInfinity;
             return Create(RespType.Double, value);
         }
-
 
         public static explicit operator string(in RespValue value) => value.ToString();
     }

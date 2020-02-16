@@ -34,14 +34,8 @@ SYNTAX invalid syntax", RespType.BlobError, "SYNTAX invalid syntax")]
 txt:Some string", RespType.VerbatimString, "txt:Some string")]
         [InlineData("(3492890328409238509324850943850943825024385", RespType.BigNumber, "3492890328409238509324850943850943825024385")]
         public void SimpleExamples(string payload, RespType expectedType, string expectedText)
-        {
-            var parsed = Parse(ref payload);
-            Assert.Equal(expectedType, parsed.Type);
-            Assert.Equal(expectedText, (string)parsed);
-
-            AssertWrite(parsed, payload);
-        }
-
+            => Verify(payload, RespValue.Create(expectedType, expectedText));
+        
         static void AssertWrite(in RespValue value, string expected)
         {
             var buffer = new ArrayBufferWriter<byte>();
@@ -50,46 +44,76 @@ txt:Some string", RespType.VerbatimString, "txt:Some string")]
         }
 
         [Fact]
-        public void UnaryBlobVector()
-        {
-            string payload = @"*1
+        public void UnaryBlobVector() => Verify(@"*1
 $1
-A";
-            var parsed = Parse(ref payload);
-            Assert.Equal(RespType.Array, parsed.Type);
-
-            Assert.True(parsed.IsUnitAggregate(out var item));
-            Assert.Equal(RespType.BlobString, item.Type);
-            Assert.Equal("A", item);
-
-            AssertWrite(parsed, payload);
-        }
+A", RespValue.CreateAggregate(RespType.Array, RespValue.Create(RespType.BlobString, "A")));
 
         [Fact]
-        public void NestedCompisiteVector()
-        {
-            string payload = @"*2
+        public void NestedCompisiteVector() => Verify(@"*2
 *2
 :1
 :2
-#t";
+#t", RespValue.CreateAggregate(RespType.Array,
+        RespValue.CreateAggregate(RespType.Array,
+            RespValue.Create(RespType.Number, 1),
+            RespValue.Create(RespType.Number, 2))
+        , RespValue.True));
+
+        [Fact]
+        public void SimpleArray() => Verify(@"*3
+:1
+:2
+:3", RespValue.CreateAggregate(RespType.Array, 1, 2, 3));
+
+        [Fact]
+        public void ComplexNestedArray() => Verify(@"*2
+*3
+:1
+$5
+hello
+:2
+#f", RespValue.CreateAggregate(RespType.Array,
+    RespValue.CreateAggregate(RespType.Array, 1, "hello", 2),
+    RespValue.False));
+
+        [Fact]
+        public void BasicMap() => Verify(@"%2
++first
+:1
++second
+:2", RespValue.CreateAggregate(RespType.Map,
+      RespValue.Create(RespType.SimpleString, "first"),
+      1,
+      RespValue.Create(RespType.SimpleString, "second"),
+      2));
+
+        [Fact]
+        public void BasicSet() => Verify(@"~5
++orange
++apple
+#t
+:100
+:999", RespValue.CreateAggregate(RespType.Set,
+      RespValue.Create(RespType.SimpleString, "orange"),
+      RespValue.Create(RespType.SimpleString, "apple"),
+      true, 100, 999));
+
+        [Fact]
+        public void BasicPush() => Verify(@">4
++pubsub
++message
++somechannel
++this is the message", RespValue.CreateAggregate(RespType.Push,
+        RespValue.Create(RespType.SimpleString, "pubsub"),
+        RespValue.Create(RespType.SimpleString, "message"),
+        RespValue.Create(RespType.SimpleString, "somechannel"),
+        RespValue.Create(RespType.SimpleString, "this is the message")));
+
+        private static void Verify(string payload, RespValue expected)
+        {
             var parsed = Parse(ref payload);
-            Assert.Equal(RespType.Array, parsed.Type);
-
-            var items = parsed.GetSubValues().ToArray(); // lazy but effective
-            Assert.Equal(2, items.Length);
-
-            Assert.Equal(RespType.Array, items[0].Type);
-            var innerItems = items[0].GetSubValues().ToArray(); // lazy but effective
-            Assert.Equal(2, innerItems.Length);
-            Assert.Equal(RespType.Number, innerItems[0].Type);
-            Assert.Equal(1, innerItems[0]);
-            Assert.Equal(RespType.Number, innerItems[1].Type);
-            Assert.Equal(2, innerItems[1]);
-
-            Assert.Equal(RespType.Boolean, items[1].Type);
-            Assert.Equal(true, items[1]);
-
+            Assert.Equal(expected, parsed);
+            
             AssertWrite(parsed, payload);
         }
 
