@@ -54,9 +54,10 @@ namespace Resp
             return false;
         }
 
+        public RespVersion Version { get; set; } = RespVersion.RESP2;
         public sealed override void Send(in RespValue value)
         {
-            value.Write(_outBuffer);
+            value.Write(_outBuffer, Version);
             var buffer = _outBuffer.GetBuffer();
             if (!buffer.IsEmpty)
             {
@@ -66,7 +67,7 @@ namespace Resp
         }
         public sealed override ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default)
         {
-            value.Write(_outBuffer);
+            value.Write(_outBuffer, Version);
             var buffer = _outBuffer.GetBuffer();
             if (!buffer.IsEmpty)
             {

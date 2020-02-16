@@ -36,10 +36,10 @@ txt:Some string", RespType.VerbatimString, "txt:Some string")]
         public void SimpleExamples(string payload, RespType expectedType, string expectedText)
             => Verify(payload, RespValue.Create(expectedType, expectedText));
         
-        static void AssertWrite(in RespValue value, string expected)
+        static void AssertWrite(in RespValue value, string expected, RespVersion version = RespVersion.RESP3)
         {
             var buffer = new ArrayBufferWriter<byte>();
-            value.Write(buffer);
+            value.Write(buffer, version);
             Assert.Equal(expected, Encoding.UTF8.GetString(buffer.WrittenSpan));
         }
 

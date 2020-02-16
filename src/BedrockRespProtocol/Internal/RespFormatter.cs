@@ -9,7 +9,7 @@ namespace BedrockRespProtocol.Internal
     {
         internal static RespFormatter Instance { get; } = new RespFormatter();
         private RespFormatter() { }
-
+        public RespVersion Version { get; set; } = RespVersion.RESP2;
        
         bool IMessageReader<RespValue>.TryParseMessage(in ReadOnlySequence<byte> input, ref SequencePosition consumed, ref SequencePosition examined, out RespValue message)
         {
@@ -23,6 +23,6 @@ namespace BedrockRespProtocol.Internal
         }
 
         void IMessageWriter<RespValue>.WriteMessage(RespValue message, IBufferWriter<byte> output)
-            => message.Write(output);
+            => message.Write(output, Version);
     }
 }

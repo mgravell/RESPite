@@ -185,39 +185,46 @@ namespace Resp
             return default;
         }
 
-        public void Write(IBufferWriter<byte> output)
+        public void Write(IBufferWriter<byte> output, RespVersion version)
         {
-            if (GetAggregateArity(_state.Type) != 0)
+            var writer = new RespWriter(version, output);
+            Write(ref writer);
+            writer.Complete();
+        }
+        private void Write(ref RespWriter writer)
+        {
+            if (GetAggregateArity(Type) != 0)
             {
-                WriteAggregate(output);
+                WriteAggregate(ref writer);
             }
             else
             {
-                WriteValue(output, _state.Type);
+                WriteValue(ref writer, _state.Type);
             }
+            writer.Complete();
         }
 
-        private void WriteAggregate(IBufferWriter<byte> output)
+        private void WriteAggregate(ref RespWriter writer)
         {
             switch (_state.Storage)
             {
                 case StorageKind.Null:
-                    WriteNull(output, _state.Type);
+                    WriteNull(ref writer, _state.Type);
                     break;
                 case StorageKind.Empty:
-                    WriteEmpty(output, _state.Type);
+                    WriteEmpty(ref writer, _state.Type);
                     break;
                 case StorageKind.InlinedBytes when IsBlob(_state.SubType):
-                    WriteUnitAggregateInlinedBlob(output);
+                    WriteUnitAggregateInlinedBlob(ref writer);
                     break;
                 default:
                     if (IsUnitAggregate(out var value))
                     {
-                        WriteUnitAggregate(output, Type, in value);
+                        WriteUnitAggregate(ref writer, Type, in value);
                     }
                     else
                     {
-                        WriteAggregate(output, Type, GetSubValues());
+                        WriteAggregate(ref writer, Type, GetSubValues());
                     }
                     break;
             }
@@ -315,27 +322,26 @@ namespace Resp
             return false;
         }
 
-        private static void WriteAggregate(IBufferWriter<byte> output, RespType aggregateType, ReadOnlySequence<RespValue> values)
+        private static void WriteAggregate(ref RespWriter writer, RespType aggregateType, ReadOnlySequence<RespValue> values)
         {
             // {type}{count}\r\n
             // {payload0}\r\n
             // {payload1}\r\n
             // {payload...}\r\n
-
-            var span = output.GetSpan(24);
-            span[0] = GetPrefix(aggregateType);
-            if (!Utf8Formatter.TryFormat((ulong)(values.Length / GetAggregateArity(aggregateType)),
-                span.Slice(1), out var count))
-                ThrowHelper.Format();
-            count++; // for the prefix
-            span[count++] = (byte)'\r';
-            span[count++] = (byte)'\n';
-            output.Advance(count);
-            foreach (var segment in values)
+            writer.Write(aggregateType);
+            writer.Write((ulong)(values.Length / GetAggregateArity(aggregateType)));
+            writer.WriteLine();
+            if (values.IsSingleSegment)
             {
-                foreach (ref readonly RespValue value in segment.Span)
+                foreach (ref readonly RespValue value in values.FirstSpan)
+                    value.Write(ref writer);
+            }
+            else
+            {
+                foreach (var segment in values)
                 {
-                    value.Write(output);
+                    foreach (ref readonly RespValue value in segment.Span)
+                        value.Write(ref writer);
                 }
             }
         }
@@ -385,17 +391,17 @@ namespace Resp
                 & (x.HighInt32 | 0x20202020) == (y.HighInt32 | 0x20202020);
         }
 
-        private void WriteValue(IBufferWriter<byte> output, RespType type)
+        private void WriteValue(ref RespWriter writer, RespType type)
         {
             switch (type)
             {
                 case RespType.Null:
-                    WriteNull(output, type);
+                    WriteNull(ref writer, type);
                     break;
                 case RespType.BlobString:
                 case RespType.BlobError:
                 case RespType.VerbatimString:
-                    WriteBlob(output, type);
+                    WriteBlob(ref writer, type);
                     break;
                 case RespType.SimpleError:
                 case RespType.SimpleString:
@@ -403,7 +409,7 @@ namespace Resp
                 case RespType.BigNumber:
                 case RespType.Boolean:
                 case RespType.Double:
-                    WriteLineTerminated(output, type);
+                    WriteLineTerminated(ref writer, type);
                     break;
                 default:
                     ThrowHelper.RespTypeNotImplemented(type);
@@ -411,45 +417,31 @@ namespace Resp
             }
         }
 
-        private void WriteLineTerminated(IBufferWriter<byte> output, RespType type)
+        private void WriteLineTerminated(ref RespWriter writer, RespType type)
         {
             // {type}{payload}\r\n
             if (_state.IsInlined)
             {
-                Span<byte> span;
-                int len;
+                writer.Write(type);
                 switch (_state.Storage)
                 {
                     case StorageKind.InlinedBytes:
-                        len = _state.PayloadLength;
-                        span = output.GetSpan(len + 3);
-                        _state.AsSpan().CopyTo(span.Slice(1));
+                        writer.Write(_state.AsSpan());
                         break;
                     case StorageKind.InlinedDouble:
-                        span = output.GetSpan(70);
-                        if (!Utf8Formatter.TryFormat(_state.Double, span.Slice(1), out len))
-                            ThrowHelper.Format();
+                        writer.Write(_state.Double);
                         break;
                     case StorageKind.InlinedInt64:
-                        span = output.GetSpan(23);
-                        if (!Utf8Formatter.TryFormat(_state.Int64, span, out len))
-                            ThrowHelper.Format();
+                        writer.Write(_state.Int64);
                         break;
                     case StorageKind.InlinedUInt32:
-                        span = output.GetSpan(23);
-                        if (!Utf8Formatter.TryFormat(_state.UInt32, span, out len))
-                            ThrowHelper.Format();
+                        writer.Write(_state.UInt32);
                         break;
                     default:
                         ThrowHelper.StorageKindNotImplemented(_state.Storage);
-                        span = default;
-                        len = default;
                         break;
                 }
-                span[0] = GetPrefix(type);
-                span[len + 1] = (byte)'\r';
-                span[len + 2] = (byte)'\n';
-                output.Advance(len + 3);
+                writer.WriteLine();
             }
             else
             {
@@ -457,31 +449,28 @@ namespace Resp
                 {
                     case StorageKind.Null: // treat like empty in this case
                     case StorageKind.Empty:
-                        WriteEmpty(output, type);
+                        WriteEmpty(ref writer, type);
                         break;
                     default:
-                        output.GetSpan(1)[0] = GetPrefix(type);
-                        output.Advance(1);
+                        writer.Write(type);
                         if (TryGetBytes(out var bytes))
                         {
-                            foreach (var segment in bytes)
-                                output.Write(segment.Span);
+                            writer.Write(bytes);
                         }
                         else if (TryGetChars(out var chars))
                         {
-                            foreach (var segment in chars)
-                                WriteUtf8(output, segment.Span);
+                            writer.Write(chars);
                         }
                         else
                         {
                             ThrowHelper.StorageKindNotImplemented(_state.Storage);
                         }
-                        output.Write(NewLine);
+                        writer.WriteLine();
                         break;
                 }
             }
         }
-        private void WriteBlob(IBufferWriter<byte> output, RespType type)
+        private void WriteBlob(ref RespWriter writer, RespType type)
         {
             // {type}{length}\r\n
             // {payload}\r\n
@@ -490,64 +479,41 @@ namespace Resp
             switch (_state.Storage)
             {
                 case StorageKind.Null:
-                    WriteNull(output, type);
+                    WriteNull(ref writer, type);
                     break;
                 case StorageKind.Empty:
-                    WriteEmpty(output, type);
+                    WriteEmpty(ref writer, type);
                     break;
                 case StorageKind.InlinedBytes:
-                    var span = output.GetSpan(State.InlineSize + 7);
-                    int offset = 0;
-                    span[offset++] = GetPrefix(type);
-                    int len = _state.PayloadLength;
-                    if (len < 10)
-                    {
-                        span[offset++] = (byte)('0' + len);
-                    }
-                    else
-                    {
-                        span[offset++] = (byte)('1');
-                        span[offset++] = (byte)(('0' - 10) + len);
-                    }
-                    span[offset++] = (byte)'\r';
-                    span[offset++] = (byte)'\n';
-                    _state.AsSpan().CopyTo(span.Slice(offset));
-                    offset += len;
-                    span[offset++] = (byte)'\r';
-                    span[offset++] = (byte)'\n';
-                    output.Advance(offset);
+                    WriteLengthPrefix(ref writer, type, _state.PayloadLength);
+                    writer.Write(_state.AsSpan());
+                    writer.WriteLine();
                     break;
                 default:
                     if (TryGetChars(out var chars))
                     {
-                        WriteLengthPrefix(output, type, CountUtf8(chars));
-                        WriteUtf8(output, chars);
-                        output.Write(NewLine);
+                        WriteLengthPrefix(ref writer, type, (ulong)CountUtf8(chars));
+                        writer.Write(chars);
                     }
                     else if (TryGetBytes(out var bytes))
                     {
-                        WriteLengthPrefix(output, type, bytes.Length);
-                        Write(output, bytes);
-                        output.Write(NewLine);
+                        WriteLengthPrefix(ref writer, type, (ulong)bytes.Length);
+                        writer.Write(bytes);
                     }
                     else
                     {
                         ThrowHelper.StorageKindNotImplemented(_state.Storage);
                     }
+                    writer.WriteLine();
                     break;
             }
 
-            static void WriteLengthPrefix(IBufferWriter<byte> output, RespType type, long length)
+            static void WriteLengthPrefix(ref RespWriter writer, RespType type, ulong length)
             {
                 // {type}{length}\r\n
-                var span = output.GetSpan(24);
-                span[0] = GetPrefix(type);
-                if (!Utf8Formatter.TryFormat((ulong)length, span.Slice(1), out var bytes))
-                    ThrowHelper.Format();
-                bytes++; // for the prefix
-                span[bytes++] = (byte)'\r';
-                span[bytes++] = (byte)'\n';
-                output.Advance(bytes);
+                writer.Write(type);
+                writer.Write(length);
+                writer.WriteLine();
             }
         }
         long CountUtf8(in ReadOnlySequence<char> payload)
@@ -564,87 +530,7 @@ namespace Resp
                 return count;
             }
         }
-        private static void WriteUtf8(IBufferWriter<byte> output, in ReadOnlySequence<char> payload)
-        {
-            if (payload.IsSingleSegment)
-            {
-                WriteUtf8(output, payload.FirstSpan);
-            }
-            else
-            {
-                foreach (var segment in payload)
-                    WriteUtf8(output, segment.Span);
-            }
-        }
-
-        private static void Write(IBufferWriter<byte> output, in ReadOnlySequence<byte> payload)
-        {
-            if (payload.IsSingleSegment)
-            {
-                output.Write(payload.FirstSpan);
-            }
-            else
-            {
-                foreach (var segment in payload)
-                    output.Write(segment.Span);
-            }
-        }
-
-        [ThreadStatic]
-        private static Encoder s_PerThreadEncoder;
-        internal static Encoder GetPerThreadEncoder()
-        {
-            var encoder = s_PerThreadEncoder;
-            if (encoder == null)
-            {
-                s_PerThreadEncoder = encoder = UTF8.GetEncoder();
-            }
-            else
-            {
-                encoder.Reset();
-            }
-            return encoder;
-        }
-
-        private static void WriteUtf8(IBufferWriter<byte> output, ReadOnlySpan<char> payload)
-        {
-            var encoder = GetPerThreadEncoder();
-            bool final = false;
-            while (true)
-            {
-                var span = output.GetSpan(5); // get *some* memory - at least enough for 1 character (but hopefully lots more)
-                encoder.Convert(payload, span, final, out var charsUsed, out var bytesUsed, out var completed);
-                output.Advance(bytesUsed);
-
-                payload = payload.Slice(charsUsed);
-
-                if (payload.IsEmpty)
-                {
-                    if (completed) break; // fine
-                    if (final) throw new InvalidOperationException("String encode failed to complete");
-                    final = true; // flush the encoder to one more span, then exit
-                }
-            }
-        }
-
-        private static ReadOnlySpan<byte> UnitAggregateBlobTemplate =>
-            new byte[] { (byte)'\0', (byte)'1', (byte)'\r', (byte)'\n', (byte)'\0', (byte)'\0', (byte)'\r', (byte)'\n' };
-
-        private static ReadOnlySpan<byte> UnitAggregateNullBlobTemplate =>
-            new byte[] { (byte)'\0', (byte)'1', (byte)'\r', (byte)'\n', (byte)'\0', (byte)'-', (byte)'1', (byte)'\r', (byte)'\n' };
-        private static ReadOnlySpan<byte> Resp3Null =>
-            new byte[] { (byte)'_', (byte)'\r', (byte)'\n' };
-        private static ReadOnlySpan<byte> Resp2NullTemplate =>
-            new byte[] { (byte)'\0', (byte)'-', (byte)'1', (byte)'\r', (byte)'\n' };
-        private static ReadOnlySpan<byte> NewLine =>
-            new byte[] { (byte)'\r', (byte)'\n' };
-
-        private static ReadOnlySpan<byte> EmptyBlobTemplate =>
-            new byte[] { (byte)'\0', (byte)'0', (byte)'\r', (byte)'\n', (byte)'\r', (byte)'\n' };
-
-        private static ReadOnlySpan<byte> EmptySimpleTemplate =>
-            new byte[] { (byte)'\0', (byte)'\r', (byte)'\n' };
-
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static bool IsBlob(RespType type)
         {
@@ -675,67 +561,64 @@ namespace Resp
                     return 0;
             }
         }
-        private void WriteUnitAggregateInlinedBlob(IBufferWriter<byte> output)
+        private void WriteUnitAggregateInlinedBlob(ref RespWriter writer)
         {
             // {type}1\r\n
             // {sub type}{length}\r\n
             // {payload}\r\n
-            // except null, which is
-            // {type}1\r\n
-            // {sub type}-1\r\n
-            var span = output.GetSpan(10 + State.InlineSize);
-            UnitAggregateBlobTemplate.CopyTo(span);
-            span[0] = GetPrefix(_state.Type);
-            span[4] = GetPrefix(_state.SubType);
-            int len = _state.PayloadLength;
-            span[5] = (byte)(len + (byte)'0');
-            _state.AsSpan().CopyTo(span.Slice(8));
-            span[8 + len] = (byte)'\r';
-            span[9 + len] = (byte)'\n';
-            output.Advance(10 + len);
+            writer.Write(_state.Type);
+            writer.Write(OneNewLine);
+            writer.Write(_state.SubType);
+            writer.Write(_state.PayloadLength);
+            writer.WriteLine();
+            writer.Write(_state.AsSpan());
+            writer.WriteLine();
         }
 
-        static void WriteEmpty(IBufferWriter<byte> output, RespType type)
+        static void WriteEmpty(ref RespWriter writer, RespType type)
         {
             // {type}0\r\n\r\n
             // or
             // {type}\r\n
-            var source = IsBlob(type) ? EmptyBlobTemplate : EmptySimpleTemplate;
-            var span = output.GetSpan(source.Length);
-            source.CopyTo(span);
-            span[0] = GetPrefix(type);
-            output.Advance(source.Length);
+            writer.Write(type);
+            if (IsBlob(type)) writer.Write(ZeroNewLine);
+            writer.WriteLine();
         }
-        static void WriteNull(IBufferWriter<byte> output, RespType type)
+        private static ReadOnlySpan<byte> ZeroNewLine =>
+            new byte[] { (byte)'0', (byte)'\r', (byte)'\n' };
+
+        private static ReadOnlySpan<byte> Resp3Null =>
+            new byte[] { (byte)'_', (byte)'\r', (byte)'\n' };
+        private static ReadOnlySpan<byte> Resp2NullPayload =>
+            new byte[] { (byte)'-', (byte)'1', (byte)'\r', (byte)'\n' };
+        static void WriteNull(ref RespWriter writer, RespType type)
         {
             switch (type)
             {
                 case RespType.Null:
-                    output.Write(Resp3Null);
+                    // _\r\n
+                    writer.Write(Resp3Null);
                     break;
                 default:
                     // {type}-1\r\n
                     // (then the payload)
-                    var span = output.GetSpan(5);
-                    Resp2NullTemplate.CopyTo(span);
-                    span[0] = GetPrefix(type);
-                    output.Advance(5);
+                    writer.Write(type);
+                    writer.Write(Resp2NullPayload);
                     break;
             }
 
         }
 
-        private static void WriteUnitAggregate(IBufferWriter<byte> output, RespType aggregateType, in RespValue value)
+        private static ReadOnlySpan<byte> OneNewLine =>
+            new byte[] { (byte)'1', (byte)'\r', (byte)'\n' };
+
+        private static void WriteUnitAggregate(ref RespWriter writer, RespType aggregateType, in RespValue value)
         {
             // {type}1\r\n
             // (then the payload)
-            var span = output.GetSpan(4);
-            span[0] = GetPrefix(aggregateType);
-            span[1] = (byte)'1';
-            span[2] = (byte)'\r';
-            span[3] = (byte)'\n';
-            output.Advance(4);
-            value.Write(output);
+            writer.Write(aggregateType);
+            writer.Write(OneNewLine);
+            value.Write(ref writer);
         }
 
         public static bool TryParse(ReadOnlySequence<byte> input, out RespValue value, out SequencePosition end)
