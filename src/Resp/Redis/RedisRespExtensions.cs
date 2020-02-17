@@ -11,9 +11,9 @@ namespace Resp.Redis
         {
             var before = DateTime.UtcNow;
             connection.Send(RespValue.Ping);
-            var pong = connection.Receive();
+            using var pong = connection.Receive();
             var after = DateTime.UtcNow;
-            if (!pong.IsShortAlphaIgnoreCase(Pong)) Wat();
+            if (!pong.Value.IsShortAlphaIgnoreCase(Pong)) Wat();
             return after - before;
         }
 
@@ -21,9 +21,9 @@ namespace Resp.Redis
         {
             var before = DateTime.UtcNow;
             await connection.SendAsync(RespValue.Ping, cancellationToken).ConfigureAwait(false);
-            var pong = await connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+            using var pong = await connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
             var after = DateTime.UtcNow;
-            if (!pong.IsShortAlphaIgnoreCase(Pong)) Wat();
+            if (!pong.Value.IsShortAlphaIgnoreCase(Pong)) Wat();
             return after - before;
         }
 
@@ -42,7 +42,8 @@ namespace Resp.Redis
             var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
             for (int i = 0; i < len; i++)
             {
-                arr[i] = connection.Receive();
+                using var lifetime = connection.Receive();
+                arr[i] = lifetime.Value.Preserve();
             }
             return new Lifetime<ReadOnlyMemory<RespValue>>(new ReadOnlyMemory<RespValue>(arr, 0, len),
                 (val, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state), arr);
@@ -69,7 +70,8 @@ namespace Resp.Redis
             var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
             for (int i = 0; i < len; i++)
             {
-                arr[i] = await connection.ReceiveAsync().ConfigureAwait(false);
+                using var lifetime = await connection.ReceiveAsync().ConfigureAwait(false);
+                arr[i] = lifetime.Value.Preserve();
             }
             if (pending != null) await pending.ConfigureAwait(false);
 

@@ -11,12 +11,15 @@ namespace Resp.Internal
             => throw new ArgumentNullException(paramName);
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void ArgumentOutOfRange(string paramName)
-            => throw new ArgumentOutOfRangeException(paramName);
+        internal static void ArgumentOutOfRange(string paramName, string message = null)
+        {
+            if (string.IsNullOrWhiteSpace(message)) throw new ArgumentOutOfRangeException(paramName);
+            throw new ArgumentOutOfRangeException(paramName, message);
+        }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void RespTypeNotImplemented(RespType type)
-            => throw new NotImplementedException($"RESP type not implemented: {type}");
+        internal static void RespTypeNotImplemented(RespType type, [CallerMemberName] string caller = null)
+            => throw new NotImplementedException($"RESP type not implemented by '{caller}': {type}");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void NotImplemented([CallerMemberName] string message = null)
@@ -27,8 +30,8 @@ namespace Resp.Internal
             => throw new NotSupportedException("The ReadOnlySequence variety was not understood");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void StorageKindNotImplemented(StorageKind storage)
-            => throw new NotImplementedException($"Storage kind not implemented: {storage}");
+        internal static void StorageKindNotImplemented(StorageKind storage, [CallerMemberName] string caller = null)
+            => throw new NotImplementedException($"Storage kind not implemented by '{caller}': {storage}");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void Argument(string message, string paramName)

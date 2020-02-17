@@ -25,11 +25,12 @@ namespace Resp.Internal
         }
         void Flush(int sizeHint = 512)
         {
-            if (_writtenBytesThisSpan >= 0)
+            var written = _writtenBytesThisSpan;
+             _writtenBytesThisSpan = -1;
+            if (written >= 0)
             {
-                _writer.Advance(_writtenBytesThisSpan);
+                _writer.Advance(written);
                 _currentSpan = default;
-                _writtenBytesThisSpan = -1;
             }
             if (sizeHint >= 0)
             {
@@ -41,6 +42,7 @@ namespace Resp.Internal
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void Commit(int count)
         {
+            if (count < 0) ThrowHelper.ArgumentOutOfRange(nameof(count));
             _currentSpan = _currentSpan.Slice(count);
             _writtenBytesThisSpan += count;
         }

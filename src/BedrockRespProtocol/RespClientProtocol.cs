@@ -27,7 +27,7 @@ namespace BedrockRespProtocol
             if (!vt.IsCompletedSuccessfully) vt.AsTask().Wait();
         }
 
-        public override RespValue Receive()
+        public override Lifetime<RespValue> Receive()
         {
             var vt = ReceiveAsync(default);
             return vt.IsCompletedSuccessfully ? vt.Result : vt.AsTask().Result;
@@ -36,21 +36,21 @@ namespace BedrockRespProtocol
         public override ValueTask SendAsync(RespValue frame, CancellationToken cancellationToken)
             => _writer.WriteAsync<RespValue>(RespFormatter.Instance, frame, cancellationToken);
 
-        public override ValueTask<RespValue> ReceiveAsync(CancellationToken cancellationToken)
+        public override ValueTask<Lifetime<RespValue>> ReceiveAsync(CancellationToken cancellationToken)
         {
             var result = _reader.ReadAsync<RespValue>(RespFormatter.Instance, cancellationToken);
             // avoid the async machinery if we already have the result on the pipe
-            return result.IsCompletedSuccessfully ? new ValueTask<RespValue>(Validate(_reader, result.Result)) : Awaited(_reader, result);
+            return result.IsCompletedSuccessfully ? new ValueTask<Lifetime<RespValue>>(Validate(_reader, result.Result)) : Awaited(_reader, result);
 
-            static async ValueTask<RespValue> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<RespValue>> result)
+            static async ValueTask<Lifetime<RespValue>> Awaited(ProtocolReader reader, ValueTask<ProtocolReadResult<RespValue>> result)
                 => Validate(reader, await result.ConfigureAwait(false));
 
-            static RespValue Validate(ProtocolReader reader, in ProtocolReadResult<RespValue> result)
+            static Lifetime<RespValue> Validate(ProtocolReader reader, in ProtocolReadResult<RespValue> result)
             {
                 reader.Advance();
                 if (result.IsCanceled) ThrowCanceled();
                 if (result.IsCompleted) ThrowAborted();
-                return result.Message;
+                return new Lifetime<RespValue>(result.Message, (_, state) => ((ProtocolReader)state).Advance(), reader);
             }
         }
     }

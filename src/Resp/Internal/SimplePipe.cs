@@ -46,10 +46,10 @@ namespace Resp.Internal
         
         void IBufferWriter<byte>.Advance(int count)
         {
-            if (count < 0 | count > _writeCapacity)
-            {
-                ThrowHelper.ArgumentOutOfRange(nameof(count));
-            }
+            static void OutOfRange(int count, int capacity)
+               => ThrowHelper.ArgumentOutOfRange(nameof(count), $"Advance called with count of {count}; write capacity is {capacity}");
+
+            if (count < 0 | count > _writeCapacity) OutOfRange(count, _writeCapacity);
             _endIndex += count;
             _writeCapacity = 0;
         }
@@ -59,11 +59,12 @@ namespace Resp.Internal
             if (_endSegment != null)
             {
                 sizeHint = Math.Max(1, Math.Min(sizeHint, _maxBlockSize)); // apply a reasonable upper bound
-                var capacity = _endSegment.Memory.Length - _endIndex;
+                var memory = MemoryMarshal.AsMemory(_endSegment.Memory.Slice(_endIndex));
+                var capacity = memory.Length;
                 if (capacity >= sizeHint)
                 {
                     _writeCapacity = capacity;
-                    return MemoryMarshal.AsMemory(_endSegment.Memory.Slice(_endIndex));
+                    return memory;
                 }
             }
             return AppendNewBuffer(sizeHint);

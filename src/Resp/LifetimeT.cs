@@ -26,7 +26,7 @@ namespace Resp
 
         public void Dispose() => _onDispose?.Invoke(Value, _state);
 
-        public static implicit operator T(in Lifetime<T> value) => value.Value;
+        public static explicit operator T(in Lifetime<T> value) => value.Value;
         public static implicit operator Lifetime<T>(T value) => new Lifetime<T>(value);
 
         internal Lifetime<T> WithValue(T value) => new Lifetime<T>(value, _onDispose, _state);

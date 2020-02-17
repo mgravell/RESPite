@@ -204,7 +204,6 @@ namespace Resp
             {
                 WriteValue(ref writer, _state.Type);
             }
-            writer.Complete();
         }
 
         private void WriteAggregate(ref RespWriter writer)
@@ -878,5 +877,34 @@ namespace Resp
         }
 
         public static RespValue Null { get; } = new RespValue(new State(RespType.Null));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public RespValue Preserve()
+            => _obj0 == null & _obj1 == null ? this // nothing external!
+            : PreserveSlow();
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private RespValue PreserveSlow()
+        {
+            switch(_state.Storage)
+            {
+                case StorageKind.StringSegment:
+                case StorageKind.Utf8StringSegment:
+                    return this; // they're immutable
+                case StorageKind.ArraySegmentRespValue:
+                    return this; // only implemented using isolated arrays
+                case StorageKind.ArraySegmentByte:
+                case StorageKind.MemoryManagerByte:
+                case StorageKind.SequenceSegmentByte:
+                    if (TryGetBytes(out var bytes))
+                    {
+                        var arr = bytes.ToArray();
+                        return new RespValue(new State(_state.Type, StorageKind.ArraySegmentByte, 0, arr.Length, _state.SubType), arr);
+                    }
+                    break;
+            }
+            ThrowHelper.StorageKindNotImplemented(_state.Storage);
+            return default;
+        }
     }
 }

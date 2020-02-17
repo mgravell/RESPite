@@ -81,7 +81,7 @@ namespace SimpleClient
                 for (int i = 0; i < pingsPerClient; i++)
                 {
                     await client.SendAsync(frame).ConfigureAwait(false);
-                    _ = await client.ReceiveAsync().ConfigureAwait(false);
+                    using var result = await client.ReceiveAsync().ConfigureAwait(false);
                     // await client.PingAsync();
                 }
             }
@@ -90,7 +90,7 @@ namespace SimpleClient
                 using var frames = Replicate(frame, pipelineDepth);
                 for (int i = 0; i < pingsPerClient; i++)
                 {
-                    await client.BatchAsync(frames.Value).ConfigureAwait(false);
+                    using var batch = await client.BatchAsync(frames.Value).ConfigureAwait(false);
                 }
             }
         }
@@ -105,7 +105,7 @@ namespace SimpleClient
                 else
                 {
                     var batch = client.CreateBatch();
-                    var results = BatchPing(batch, pipelineDepth, args);
+                    using var results = BatchPing(batch, pipelineDepth, args);
                     batch.Execute();
                     for (int j = 0; j < pipelineDepth; j++)
                         await results.Value.Span[j].ConfigureAwait(false);
@@ -130,7 +130,7 @@ namespace SimpleClient
                 for (int i = 0; i < pingsPerClient; i++)
                 {
                     client.Send(frame);
-                    _ = client.Receive();
+                    using var result = client.Receive();
                     // client.Ping();
                 }
             }
@@ -139,7 +139,7 @@ namespace SimpleClient
                 using var frames = Replicate(frame, pipelineDepth);
                 for (int i = 0; i < pingsPerClient; i++)
                 {
-                    client.Batch(frames.Value);
+                    using var batch = client.Batch(frames.Value);
                 }
             }
         }
@@ -154,7 +154,7 @@ namespace SimpleClient
                 else
                 {
                     var batch = client.CreateBatch();
-                    var results = BatchPing(batch, pipelineDepth, args);
+                    using var results = BatchPing(batch, pipelineDepth, args);
                     batch.Execute();
                     foreach (var result in results.Value.Span)
                         result.Wait();

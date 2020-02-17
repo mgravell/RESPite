@@ -13,9 +13,9 @@ namespace Resp
         public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
         public static RespConnection Create(Socket socket) => new SocketRespConnection(socket);
         public abstract void Send(in RespValue value);
-        public abstract RespValue Receive();
+        public abstract Lifetime<RespValue> Receive();
         public abstract ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default);
-        public abstract ValueTask<RespValue> ReceiveAsync(CancellationToken cancellationToken = default);
+        public abstract ValueTask<Lifetime<RespValue>> ReceiveAsync(CancellationToken cancellationToken = default);
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         protected static void ThrowCanceled() => throw new OperationCanceledException();

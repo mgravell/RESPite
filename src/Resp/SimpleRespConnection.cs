@@ -44,14 +44,29 @@ namespace Resp
             }
         }
 
-        private bool TryRead(out RespValue value)
+        SequencePosition _currentEnd;
+        bool _haveActive;
+        private bool TryRead(out Lifetime<RespValue> value)
         {
-            if (RespValue.TryParse(_inBuffer.GetBuffer(), out value, out var end))
+            if (_haveActive) ThrowHelper.Invalid("Existing result must be discarded");
+            _haveActive = true;
+            if (RespValue.TryParse(_inBuffer.GetBuffer(), out var raw, out var end))
             {
-                _inBuffer.ConsumeTo(end);
+                _currentEnd = end;
+                value = new Lifetime<RespValue>(raw, (_, state) => ((SimpleRespConnection)state).Advance(), this);
                 return true;
             }
+            _haveActive = false;
+            value = default;
             return false;
+        }
+
+        private void Advance()
+        {
+            var end = _currentEnd;
+            _currentEnd = default;
+            _inBuffer.ConsumeTo(end);
+            _haveActive = false;
         }
 
         public RespVersion Version { get; set; } = RespVersion.RESP2;
@@ -128,9 +143,9 @@ namespace Resp
             this.Flush();
         }
 
-        public sealed override RespValue Receive()
+        public sealed override Lifetime<RespValue> Receive()
         {
-            RespValue value;
+            Lifetime<RespValue> value;
             while (!TryRead(out value))
             {
                 if (!ReadMore()) ThrowEndOfStream();
@@ -138,18 +153,18 @@ namespace Resp
             return value;
         }
 
-        public sealed override ValueTask<RespValue> ReceiveAsync(CancellationToken cancellationToken = default)
+        public sealed override ValueTask<Lifetime<RespValue>> ReceiveAsync(CancellationToken cancellationToken = default)
         {
-            RespValue value;
+            Lifetime<RespValue> value;
             while (!TryRead(out value))
             {
                 var read = ReadMoreAsync(cancellationToken);
                 if (!read.IsCompletedSuccessfully) return Awaited(this, read, cancellationToken);
                 if (!read.Result) ThrowEndOfStream();
             }
-            return new ValueTask<RespValue>(value);
+            return new ValueTask<Lifetime<RespValue>>(value);
 
-            static async ValueTask<RespValue> Awaited(SimpleRespConnection obj, ValueTask<bool> pending, CancellationToken cancellationToken)
+            static async ValueTask<Lifetime<RespValue>> Awaited(SimpleRespConnection obj, ValueTask<bool> pending, CancellationToken cancellationToken)
             {
 
                 while (true)
