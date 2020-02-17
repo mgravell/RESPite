@@ -20,7 +20,9 @@ namespace SimpleClient
     class Program
     {
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
+#pragma warning disable IDE0051 // Remove unused private members
         static void Main2()
+#pragma warning restore IDE0051 // Remove unused private members
         {
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             SocketConnection.SetRecommendedClientOptions(socket);
@@ -32,13 +34,16 @@ namespace SimpleClient
             for (int i = 0; i < 1000; i++)
             {
                 client.Send(frame);
-                var reply = client.Receive();
+                using var reply = client.Receive();
+                reply.Value.ThrowIfError();
                 // client.Ping();
             }
             timer.Stop();
             Log("sync", timer.Elapsed, 1000, payload);
         }
+#pragma warning disable IDE0051 // Remove unused private members
         static async Task Main()
+#pragma warning restore IDE0051 // Remove unused private members
         {
             const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
 
@@ -216,7 +221,9 @@ namespace SimpleClient
             Log("async", timer.Elapsed, totalPings, payload);
             
             var threads = new Thread[clientCount];
+#pragma warning disable IDE0039 // Use local function
             ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, pipelineDepth, payload);
+#pragma warning restore IDE0039 // Use local function
             timer = Stopwatch.StartNew();
             for (int i = 0; i < threads.Length; i++)
             {
@@ -263,7 +270,9 @@ namespace SimpleClient
             Log("async", timer.Elapsed, totalPings, payload);
 
             var threads = new Thread[clientCount];
+#pragma warning disable IDE0039 // Use local function
             ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, pipelineDepth, payload);
+#pragma warning restore IDE0039 // Use local function
             timer = Stopwatch.StartNew();
             for (int i = 0; i < threads.Length; i++)
             {
@@ -306,7 +315,9 @@ namespace SimpleClient
             Log("async", timer.Elapsed, totalPings, payload);
 
             var threads = new Thread[workers];
+#pragma warning disable IDE0039 // Use local function
             ThreadStart starter = () => RunClient(db, pingsPerWorker, pipelineDepth, args);
+#pragma warning restore IDE0039 // Use local function
             timer = Stopwatch.StartNew();
             for (int i = 0; i < threads.Length; i++)
             {
