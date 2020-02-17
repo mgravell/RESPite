@@ -10,7 +10,13 @@ namespace Resp.Internal
     internal ref struct RespWriter
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Complete() => Flush(-1);
+        public long Complete()
+        {
+            Flush(-1);
+            return TotalBytesWritten;
+        }
+
+        public long TotalBytesWritten { get; private set; }
 
         public readonly RespVersion Version;
         private readonly IBufferWriter<byte> _writer;
@@ -22,6 +28,7 @@ namespace Resp.Internal
             _writer = writer;
             _writtenBytesThisSpan = -1;
             _currentSpan = default;
+            TotalBytesWritten = 0;
         }
         void Flush(int sizeHint = 512)
         {
@@ -30,6 +37,7 @@ namespace Resp.Internal
             if (written >= 0)
             {
                 _writer.Advance(written);
+                TotalBytesWritten += written;
                 _currentSpan = default;
             }
             if (sizeHint >= 0)

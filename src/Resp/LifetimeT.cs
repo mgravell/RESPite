@@ -22,7 +22,7 @@ namespace Resp
         // public Lifetime(T value, Action<object, T> onDispose, object state)
         private readonly Action<T, object> _onDispose;
         private readonly object _state;
-        public T Value { get; }
+        public readonly T Value; // directly exposed to allow ref usage
 
         public void Dispose() => _onDispose?.Invoke(Value, _state);
 

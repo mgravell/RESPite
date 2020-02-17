@@ -180,7 +180,7 @@ hello
         static RespValue Parse(ref string payload)
         {
             var input = NormalizeLineEndingsAndEncode(ref payload);
-            Assert.True(RespValue.TryParse(input, out var value, out var end));
+            Assert.True(RespValue.TryParse(input, out var value, out var end, out _));
             Assert.True(input.Slice(end).IsEmpty);
             return value;
         }

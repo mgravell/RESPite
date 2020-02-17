@@ -13,7 +13,7 @@ namespace BedrockRespProtocol.Internal
        
         bool IMessageReader<RespValue>.TryParseMessage(in ReadOnlySequence<byte> input, ref SequencePosition consumed, ref SequencePosition examined, out RespValue message)
         {
-            if (RespValue.TryParse(input, out message, out var end))
+            if (RespValue.TryParse(input, out message, out var end, out _))
             {
                 examined = consumed = end;
                 return true;

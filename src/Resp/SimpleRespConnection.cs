@@ -50,8 +50,9 @@ namespace Resp
         {
             if (_haveActive) ThrowHelper.Invalid("Existing result must be discarded");
             _haveActive = true;
-            if (RespValue.TryParse(_inBuffer.GetBuffer(), out var raw, out var end))
+            if (RespValue.TryParse(_inBuffer.GetBuffer(), out var raw, out var end, out var bytes))
             {
+                TotalBytesRead += bytes;
                 _currentEnd = end;
                 value = new Lifetime<RespValue>(raw, (_, state) => ((SimpleRespConnection)state).Advance(), this);
                 return true;
@@ -70,9 +71,13 @@ namespace Resp
         }
 
         public RespVersion Version { get; set; } = RespVersion.RESP2;
+
+        public long TotalBytesSent { get; private set; }
+        public long TotalBytesRead { get; private set; }
+
         public sealed override void Send(in RespValue value)
         {
-            value.Write(_outBuffer, Version);
+            TotalBytesSent += value.Write(_outBuffer, Version);
             var buffer = _outBuffer.GetBuffer();
             if (!buffer.IsEmpty)
             {

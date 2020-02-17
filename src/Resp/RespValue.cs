@@ -188,11 +188,11 @@ namespace Resp
             return default;
         }
 
-        public void Write(IBufferWriter<byte> output, RespVersion version)
+        public long Write(IBufferWriter<byte> output, RespVersion version)
         {
             var writer = new RespWriter(version, output);
             Write(ref writer);
-            writer.Complete();
+            return writer.Complete();
         }
         private void Write(ref RespWriter writer)
         {
@@ -628,18 +628,34 @@ namespace Resp
             value.Write(ref writer);
         }
 
-        public static bool TryParse(ReadOnlySequence<byte> input, out RespValue value, out SequencePosition end)
+        public static bool TryParse(ReadOnlySequence<byte> input, out RespValue value, out SequencePosition end, out long bytes)
         {
             var reader = new SequenceReader<byte>(input);
             if (TryParse(ref reader, out value))
             {
                 end = reader.Position;
+                bytes = reader.Consumed;
                 return true;
             }
             end = default;
             value = default;
+            bytes = default;
             return false;
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ThrowIfError()
+        {
+            switch(Type)
+            {
+                case RespType.BlobError:
+                case RespType.SimpleError:
+                    ThrowError();
+                    break;
+            }
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void ThrowError() => throw new RespException(ToString());
 
         private static bool TryParse(ref SequenceReader<byte> input, out RespValue value)
         {

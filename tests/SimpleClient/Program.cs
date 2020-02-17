@@ -82,6 +82,7 @@ namespace SimpleClient
                 {
                     await client.SendAsync(frame).ConfigureAwait(false);
                     using var result = await client.ReceiveAsync().ConfigureAwait(false);
+                    result.Value.ThrowIfError();
                     // await client.PingAsync();
                 }
             }
@@ -91,6 +92,7 @@ namespace SimpleClient
                 for (int i = 0; i < pingsPerClient; i++)
                 {
                     using var batch = await client.BatchAsync(frames.Value).ConfigureAwait(false);
+                    CheckBatchForErrors(batch.Value);
                 }
             }
         }
@@ -131,6 +133,7 @@ namespace SimpleClient
                 {
                     client.Send(frame);
                     using var result = client.Receive();
+                    result.Value.ThrowIfError();
                     // client.Ping();
                 }
             }
@@ -140,8 +143,14 @@ namespace SimpleClient
                 for (int i = 0; i < pingsPerClient; i++)
                 {
                     using var batch = client.Batch(frames.Value);
+                    CheckBatchForErrors(batch.Value);
                 }
             }
+        }
+
+        static void CheckBatchForErrors(ReadOnlyMemory<RespValue> values)
+        {
+            foreach (var value in values.Span) value.ThrowIfError();
         }
         static void RunClient(IDatabase client, int pingsPerClient, int pipelineDepth, object[] args)
         {
