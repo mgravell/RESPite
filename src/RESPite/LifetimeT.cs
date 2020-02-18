@@ -1,7 +1,6 @@
 ﻿using System;
-using System.Buffers;
 
-namespace Resp
+namespace Respite
 {
     public readonly struct Lifetime<T> : IDisposable
     {

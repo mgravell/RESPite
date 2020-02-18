@@ -1,9 +1,8 @@
 ﻿using Bedrock.Framework.Protocols;
-using Resp;
 using System;
 using System.Buffers;
 
-namespace BedrockRespProtocol.Internal
+namespace Respite.Bedrock.Internal
 {
     internal sealed class RespFormatter : IMessageReader<RespValue>, IMessageWriter<RespValue>
     {

@@ -2,7 +2,7 @@
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 
-namespace Resp.Internal
+namespace Respite.Internal
 {
     internal static class ThrowHelper
     {

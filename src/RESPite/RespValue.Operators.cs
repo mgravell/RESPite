@@ -1,7 +1,7 @@
 ﻿using System.Buffers;
 using System.Numerics;
 
-namespace Resp
+namespace Respite
 {
     partial struct RespValue
     {

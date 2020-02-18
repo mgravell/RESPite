@@ -2,7 +2,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Resp
+namespace Respite
 {
     partial struct RespValue
     {

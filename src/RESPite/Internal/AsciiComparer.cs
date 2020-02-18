@@ -4,7 +4,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Resp.Internal
+namespace Respite.Internal
 {
     internal static class AsciiComparer
     {

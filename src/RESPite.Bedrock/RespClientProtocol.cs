@@ -1,11 +1,10 @@
 ﻿using Bedrock.Framework.Protocols;
-using BedrockRespProtocol.Internal;
 using Microsoft.AspNetCore.Connections;
-using Resp;
+using Respite.Bedrock.Internal;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace BedrockRespProtocol
+namespace Respite.Bedrock
 {
 
     public sealed class RespBedrockProtocol : RespConnection

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Resp
+namespace Respite
 {
     public sealed class RespException : Exception
     {

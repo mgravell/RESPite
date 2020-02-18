@@ -1,4 +1,4 @@
-﻿namespace Resp
+﻿namespace Respite
 {
     public enum RespVersion
     {

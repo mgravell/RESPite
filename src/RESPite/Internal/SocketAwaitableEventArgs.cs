@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
-namespace Resp.Internal
+namespace Respite.Internal
 {
     // This type is largely similar to the type of the same name in KestrelHttpServer, with some minor tweaks:
     // - when scheduing a callback against an already complete task (semi-synchronous case), prefer to use the io pipe scheduler for onward continuations, not the thread pool

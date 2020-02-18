@@ -1,48 +1,24 @@
-﻿using System;
+﻿using Respite;
+using System;
 using System.Buffers;
-using System.Threading;
 using System.Threading.Tasks;
 
-namespace Resp.Redis
+namespace Respite
 {
-    public static class RedisRespExtensions
+    partial class RespConnection
     {
-        public static TimeSpan Ping(this RespConnection connection)
-        {
-            var before = DateTime.UtcNow;
-            connection.Send(RespValue.Ping);
-            using var pong = connection.Receive();
-            var after = DateTime.UtcNow;
-            if (!pong.Value.IsShortAlphaIgnoreCase(Pong)) Wat();
-            return after - before;
-        }
-
-        public static async ValueTask<TimeSpan> PingAsync(this RespConnection connection, CancellationToken cancellationToken = default)
-        {
-            var before = DateTime.UtcNow;
-            await connection.SendAsync(RespValue.Ping, cancellationToken).ConfigureAwait(false);
-            using var pong = await connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            var after = DateTime.UtcNow;
-            if (!pong.Value.IsShortAlphaIgnoreCase(Pong)) Wat();
-            return after - before;
-        }
-
-        private static void Wat() => throw new InvalidOperationException("something went terribly wrong");
-
-        private static readonly RespValue Pong = "pong";
-
         //TODO: add IEnumerable<T> variant
-        public static Lifetime<ReadOnlyMemory<RespValue>> Batch(this RespConnection connection, ReadOnlyMemory<RespValue> values)
+        public Lifetime<ReadOnlyMemory<RespValue>> Batch(ReadOnlyMemory<RespValue> values)
         {
             if (values.IsEmpty) return default;
 
-            connection.Send(in values.Span[0]); // send the first immediately
+            this.Send(in values.Span[0]); // send the first immediately
             int len = values.Length;
-            if (len > 1) BeginSendInBackground(connection, values.Slice(1));
+            if (len > 1) BeginSendInBackground(this, values.Slice(1));
             var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
             for (int i = 0; i < len; i++)
             {
-                using var lifetime = connection.Receive();
+                using var lifetime = this.Receive();
                 arr[i] = lifetime.Value.Preserve();
             }
             return new Lifetime<ReadOnlyMemory<RespValue>>(new ReadOnlyMemory<RespValue>(arr, 0, len),
@@ -59,18 +35,18 @@ namespace Resp.Redis
         }
 
         //TODO: add IAsyncEnumerable<T> variant
-        public static async ValueTask<Lifetime<ReadOnlyMemory<RespValue>>> BatchAsync(this RespConnection connection, ReadOnlyMemory<RespValue> values)
+        public async ValueTask<Lifetime<ReadOnlyMemory<RespValue>>> BatchAsync(ReadOnlyMemory<RespValue> values)
         {
             if (values.IsEmpty) return default;
 
-            await connection.SendAsync(values.Span[0]).ConfigureAwait(false); // send the first immediately
+            await this.SendAsync(values.Span[0]).ConfigureAwait(false); // send the first immediately
             int len = values.Length;
             Task pending = null;
-            if (len > 1) pending = BeginSendInBackground(connection, values.Slice(1));
+            if (len > 1) pending = BeginSendInBackground(this, values.Slice(1));
             var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
             for (int i = 0; i < len; i++)
             {
-                using var lifetime = await connection.ReceiveAsync().ConfigureAwait(false);
+                using var lifetime = await this.ReceiveAsync().ConfigureAwait(false);
                 arr[i] = lifetime.Value.Preserve();
             }
             if (pending != null) await pending.ConfigureAwait(false);

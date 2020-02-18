@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Resp
+namespace Respite
 {
     internal sealed class StreamRespConnection : SimpleRespConnection
     {

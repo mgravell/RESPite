@@ -13,7 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\BedrockFramework\src\Bedrock.Framework\Bedrock.Framework.csproj" />
-    <ProjectReference Include="..\..\src\BedrockRespProtocol\BedrockRespProtocol.csproj" />
+    <ProjectReference Include="..\..\src\RESPite.Bedrock\RESPite.Bedrock.csproj" />
   </ItemGroup>
 
 </Project>

@@ -2,7 +2,7 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
 
-namespace Resp.Internal
+namespace Respite.Internal
 {
     internal sealed class SimplePipe : IBufferWriter<byte>, IDisposable
     {

@@ -4,7 +4,7 @@ using System.Buffers.Text;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace Resp.Internal
+namespace Respite.Internal
 {
 
     internal ref struct RespWriter

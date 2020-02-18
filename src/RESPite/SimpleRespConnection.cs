@@ -1,10 +1,10 @@
-﻿using Resp.Internal;
+﻿using Respite.Internal;
 using System;
 using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Resp
+namespace Respite
 {
     internal abstract class SimpleRespConnection : RespConnection
     {

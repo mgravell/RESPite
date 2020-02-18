@@ -1,14 +1,13 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Resp
+namespace Respite
 {
-    public abstract class RespConnection : IDisposable
+    public abstract partial class RespConnection : IDisposable
     {
         public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
         public static RespConnection Create(Socket socket) => new SocketRespConnection(socket);

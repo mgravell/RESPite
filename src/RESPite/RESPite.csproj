@@ -2,8 +2,6 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <LangVersion>8.0</LangVersion>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,6 +10,9 @@
   <ItemGroup>
     <Compile Update="RespValue.*.cs">
       <DependentUpon>RespValue.cs</DependentUpon>
+    </Compile>
+    <Compile Update="RespConnection.*.cs">
+      <DependentUpon>RespConnection.cs</DependentUpon>
     </Compile>
   </ItemGroup>
 

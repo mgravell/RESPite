@@ -1,10 +1,10 @@
-﻿using Resp.Internal;
+﻿using Respite.Internal;
 using System;
 using System.Buffers;
 using System.Buffers.Text;
 using System.Runtime.CompilerServices;
 
-namespace Resp
+namespace Respite
 {
     partial struct RespValue : IEquatable<RespValue>
     {

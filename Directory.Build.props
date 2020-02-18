@@ -1,0 +1,28 @@
+<Project>
+  <PropertyGroup>
+    <Copyright>2020 Marc Gravell</Copyright>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AssemblyOriginatorKeyFile>RESPite.snk</AssemblyOriginatorKeyFile>
+    <LangVersion>8.0</LangVersion>
+    
+    <PackageId>$(AssemblyName)</PackageId>
+    <!--<PackageReleaseNotes>...</PackageReleaseNotes>
+    <PackageProjectUrl>https://github.com/...</PackageProjectUrl>-->
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/mgravell/Bedrock.Resp</RepositoryUrl>
+    <Deterministic>false</Deterministic>
+    
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>embedded</DebugType>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <IncludeSymbols>false</IncludeSymbols>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Nerdbank.GitVersioning" Version="3.0.50" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
+  </ItemGroup>
+</Project>

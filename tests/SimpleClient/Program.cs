@@ -1,9 +1,8 @@
 ﻿using Bedrock.Framework;
-using BedrockRespProtocol;
 using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
-using Resp;
-using Resp.Redis;
+using Respite;
+using Respite.Bedrock;
 using StackExchange.Redis;
 using System;
 using System.Buffers;

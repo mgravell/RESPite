@@ -1,13 +1,13 @@
 ﻿using Bedrock.Framework;
-using BedrockRespProtocol;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
-using Resp;
-using Resp.Redis;
+using Respite;
+using Respite.Redis;
+using Respite.Bedrock;
 using StackExchange.Redis;
 using System;
 using System.Net;
