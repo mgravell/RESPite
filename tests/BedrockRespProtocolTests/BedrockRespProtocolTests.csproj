@@ -14,8 +14,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\BedrockRespProtocol\RESPite.Bedrock.csproj" />
-    <ProjectReference Include="..\..\src\RESPite\RESPite.csproj" />
+    <ProjectReference Include="..\..\src\RESPite.Bedrock\RESPite.Bedrock.csproj" />
   </ItemGroup>
-
 </Project>
