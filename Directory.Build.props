@@ -6,7 +6,7 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <AssemblyOriginatorKeyFile>RESPite.snk</AssemblyOriginatorKeyFile>
     <LangVersion>8.0</LangVersion>
-    <!--<NoWarn>NU5105</NoWarn>-->
+    <NoWarn>NU5105</NoWarn>
     
     <PackageId>$(AssemblyName)</PackageId>
     <!--<PackageReleaseNotes>...</PackageReleaseNotes>-->
@@ -20,10 +20,12 @@
     <DefaultLanguage>en-US</DefaultLanguage>
     <IncludeSymbols>false</IncludeSymbols>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+
+    <GeneratePackageOnBuild Condition="'$(Configuration)'=='Release'">true</GeneratePackageOnBuild>
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="Nerdbank.GitVersioning" Version="3.0.50" PrivateAssets="all" />
+    <PackageReference Include="Nerdbank.GitVersioning" Version="3.0.28" PrivateAssets="all" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
   </ItemGroup>
 </Project>
