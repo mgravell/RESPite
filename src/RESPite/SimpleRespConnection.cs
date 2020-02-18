@@ -19,9 +19,9 @@ namespace Respite
         protected virtual ValueTask FlushAsync(CancellationToken cancellationToken) => default;
         protected virtual void Flush() { }
 
-        private SimplePipe _outBuffer, _inBuffer;
+        private SimplePipe? _outBuffer, _inBuffer;
 
-        protected IBufferWriter<byte> InputWriter => _inBuffer;
+        protected IBufferWriter<byte> InputWriter => _inBuffer!;
 
         private protected SimpleRespConnection()
         {
@@ -29,7 +29,7 @@ namespace Respite
             _inBuffer = new SimplePipe();
         }
 
-        private void Dispose<T>(ref T field) where T : class, IDisposable
+        private void Dispose<T>(ref T? field) where T : class, IDisposable
         {
             var tmp = field;
             field = null;
@@ -50,11 +50,11 @@ namespace Respite
         {
             if (_haveActive) ThrowHelper.Invalid("Existing result must be discarded");
             _haveActive = true;
-            if (RespValue.TryParse(_inBuffer.GetBuffer(), out var raw, out var end, out var bytes))
+            if (RespValue.TryParse(_inBuffer!.GetBuffer(), out var raw, out var end, out var bytes))
             {
                 TotalBytesRead += bytes;
                 _currentEnd = end;
-                value = new Lifetime<RespValue>(raw, (_, state) => ((SimpleRespConnection)state).Advance(), this);
+                value = new Lifetime<RespValue>(raw, (_, state) => ((SimpleRespConnection)state!).Advance(), this);
                 return true;
             }
             _haveActive = false;
@@ -66,7 +66,7 @@ namespace Respite
         {
             var end = _currentEnd;
             _currentEnd = default;
-            _inBuffer.ConsumeTo(end);
+            _inBuffer!.ConsumeTo(end);
             _haveActive = false;
         }
 
@@ -77,8 +77,8 @@ namespace Respite
 
         public sealed override void Send(in RespValue value)
         {
-            TotalBytesSent += value.Write(_outBuffer, Version);
-            var buffer = _outBuffer.GetBuffer();
+            TotalBytesSent += value.Write(_outBuffer!, Version);
+            var buffer = _outBuffer!.GetBuffer();
             if (!buffer.IsEmpty)
             {
                 Flush(buffer);
@@ -87,8 +87,8 @@ namespace Respite
         }
         public sealed override ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default)
         {
-            value.Write(_outBuffer, Version);
-            var buffer = _outBuffer.GetBuffer();
+            value.Write(_outBuffer!, Version);
+            var buffer = _outBuffer!.GetBuffer();
             if (!buffer.IsEmpty)
             {
                 var pending = FlushAsync(buffer, cancellationToken);

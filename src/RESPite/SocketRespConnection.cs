@@ -10,7 +10,7 @@ namespace Respite
     internal sealed class SocketRespConnection : SimpleRespConnection
     {
         private readonly Socket _socket;
-        private SocketAwaitableEventArgs _sendArgs, _reveiveArgs;
+        private SocketAwaitableEventArgs? _sendArgs, _reveiveArgs;
 
         internal SocketRespConnection(Socket socket)
         {

@@ -124,7 +124,7 @@ namespace Respite.Internal
         }
 
         [ThreadStatic]
-        private static Encoder s_PerThreadEncoder;
+        private static Encoder? s_PerThreadEncoder;
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void SlowWrite(ReadOnlySpan<char> value)

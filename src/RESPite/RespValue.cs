@@ -57,7 +57,7 @@ namespace Respite
     public readonly partial struct RespValue
     {
         private readonly State _state;
-        private readonly object _obj0, _obj1;
+        private readonly object? _obj0, _obj1;
 
         public static readonly RespValue Ping = Command("PING");
 
@@ -107,11 +107,11 @@ namespace Respite
                     return r64.ToString("G17", NumberFormatInfo.InvariantInfo);
                 default:
                     ThrowHelper.StorageKindNotImplemented(_state.Storage);
-                    return default;
+                    return default!;
             }
         }
 
-        private RespValue(State state, object obj0 = null, object obj1 = null)
+        private RespValue(State state, object? obj0 = null, object? obj1 = null)
         {
             _state = state;
             _obj0 = obj0;
@@ -126,7 +126,7 @@ namespace Respite
 
             var memory = new Memory<RespValue>(arr, 0, length);
             memory.Span.Clear();
-            return new Lifetime<Memory<RespValue>>(memory, (_, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state), arr);
+            return new Lifetime<Memory<RespValue>>(memory, (_, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state!), arr);
         }
 
         private static RespValue Command(string command)
@@ -259,17 +259,17 @@ namespace Respite
                 case StorageKind.Empty:
                     return default;
                 case StorageKind.ArraySegmentRespValue:
-                    return new ReadOnlySequence<RespValue>((RespValue[])_obj0,
+                    return new ReadOnlySequence<RespValue>((RespValue[])_obj0!,
                         _state.StartOffset, _state.Length);
                 case StorageKind.MemoryManagerRespValue:
                     return new ReadOnlySequence<RespValue>(
-                        ((MemoryManager<RespValue>)_obj0).Memory
+                        ((MemoryManager<RespValue>)_obj0!).Memory
                             .Slice(_state.StartOffset, _state.Length));
                 case StorageKind.SequenceSegmentRespValue:
                     return new ReadOnlySequence<RespValue>(
-                        (ReadOnlySequenceSegment<RespValue>)_obj0,
+                        (ReadOnlySequenceSegment<RespValue>)_obj0!,
                         _state.StartOffset,
-                        (ReadOnlySequenceSegment<RespValue>)_obj1,
+                        (ReadOnlySequenceSegment<RespValue>)_obj1!,
                         _state.EndOffset);
                 default:
                     if (_state.IsInlined && _state.SubType != RespType.Unknown)
@@ -292,21 +292,21 @@ namespace Respite
                     case StorageKind.ArraySegmentRespValue:
                         if (_state.Length == 1)
                         {
-                            value = ((RespValue[])_obj0)[_state.StartOffset];
+                            value = ((RespValue[])_obj0!)[_state.StartOffset];
                             return true;
                         }
                         break;
                     case StorageKind.MemoryManagerRespValue:
                         if (_state.Length == 1)
                         {
-                            value = ((MemoryManager<RespValue>)_obj0).GetSpan()[_state.StartOffset];
+                            value = ((MemoryManager<RespValue>)_obj0!).GetSpan()[_state.StartOffset];
                             return true;
                         }
                         break;
                     case StorageKind.SequenceSegmentRespValue:
                         var seq = new ReadOnlySequence<RespValue>(
-                            (ReadOnlySequenceSegment<RespValue>)_obj0, _state.StartOffset,
-                            (ReadOnlySequenceSegment<RespValue>)_obj1, _state.EndOffset);
+                            (ReadOnlySequenceSegment<RespValue>)_obj0!, _state.StartOffset,
+                            (ReadOnlySequenceSegment<RespValue>)_obj1!, _state.EndOffset);
                         if (seq.Length == 1)
                         {
                             value = seq.FirstSpan[0];

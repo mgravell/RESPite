@@ -30,7 +30,7 @@ namespace Respite.Internal
 
         private static readonly Action _callbackCompleted = () => { };
 
-        private Action _callback;
+        private Action? _callback;
 
         /// <summary>
         /// Get the awaiter for this instance; used as part of "await"
@@ -70,7 +70,7 @@ namespace Respite.Internal
         public void OnCompleted(Action continuation)
         {
             if (ReferenceEquals(Volatile.Read(ref _callback), _callbackCompleted)
-                || ReferenceEquals(Interlocked.CompareExchange(ref _callback, continuation, null), _callbackCompleted))
+                || ReferenceEquals(Interlocked.CompareExchange(ref _callback, continuation, null!), _callbackCompleted))
             {
                 // this is the rare "kinda already complete" case; push to worker to prevent possible stack dive
                 ThreadPool.UnsafeQueueUserWorkItem(InvokeStateAsAction, continuation);

@@ -22,7 +22,7 @@ namespace Respite
                 arr[i] = lifetime.Value.Preserve();
             }
             return new Lifetime<ReadOnlyMemory<RespValue>>(new ReadOnlyMemory<RespValue>(arr, 0, len),
-                (val, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state), arr);
+                (val, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state!), arr);
 
             static void BeginSendInBackground(RespConnection connection, ReadOnlyMemory<RespValue> values)
                 => Task.Run(async () =>
@@ -41,7 +41,7 @@ namespace Respite
 
             await this.SendAsync(values.Span[0]).ConfigureAwait(false); // send the first immediately
             int len = values.Length;
-            Task pending = null;
+            Task? pending = null;
             if (len > 1) pending = BeginSendInBackground(this, values.Slice(1));
             var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
             for (int i = 0; i < len; i++)
@@ -52,7 +52,7 @@ namespace Respite
             if (pending != null) await pending.ConfigureAwait(false);
 
             return new Lifetime<ReadOnlyMemory<RespValue>>(new ReadOnlyMemory<RespValue>(arr, 0, len),
-                (_, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state), arr);
+                (_, state) => ArrayPool<RespValue>.Shared.Return((RespValue[])state!), arr);
 
             static Task BeginSendInBackground(RespConnection connection, ReadOnlyMemory<RespValue> values)
                 => Task.Run(async () =>

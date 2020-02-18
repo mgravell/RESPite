@@ -16,7 +16,7 @@ namespace Respite.Internal
 
         public void Dispose() => Clear();
 
-        private Segment _startSegment, _endSegment;
+        private Segment? _startSegment, _endSegment;
         private int _startIndex, _endIndex, _writeCapacity;
 
         public ReadOnlySequence<byte> GetBuffer() => _startSegment == null ? default
@@ -30,14 +30,14 @@ namespace Respite.Internal
             if (segment == _endSegment && index == _endIndex)
             {
                 // keep the last page; burn anything else
-                _startSegment.RecycleBefore(segment);
+                _startSegment!.RecycleBefore(segment);
                 _startSegment = _endSegment;
                 _startIndex = _endIndex = 0;
             }
             else
             {
                 // discard any pages that we no longer need
-                _startSegment.RecycleBefore(segment);
+                _startSegment!.RecycleBefore(segment);
                 _startSegment = segment;
                 _startIndex = index;
             }
@@ -96,8 +96,8 @@ namespace Respite.Internal
                     else
                     {
                         // just the last buffer
-                        _endSegment = _startSegment.FindPrevious(oldFinal);
-                        _endSegment.ClearNext();
+                        _endSegment = _startSegment!.FindPrevious(oldFinal);
+                        _endSegment!.ClearNext();
                     }
                     oldFinal.Recycle();
                 }
@@ -109,7 +109,7 @@ namespace Respite.Internal
             }
 
             Memory<byte> buffer = ArrayPool<byte>.Shared.Rent(sizeHint);
-            _endSegment = Segment.Create(_endSegment, buffer);
+            _endSegment = Segment.Create(_endSegment!, buffer);
             _endIndex = 0;
             if (_startSegment == null)
             {
@@ -130,7 +130,7 @@ namespace Respite.Internal
 
             internal void ClearNext() => Next = null;
 
-            internal Segment FindPrevious(Segment find)
+            internal Segment? FindPrevious(Segment find)
             {
                 ReadOnlySequenceSegment<byte> node = this;
                 while (node != null)
@@ -150,7 +150,7 @@ namespace Respite.Internal
             }
 
             [ThreadStatic]
-            private static Segment s_spare;
+            private static Segment? s_spare;
             public void Recycle()
             {
                 if (MemoryMarshal.TryGetArray(Memory, out var segment))
@@ -161,7 +161,7 @@ namespace Respite.Internal
             }
 
             private Segment() {  }
-            private Segment Init(Segment previous, Memory<byte> buffer)
+            private Segment Init(Segment? previous, Memory<byte> buffer)
             {
                 Memory = buffer;
                 Next = null;
@@ -174,7 +174,7 @@ namespace Respite.Internal
                 return this;
             }
 
-            internal void RecycleBefore(Segment retain)
+            internal void RecycleBefore(Segment? retain)
             {
                 var node = this;
                 while (node != null && node != retain)

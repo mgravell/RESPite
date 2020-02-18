@@ -111,17 +111,17 @@ namespace Respite
                 //case StorageKind.Utf8StringSegment:
                     // TODO
                 case StorageKind.ArraySegmentByte:
-                    bytes = new ReadOnlySequence<byte>((byte[])_obj0,
+                    bytes = new ReadOnlySequence<byte>((byte[])_obj0!,
                         _state.StartOffset, _state.Length);
                     return true;
                 case StorageKind.MemoryManagerByte:
-                    bytes = new ReadOnlySequence<byte>(((MemoryManager<byte>)_obj0).Memory
+                    bytes = new ReadOnlySequence<byte>(((MemoryManager<byte>)_obj0!).Memory
                         .Slice(_state.StartOffset, _state.Length));
                     return true;
                 case StorageKind.SequenceSegmentByte:
                     bytes = new ReadOnlySequence<byte>(
-                        (ReadOnlySequenceSegment<byte>)_obj0, _state.StartOffset,
-                        (ReadOnlySequenceSegment<byte>)_obj1, _state.EndOffset);
+                        (ReadOnlySequenceSegment<byte>)_obj0!, _state.StartOffset,
+                        (ReadOnlySequenceSegment<byte>)_obj1!, _state.EndOffset);
                     return true;
                 default:
                     bytes = default;
@@ -138,21 +138,21 @@ namespace Respite
                     chars = default;
                     return true;
                 case StorageKind.StringSegment:
-                    chars = new ReadOnlySequence<char>(((string)_obj0).AsMemory(
+                    chars = new ReadOnlySequence<char>(((string)_obj0!).AsMemory(
                         _state.StartOffset, _state.Length));
                     return true;
                 case StorageKind.ArraySegmentChar:
-                    chars = new ReadOnlySequence<char>((char[])_obj0,
+                    chars = new ReadOnlySequence<char>((char[])_obj0!,
                         _state.StartOffset, _state.Length);
                     return true;
                 case StorageKind.MemoryManagerChar:
-                    chars = new ReadOnlySequence<char>(((MemoryManager<char>)_obj0).Memory
+                    chars = new ReadOnlySequence<char>(((MemoryManager<char>)_obj0!).Memory
                         .Slice(_state.StartOffset, _state.Length));
                     return true;
                 case StorageKind.SequenceSegmentChar:
                     chars = new ReadOnlySequence<char>(
-                        (ReadOnlySequenceSegment<char>)_obj0, _state.StartOffset,
-                        (ReadOnlySequenceSegment<char>)_obj1, _state.EndOffset);
+                        (ReadOnlySequenceSegment<char>)_obj0!, _state.StartOffset,
+                        (ReadOnlySequenceSegment<char>)_obj1!, _state.EndOffset);
                     return true;
                 default:
                     chars = default;
@@ -222,7 +222,7 @@ namespace Respite
             var arr = ArrayPool<byte>.Shared.Rent(length);
             buffer = new Span<byte>(arr, 0, length);
             var seq = new ReadOnlySequence<byte>(arr, 0, length);
-            return new Lifetime<ReadOnlySequence<byte>>(seq, (_, state) => ArrayPool<byte>.Shared.Return((byte[])state), arr);
+            return new Lifetime<ReadOnlySequence<byte>>(seq, (_, state) => ArrayPool<byte>.Shared.Return((byte[])state!), arr);
         }
 
         void ThrowInvalidForType()
