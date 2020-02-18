@@ -12,6 +12,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "general", "general", "{CC88
 		.gitignore = .gitignore
 		Directory.Build.props = Directory.Build.props
 		global.json = global.json
+		README.md = README.md
+		version.json = version.json
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "external", "external", "{915F1DC8-890B-4C74-9C35-BC43F0406B55}"

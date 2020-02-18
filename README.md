@@ -27,7 +27,7 @@ using var reply = await client.ReceiveAsync();
 reply.Value.ThrowIfError();
 ```
 
-Notice in particular that the returned value from ``Receive[Async]` is not a `RespValue`, but a `Lifetime<RespValue>`; we
+Notice in particular that the returned value from `Receive[Async]` is not a `RespValue`, but a `Lifetime<RespValue>`; we
 use `Lifetime<T>` to indicate that the reply is "live" - it is directly referring to the input buffers as received from the
 network ("zero copy"), and so the receiver needs to indicate when they have finished looking at the data, so that the buffers can be
 recycled. For this reason, only a single live reply can be retained - additional attempts to call `Receive[Async]` will fail

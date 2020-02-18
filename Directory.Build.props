@@ -6,12 +6,13 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <AssemblyOriginatorKeyFile>RESPite.snk</AssemblyOriginatorKeyFile>
     <LangVersion>8.0</LangVersion>
+    <!--<NoWarn>NU5105</NoWarn>-->
     
     <PackageId>$(AssemblyName)</PackageId>
-    <!--<PackageReleaseNotes>...</PackageReleaseNotes>
-    <PackageProjectUrl>https://github.com/...</PackageProjectUrl>-->
+    <!--<PackageReleaseNotes>...</PackageReleaseNotes>-->
+    <PackageProjectUrl>https://github.com/mgravell/RESPite</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
-    <RepositoryUrl>https://github.com/mgravell/Bedrock.Resp</RepositoryUrl>
+    <RepositoryUrl>https://github.com/mgravell/RESPite</RepositoryUrl>
     <Deterministic>false</Deterministic>
     
     <DebugSymbols>true</DebugSymbols>
