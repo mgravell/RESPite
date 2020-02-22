@@ -68,6 +68,35 @@ namespace Respite
                 ? new Block<RespValue>(new RespValue(_state.Unwrap()))
                 : new Block<RespValue>(GetSubValues());
 
+        internal ReadOnlySequence<RespValue> GetSubValues()
+        {
+            switch (_state.Storage)
+            {
+                case StorageKind.ArraySegmentRespValue:
+                    return new ReadOnlySequence<RespValue>((RespValue[])_obj0!,
+                        _state.StartOffset, _state.Length);
+                case StorageKind.MemoryManagerRespValue:
+                    return new ReadOnlySequence<RespValue>(
+                        ((MemoryManager<RespValue>)_obj0!).Memory
+                            .Slice(_state.StartOffset, _state.Length));
+                case StorageKind.SequenceSegmentRespValue:
+                    return new ReadOnlySequence<RespValue>(
+                        (ReadOnlySequenceSegment<RespValue>)_obj0!,
+                        _state.StartOffset,
+                        (ReadOnlySequenceSegment<RespValue>)_obj1!,
+                        _state.EndOffset);
+                case StorageKind.InlinedDouble:
+                case StorageKind.InlinedInt64:
+                case StorageKind.InlinedUInt32:
+                case StorageKind.InlinedBytes:
+                    if (_state.CanUnwrap)
+                        ThrowHelper.Invalid("This aggregate must be accessed via " + nameof(_state.Unwrap));
+                    return default;
+                default:
+                    return default;
+            }
+        }
+
         private static Encoding ASCII => Encoding.ASCII;
         private static Encoding UTF8 => Encoding.UTF8;
 
@@ -227,13 +256,14 @@ namespace Respite
                 default:
                     var type = Type;
                     if (writer.Version < RespVersion.RESP3) type = writer.Downgrade(type);
-                    if (IsUnitAggregate(out var value))
+                    var items = SubItems;
+                    if (items.TryGetSingle(out var value))
                     {
-                        WriteUnitAggregate(ref writer, type, in value);
+                        WriteUnitAggregate(ref writer, type, value);
                     }
                     else
                     {
-                        WriteAggregate(ref writer, type, GetSubValues());
+                        WriteAggregate(ref writer, type, items);
                     }
                     break;
             }
@@ -256,123 +286,25 @@ namespace Respite
             //}
         }
 
-        internal int GetSubValueCount()
-        {
-            switch (_state.Storage)
-            {
-                case StorageKind.MemoryManagerRespValue:
-                case StorageKind.ArraySegmentRespValue:
-                    return _state.Length;
-                case StorageKind.SequenceSegmentRespValue:
-                    return checked((int)new ReadOnlySequence<RespValue>(
-                        (ReadOnlySequenceSegment<RespValue>)_obj0!,
-                        _state.StartOffset,
-                        (ReadOnlySequenceSegment<RespValue>)_obj1!,
-                        _state.EndOffset).Length);
-                case StorageKind.InlinedDouble:
-                case StorageKind.InlinedInt64:
-                case StorageKind.InlinedUInt32:
-                case StorageKind.InlinedBytes:
-                    return _state.SubType == RespType.Unknown ? 0 : 1;
-                default:
-                    return 0;
-            }
-        }
-        internal ReadOnlySequence<RespValue> GetSubValues()
-        {
-            switch (_state.Storage)
-            {
-                case StorageKind.ArraySegmentRespValue:
-                    return new ReadOnlySequence<RespValue>((RespValue[])_obj0!,
-                        _state.StartOffset, _state.Length);
-                case StorageKind.MemoryManagerRespValue:
-                    return new ReadOnlySequence<RespValue>(
-                        ((MemoryManager<RespValue>)_obj0!).Memory
-                            .Slice(_state.StartOffset, _state.Length));
-                case StorageKind.SequenceSegmentRespValue:
-                    return new ReadOnlySequence<RespValue>(
-                        (ReadOnlySequenceSegment<RespValue>)_obj0!,
-                        _state.StartOffset,
-                        (ReadOnlySequenceSegment<RespValue>)_obj1!,
-                        _state.EndOffset);
-                case StorageKind.InlinedDouble:
-                case StorageKind.InlinedInt64:
-                case StorageKind.InlinedUInt32:
-                case StorageKind.InlinedBytes:
-                    if (_state.SubType != RespType.Unknown)
-                        ThrowHelper.Invalid("This aggregate must be accessed via " + nameof(IsUnitAggregate));
-                    return default;
-                default:
-                    return default;
-            }
-        }
-
-        public bool IsUnitAggregate(out RespValue value)
-        {
-            if (GetAggregateArity(_state.Type) == 1)
-            {
-                switch (_state.Storage)
-                {
-                    case StorageKind.Empty:
-                    case StorageKind.Null:
-                        break;
-                    case StorageKind.ArraySegmentRespValue:
-                        if (_state.Length == 1)
-                        {
-                            value = ((RespValue[])_obj0!)[_state.StartOffset];
-                            return true;
-                        }
-                        break;
-                    case StorageKind.MemoryManagerRespValue:
-                        if (_state.Length == 1)
-                        {
-                            value = ((MemoryManager<RespValue>)_obj0!).GetSpan()[_state.StartOffset];
-                            return true;
-                        }
-                        break;
-                    case StorageKind.SequenceSegmentRespValue:
-                        var seq = new ReadOnlySequence<RespValue>(
-                            (ReadOnlySequenceSegment<RespValue>)_obj0!, _state.StartOffset,
-                            (ReadOnlySequenceSegment<RespValue>)_obj1!, _state.EndOffset);
-                        if (seq.Length == 1)
-                        {
-                            value = seq.FirstSpan[0];
-                            return true;
-                        }
-                        break;
-                    default:
-                        if (_state.IsInlined && _state.SubType != RespType.Unknown)
-                        {
-                            value = new RespValue(_state.Unwrap());
-                            return true;
-                        }
-                        break;
-                }
-            }
-            value = default;
-            return false;
-        }
-
-        private static void WriteAggregate(ref RespWriter writer, RespType aggregateType, ReadOnlySequence<RespValue> values)
+        private static void WriteAggregate(ref RespWriter writer, RespType aggregateType, in Block<RespValue> values)
         {
             // {type}{count}\r\n
             // {payload0}\r\n
             // {payload1}\r\n
             // {payload...}\r\n
             writer.Write(aggregateType);
-            writer.Write((ulong)(values.Length / GetAggregateArity(aggregateType)));
+            writer.Write((ulong)(values.Count / GetAggregateArity(aggregateType)));
             writer.WriteLine();
-            if (values.IsSingleSegment)
+            if (values.TryGetSingleSpan(out var span))
             {
-                foreach (ref readonly RespValue value in values.FirstSpan)
+                foreach (ref readonly RespValue value in span)
                     value.Write(ref writer);
             }
             else
             {
-                foreach (var segment in values)
+                foreach (var value in values)
                 {
-                    foreach (ref readonly RespValue value in segment.Span)
-                        value.Write(ref writer);
+                    value.Write(ref writer);
                 }
             }
         }

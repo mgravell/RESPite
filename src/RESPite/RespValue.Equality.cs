@@ -51,13 +51,33 @@ namespace Respite
         [MethodImpl(MethodImplOptions.NoInlining)]
         private bool CompareAggregate(in RespValue other)
         {
-            if (IsUnitAggregate(out var x))
-            {
-                return other.IsUnitAggregate(out var y) && x.Equals(y);
-            }
-            else if (other.IsUnitAggregate(out _)) return false;
+            var x = this.SubItems;
+            var y = other.SubItems;
+            if (x.Count != y.Count) return false;
+            if (x.IsEmpty) return true;
 
-            return SequenceEqual(GetSubValues(), other.GetSubValues());
+            if (x.TryGetSingle(out var xv) && y.TryGetSingle(out var yv))
+                return xv.Equals(yv);
+
+            if (x.TryGetSingleSpan(out var xs) && y.TryGetSingleSpan(out var ys))
+            {
+                for (int i = 0; i < xs.Length; i++)
+                {
+                    if (!xs[i].Equals(ys[i])) return false;
+                }
+                return true;
+            }
+
+            var ex = x.GetEnumerator();
+            var ey = y.GetEnumerator();
+            while (ex.MoveNext())
+            {
+                if (!ey.MoveNext()) return false;
+
+                if (!ex.Current.Equals(ey.Current)) return false;
+            }
+            if (ey.MoveNext()) return false;
+            return true;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

@@ -7,59 +7,81 @@ namespace Respite
     {
         private readonly T _value;
         private readonly ReadOnlySequence<T> _values;
+        public int Count { get; }
+        public bool IsEmpty => Count == 0;
+        public bool IsSequence => !_isSingle; // so that true for default
+        private readonly bool _isSingle;
+
         public Block(in T value)
         {
             _value = value;
             _values = default;
             Count = 1;
+            _isSingle = true;
         }
+
+        public bool TryGetSingle(out T value)
+        {
+            if (_isSingle)
+            {
+                value = _value;
+                return true;
+            }
+            else if (TryGetSingleSpan(out var span) && span.Length == 1)
+            {
+                value = span[0];
+                return true;
+            }
+            value = default!;
+            return false;
+        }
+
+        public bool TryGetSingleSpan(out ReadOnlySpan<T> span)
+        {
+            if (IsSequence && _values.IsSingleSegment)
+            {
+                span = _values.FirstSpan;
+                return true;
+            }
+            span = default;
+            return false;
+        }
+
         public Block(ReadOnlyMemory<T> values)
         {
-            Count = values.Length;
-            switch(Count)
+            if (values.IsEmpty)
             {
-                case 0:
-                    _values = default;
-                    _value = default!;
-                    break;
-                case 1:
-                    _values = default;
-                    _value = values.Span[0];
-                    break;
-                default:
-                    _values = new ReadOnlySequence<T>(values);
-                    _value = default!;
-                    break;
+                this = default;
+            }
+            else
+            {
+                Count = values.Length;
+                _isSingle = false;
+                _values = new ReadOnlySequence<T>(values);
+                _value = default!;
             }
         }
 
-        public Block(ReadOnlySequence<T> values)
+        public Block(in ReadOnlySequence<T> values)
         {
-            if (values.IsSingleSegment)
+            if (values.IsEmpty)
             {
-                this = new Block<T>(values.First);
+                this = default;
             }
             else
             {
                 Count = checked((int)values.Length);
+                _isSingle = false;
                 _values = values;
                 _value = default!;
             }
         }
 
-        public int Count { get; }
-
         public Enumerator GetEnumerator()
         {
-            switch(Count)
-            {
-                case 0: return default;
-                case 1: return new Enumerator(_value);
-                default:
-                    return _values.IsSingleSegment
-                        ? new Enumerator(_values.FirstSpan)
-                        : new Enumerator(_values);
-            }
+            if (_isSingle) return new Enumerator(_value);
+            if (TryGetSingleSpan(out var span)) return new Enumerator(span);
+            return new Enumerator(_values);
         }
 
         public ref struct Enumerator
