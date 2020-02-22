@@ -33,7 +33,7 @@ namespace Respite
 
     internal enum StorageKind : byte
     {
-        Unknown,
+        Uninitialized,
         Null,
         Empty,
         InlinedBytes, // overlapped = payload, aux = length
@@ -63,6 +63,8 @@ namespace Respite
 
         public RespType Type => _state.Type;
 
+        public RespValueItems SubItems => new RespValueItems(in this);
+
         private static Encoding ASCII => Encoding.ASCII;
         private static Encoding UTF8 => Encoding.UTF8;
 
@@ -85,7 +87,7 @@ namespace Respite
                 if (bytes.IsSingleSegment)
                     return UTF8.GetString(bytes.First.Span);
             }
-            
+
             switch (_state.Storage)
             {
                 case StorageKind.Empty:
@@ -251,13 +253,32 @@ namespace Respite
             //}
         }
 
-        public ReadOnlySequence<RespValue> GetSubValues()
+        internal int GetSubValueCount()
         {
             switch (_state.Storage)
             {
-                case StorageKind.Null:
-                case StorageKind.Empty:
-                    return default;
+                case StorageKind.MemoryManagerRespValue:
+                case StorageKind.ArraySegmentRespValue:
+                    return _state.Length;
+                case StorageKind.SequenceSegmentRespValue:
+                    return checked((int)new ReadOnlySequence<RespValue>(
+                        (ReadOnlySequenceSegment<RespValue>)_obj0!,
+                        _state.StartOffset,
+                        (ReadOnlySequenceSegment<RespValue>)_obj1!,
+                        _state.EndOffset).Length);
+                case StorageKind.InlinedDouble:
+                case StorageKind.InlinedInt64:
+                case StorageKind.InlinedUInt32:
+                case StorageKind.InlinedBytes:
+                    return _state.SubType == RespType.Unknown ? 0 : 1;
+                default:
+                    return 0;
+            }
+        }
+        internal ReadOnlySequence<RespValue> GetSubValues()
+        {
+            switch (_state.Storage)
+            {
                 case StorageKind.ArraySegmentRespValue:
                     return new ReadOnlySequence<RespValue>((RespValue[])_obj0!,
                         _state.StartOffset, _state.Length);
@@ -271,12 +292,14 @@ namespace Respite
                         _state.StartOffset,
                         (ReadOnlySequenceSegment<RespValue>)_obj1!,
                         _state.EndOffset);
-                default:
-                    if (_state.IsInlined && _state.SubType != RespType.Unknown)
-                    {
+                case StorageKind.InlinedDouble:
+                case StorageKind.InlinedInt64:
+                case StorageKind.InlinedUInt32:
+                case StorageKind.InlinedBytes:
+                    if (_state.SubType != RespType.Unknown)
                         ThrowHelper.Invalid("This aggregate must be accessed via " + nameof(IsUnitAggregate));
-                    }
-                    ThrowHelper.StorageKindNotImplemented(_state.Storage);
+                    return default;
+                default:
                     return default;
             }
         }
@@ -535,7 +558,7 @@ namespace Respite
                 return count;
             }
         }
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static bool IsBlob(RespType type)
         {
@@ -646,7 +669,7 @@ namespace Respite
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ThrowIfError()
         {
-            switch(Type)
+            switch (Type)
             {
                 case RespType.BlobError:
                 case RespType.SimpleError:
@@ -734,7 +757,7 @@ namespace Respite
                 {
                     if (TryParse(ref input, out var unary))
                     {
-                        if (unary._state.IsInlined && unary._state.SubType == RespType.Unknown)
+                        if (unary._state.CanWrap)
                         {
                             message = new RespValue(unary._state.Wrap(type));
                         }
@@ -859,6 +882,8 @@ namespace Respite
             if (values.Length == 0) return new RespValue(new State(type, StorageKind.Empty, 0, 0));
 
             if ((values.Length % arity) != 0) ThrowHelper.Argument(nameof(values));
+            if (values.Length == 1 && values[0]._state.CanWrap) return new RespValue(values[0]._state.Wrap(type));
+
             return new RespValue(new State(type, StorageKind.ArraySegmentRespValue, 0, values.Length), values);
         }
 
@@ -902,7 +927,7 @@ namespace Respite
         [MethodImpl(MethodImplOptions.NoInlining)]
         private RespValue PreserveSlow()
         {
-            switch(_state.Storage)
+            switch (_state.Storage)
             {
                 case StorageKind.StringSegment:
                 case StorageKind.Utf8StringSegment:
