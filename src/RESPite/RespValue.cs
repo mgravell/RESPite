@@ -63,7 +63,10 @@ namespace Respite
 
         public RespType Type => _state.Type;
 
-        public RespValueItems SubItems => new RespValueItems(in this);
+        public Block<RespValue> SubItems
+            => _state.CanUnwrap
+                ? new Block<RespValue>(new RespValue(_state.Unwrap()))
+                : new Block<RespValue>(GetSubValues());
 
         private static Encoding ASCII => Encoding.ASCII;
         private static Encoding UTF8 => Encoding.UTF8;
@@ -303,6 +306,7 @@ namespace Respite
                     return default;
             }
         }
+
         public bool IsUnitAggregate(out RespValue value)
         {
             if (GetAggregateArity(_state.Type) == 1)

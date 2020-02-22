@@ -135,6 +135,7 @@ namespace Respite
             }
 
             internal bool CanWrap => IsInlined && SubType == RespType.Unknown;
+            internal bool CanUnwrap => IsInlined && SubType != RespType.Unknown;
         }
     }
 }

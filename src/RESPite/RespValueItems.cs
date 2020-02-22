@@ -3,39 +3,89 @@ using System.Buffers;
 
 namespace Respite
 {
-    public readonly struct RespValueItems
+    public readonly struct Block<T>
     {
-        private readonly RespValue _parent;
-        internal RespValueItems(in RespValue parent)
+        private readonly T _value;
+        private readonly ReadOnlySequence<T> _values;
+        public Block(in T value)
         {
-            _parent = parent;
+            _value = value;
+            _values = default;
+            Count = 1;
+        }
+        public Block(ReadOnlyMemory<T> values)
+        {
+            Count = values.Length;
+            switch(Count)
+            {
+                case 0:
+                    _values = default;
+                    _value = default!;
+                    break;
+                case 1:
+                    _values = default;
+                    _value = values.Span[0];
+                    break;
+                default:
+                    _values = new ReadOnlySequence<T>(values);
+                    _value = default!;
+                    break;
+            }
         }
 
-        public int Count => _parent.GetSubValueCount();
+        public Block(ReadOnlySequence<T> values)
+        {
+            if (values.IsSingleSegment)
+            {
+                this = new Block<T>(values.First);
+            }
+            else
+            {
+                Count = checked((int)values.Length);
+                _values = values;
+                _value = default!;
+            }
+        }
+
+        public int Count { get; }
 
         public Enumerator GetEnumerator()
         {
-            if (_parent.IsUnitAggregate(out var value))
-                return new Enumerator(value);
-            return new Enumerator(_parent.GetSubValues());
+            switch(Count)
+            {
+                case 0: return default;
+                case 1: return new Enumerator(_value);
+                default:
+                    return _values.IsSingleSegment
+                        ? new Enumerator(_values.FirstSpan)
+                        : new Enumerator(_values);
+            }
         }
+
         public ref struct Enumerator
         {
             const int INDEX_SINGLE_PRE = -1;
             private int _nextIndex;
-            private ReadOnlySpan<RespValue> _span;
-            private ReadOnlySequence<RespValue>.Enumerator _seqEnumerator;
-            public RespValue Current { get; private set; }
-            internal Enumerator(in RespValue current)
+            private ReadOnlySpan<T> _span;
+            private ReadOnlySequence<T>.Enumerator _seqEnumerator;
+            public T Current { get; private set; }
+            public Enumerator(in T value)
             {
-                Current = current;
+                Current = value;
                 _nextIndex = INDEX_SINGLE_PRE;
                 _seqEnumerator = default;
                 _span = default;
             }
-            internal Enumerator(ReadOnlySequence<RespValue> values)
+            public Enumerator(ReadOnlySpan<T> values)
             {
-                Current = default;
+                Current = default!;
+                _nextIndex = 0;
+                _seqEnumerator = default;
+                _span = values;
+            }
+            internal Enumerator(in ReadOnlySequence<T> values)
+            {
+                Current = default!;
                 _nextIndex = 0;
                 _seqEnumerator = values.GetEnumerator();
                 _span = default;
@@ -62,7 +112,7 @@ namespace Respite
                         return true;
                     }
                 }
-                Current = default;
+                Current = default!;
                 return false;
             }
         }
