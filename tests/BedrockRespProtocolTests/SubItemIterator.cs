@@ -59,7 +59,7 @@ namespace BedrockRespProtocolTests
         [InlineData(1)]
         [InlineData(2)]
         [InlineData(42)]
-        public void Arrays(int count)
+        public void IntegerArrays(int count)
         {
             var arr = new RespValue[count];
             for (int i = 0; i < arr.Length; i++)
@@ -67,6 +67,29 @@ namespace BedrockRespProtocolTests
             var value = RespValue.CreateAggregate(RespType.Array, arr);
             Assert.Equal(count, value.SubItems.Count);
             Assert.Equal(count, Count(value));
+
+            int expected = 0;
+            foreach (var subValue in value.SubItems)
+                Assert.Equal(expected++, subValue);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(42)]
+        public void StringArrays(int count)
+        {
+            var arr = new RespValue[count];
+            for (int i = 0; i < arr.Length; i++)
+                arr[i] = new string('a',  i);
+            var value = RespValue.CreateAggregate(RespType.Array, arr);
+            Assert.Equal(count, value.SubItems.Count);
+            Assert.Equal(count, Count(value));
+
+            int expected = 0;
+            foreach (var subValue in value.SubItems)
+                Assert.Equal(new string('a', expected++), subValue);
         }
     }
 }
