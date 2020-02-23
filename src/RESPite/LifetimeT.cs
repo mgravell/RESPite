@@ -1,7 +1,30 @@
 ﻿using System;
+using System.Buffers;
 
 namespace Respite
 {
+    public static class Lifetime
+    {
+        private static class Cache<T>
+        {
+            public static readonly Action<Memory<T>, object?> ReturnToArrayPool =
+                (_, state) => ArrayPool<T>.Shared.Return((T[])state!);
+        }
+
+        public static Lifetime<Memory<T>> RentMemory<T>(int length)
+        {
+            var arr = ArrayPool<T>.Shared.Rent(length);
+            var buffer = new Memory<T>(arr, 0, length);
+            return new Lifetime<Memory<T>>(buffer, Cache<T>.ReturnToArrayPool, arr);
+        }
+        internal static Lifetime<ReadOnlySequence<byte>> RentSequence(int length, out Span<byte> buffer)
+        {
+            var arr = ArrayPool<byte>.Shared.Rent(length);
+            buffer = new Span<byte>(arr, 0, length);
+            var seq = new ReadOnlySequence<byte>(arr, 0, length);
+            return new Lifetime<ReadOnlySequence<byte>>(seq, (_, state) => ArrayPool<byte>.Shared.Return((byte[])state!), arr);
+        }
+    }
     public readonly struct Lifetime<T> : IDisposable
     {
         private static readonly Action<T, object?> s_StateAsAction = (value, state) => ((Action<T>?)state)?.Invoke(value);

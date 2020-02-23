@@ -2,6 +2,7 @@
 using System;
 using System.Buffers;
 using System.Buffers.Text;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace Respite
@@ -120,8 +121,102 @@ namespace Respite
             throw new NotImplementedException();
         }
 
+        public long GetByteCount()
+        {
+            switch (_state.Storage)
+            {
+                case StorageKind.Uninitialized:
+                case StorageKind.Null:
+                case StorageKind.Empty:
+                case StorageKind.ArraySegmentRespValue:
+                case StorageKind.MemoryManagerRespValue:
+                case StorageKind.SequenceSegmentRespValue:
+                    return 0;
+                case StorageKind.Utf8StringSegment:
+                case StorageKind.MemoryManagerByte:
+                case StorageKind.ArraySegmentByte:
+                    return _state.Length;
+                case StorageKind.SequenceSegmentByte:
+                    if (!TryGetBytes(out var bytes)) break;
+                    return (int)bytes.Length;
+                case StorageKind.StringSegment:
+                case StorageKind.ArraySegmentChar:
+                case StorageKind.MemoryManagerChar:
+                case StorageKind.SequenceSegmentChar:
+                    if (!TryGetChars(out var chars)) break;
+                    return CountUtf8(chars);
+                case StorageKind.InlinedBytes:
+                    return _state.PayloadLength;
+                case StorageKind.InlinedDouble:
+                case StorageKind.InlinedInt64:
+                case StorageKind.InlinedUInt32:
+                    Span<byte> tmp = stackalloc byte[32];
+                    return WriteInlineValue(tmp);
+                    //case StorageKind.InlinedDouble:
+                    //    // this needs to be large because of RESP3
+                    //    // disallowing exponential format
+                    //    // see: https://github.com/antirez/RESP3/issues/37
+                    //    tmp = stackalloc byte[320];
+                    //    return WriteInlineValue(tmp);
+            }
+            ThrowHelper.StorageKindNotImplemented(_state.Storage);
+            return 0;
+        }
+
+        public int CopyTo(Span<byte> destination)
+        {
+            switch (_state.Storage)
+            {
+                case StorageKind.Uninitialized:
+                case StorageKind.Null:
+                case StorageKind.Empty:
+                case StorageKind.ArraySegmentRespValue:
+                case StorageKind.MemoryManagerRespValue:
+                case StorageKind.SequenceSegmentRespValue:
+                    return 0;
+                case StorageKind.Utf8StringSegment:
+                case StorageKind.MemoryManagerByte:
+                case StorageKind.ArraySegmentByte:
+                case StorageKind.SequenceSegmentByte:
+                    if (!TryGetBytes(out var bytes)) break;
+                    bytes.CopyTo(destination);
+                    return (int)bytes.Length;
+                case StorageKind.StringSegment:
+                case StorageKind.ArraySegmentChar:
+                case StorageKind.MemoryManagerChar:
+                case StorageKind.SequenceSegmentChar:
+                    if (!TryGetChars(out var chars)) break;
+                    return EncodeUtf8(chars, destination);
+                case StorageKind.InlinedBytes:
+                case StorageKind.InlinedDouble:
+                case StorageKind.InlinedInt64:
+                case StorageKind.InlinedUInt32:
+                    return WriteInlineValue(destination);
+            }
+            ThrowHelper.StorageKindNotImplemented(_state.Storage);
+            return 0;
+        }
+
+        private int WriteInlineValue(Span<byte> destination)
+        {
+            switch (_state.Storage)
+            {
+                case StorageKind.InlinedDouble:
+                    return RespWriter.Write(_state.Double, destination);
+                case StorageKind.InlinedInt64:
+                    return RespWriter.Write(_state.Int64, destination);
+                case StorageKind.InlinedUInt32:
+                    return RespWriter.Write(_state.UInt32, destination);
+                case StorageKind.InlinedBytes:
+                    _state.AsSpan().CopyTo(destination);
+                    return _state.PayloadLength;
+            }
+            ThrowHelper.StorageKindNotImplemented(_state.Storage);
+            return 0;
+        }
+
         private bool TryGetBytes(out ReadOnlySequence<byte> bytes)
-        { 
+        {
             switch (_state.Storage)
             {
                 case StorageKind.Null:
@@ -129,7 +224,7 @@ namespace Respite
                     bytes = default;
                     return true;
                 //case StorageKind.Utf8StringSegment:
-                    // TODO
+                // TODO
                 case StorageKind.ArraySegmentByte:
                     bytes = new ReadOnlySequence<byte>((byte[])_obj0!,
                         _state.StartOffset, _state.Length);
@@ -190,59 +285,11 @@ namespace Respite
             {
                 return bytes;
             }
-            if (TryGetChars(out var chars))
-            {
-                return Encode(chars);
-            }
-            switch (_state.Storage)
-            {
-                case StorageKind.InlinedBytes:
-                    var lifetime = Rent(_state.PayloadLength, out var buffer);
-                    _state.AsSpan().CopyTo(buffer);
-                    return lifetime;
-                case StorageKind.InlinedInt64:
-                    lifetime = Rent(20, out buffer);
-                    if (!Utf8Formatter.TryFormat(_state.Int64, buffer, out var len))
-                        ThrowHelper.Format();
-                    return lifetime.WithValue(lifetime.Value.Slice(0, len));
-                case StorageKind.InlinedUInt32:
-                    lifetime = Rent(20, out buffer);
-                    if (!Utf8Formatter.TryFormat(_state.UInt32, buffer, out len))
-                        ThrowHelper.Format();
-                    return lifetime.WithValue(lifetime.Value.Slice(0, len));
-                case StorageKind.InlinedDouble:
-                    lifetime = Rent(64, out buffer);
-                    if (!Utf8Formatter.TryFormat(_state.Double, buffer, out len))
-                        ThrowHelper.Format();
-                    return lifetime.WithValue(lifetime.Value.Slice(0, len));
-                default:
-                    ThrowHelper.StorageKindNotImplemented(_state.Storage);
-                    return default;
-            }
-
-            static Lifetime<ReadOnlySequence<byte>> Encode(in ReadOnlySequence<char> chars)
-            {
-                if (chars.IsEmpty) return default;
-                int len = 0;
-                foreach(var block in chars)
-                {
-                    len += UTF8.GetByteCount(block.Span);
-                }
-                var lifetime = Rent(len, out var buffer);
-                foreach (var block in chars)
-                {
-                    buffer = buffer.Slice(UTF8.GetBytes(block.Span, buffer));
-                }   
-                return lifetime;
-            }
-        }
-
-        static Lifetime<ReadOnlySequence<byte>> Rent(int length, out Span<byte> buffer)
-        {
-            var arr = ArrayPool<byte>.Shared.Rent(length);
-            buffer = new Span<byte>(arr, 0, length);
-            var seq = new ReadOnlySequence<byte>(arr, 0, length);
-            return new Lifetime<ReadOnlySequence<byte>>(seq, (_, state) => ArrayPool<byte>.Shared.Return((byte[])state!), arr);
+            var expected = checked((int)GetByteCount());
+            var lifetime = Lifetime.RentSequence(expected, out var buffer);
+            var actual = CopyTo(buffer);
+            Debug.Assert(actual == expected, "length calculation mismatch");
+            return lifetime;
         }
 
         void ThrowInvalidForType()

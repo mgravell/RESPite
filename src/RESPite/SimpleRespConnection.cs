@@ -104,7 +104,7 @@ namespace Respite
             }
         }
 
-        private ValueTask FlushAsync(ReadOnlySequence<byte> payload, CancellationToken cancellationToken)
+        private ValueTask FlushAsync(in ReadOnlySequence<byte> payload, CancellationToken cancellationToken)
         {
             if (payload.IsSingleSegment)
             {

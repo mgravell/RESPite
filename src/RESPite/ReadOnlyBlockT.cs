@@ -3,7 +3,7 @@ using System.Buffers;
 
 namespace Respite
 {
-    public readonly struct Block<T>
+    public readonly struct ReadOnlyBlock<T>
     {
         private readonly T _value;
         private readonly ReadOnlySequence<T> _values;
@@ -12,7 +12,7 @@ namespace Respite
         public bool IsSequence => !_isSingle; // so that true for default
         private readonly bool _isSingle;
 
-        public Block(in T value)
+        public ReadOnlyBlock(in T value)
         {
             _value = value;
             _values = default;
@@ -47,7 +47,7 @@ namespace Respite
             return false;
         }
 
-        public Block(ReadOnlyMemory<T> values)
+        public ReadOnlyBlock(ReadOnlyMemory<T> values)
         {
             if (values.IsEmpty)
             {
@@ -62,7 +62,7 @@ namespace Respite
             }
         }
 
-        public Block(in ReadOnlySequence<T> values)
+        public ReadOnlyBlock(in ReadOnlySequence<T> values)
         {
             if (values.IsEmpty)
             {

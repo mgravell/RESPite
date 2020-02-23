@@ -63,10 +63,10 @@ namespace Respite
 
         public RespType Type => _state.Type;
 
-        public Block<RespValue> SubItems
+        public ReadOnlyBlock<RespValue> SubItems
             => _state.CanUnwrap
-                ? new Block<RespValue>(new RespValue(_state.Unwrap()))
-                : new Block<RespValue>(GetSubValues());
+                ? new ReadOnlyBlock<RespValue>(new RespValue(_state.Unwrap()))
+                : new ReadOnlyBlock<RespValue>(GetSubValues());
 
         internal ReadOnlySequence<RespValue> GetSubValues()
         {
@@ -180,7 +180,7 @@ namespace Respite
             }
         }
 
-        private static RespValue Create(RespType type, ReadOnlySequence<byte> payload)
+        public static RespValue Create(RespType type, in ReadOnlySequence<byte> payload)
         {
             var len = payload.Length;
             if (len == 0)
@@ -286,7 +286,7 @@ namespace Respite
             //}
         }
 
-        private static void WriteAggregate(ref RespWriter writer, RespType aggregateType, in Block<RespValue> values)
+        private static void WriteAggregate(ref RespWriter writer, RespType aggregateType, in ReadOnlyBlock<RespValue> values)
         {
             // {type}{count}\r\n
             // {payload0}\r\n
@@ -480,7 +480,26 @@ namespace Respite
                 writer.WriteLine();
             }
         }
-        long CountUtf8(in ReadOnlySequence<char> payload)
+
+        static int EncodeUtf8(in ReadOnlySequence<char> source, Span<byte> destination)
+        {
+            return source.IsSingleSegment
+                ? UTF8.GetBytes(source.FirstSpan, destination)
+                : Slow(source, destination);
+            
+            static int Slow(in ReadOnlySequence<char> source, Span<byte> destination)
+            {
+                int total = 0;
+                foreach (var segment in source)
+                {
+                    int count = UTF8.GetBytes(segment.Span, destination);
+                    destination = destination.Slice(count);
+                    total += count;
+                }
+                return total;
+            }
+        }
+        static long CountUtf8(in ReadOnlySequence<char> payload)
         {
             if (payload.IsSingleSegment)
             {

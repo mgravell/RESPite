@@ -159,6 +159,15 @@ namespace Respite.Internal
             if (Utf8Formatter.TryFormat(value, _currentSpan, out var bytes)) Commit(bytes);
             else SlowWrite(value);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Write(uint value, Span<byte> destination)
+        {
+            if (!Utf8Formatter.TryFormat(value, destination, out var bytes))
+                ThrowHelper.Format();
+            return bytes;
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void SlowWrite(uint value)
         {
@@ -174,6 +183,15 @@ namespace Respite.Internal
             if (Utf8Formatter.TryFormat(value, _currentSpan, out var bytes)) Commit(bytes);
             else SlowWrite(value);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Write(long value, Span<byte> destination)
+        {
+            if (!Utf8Formatter.TryFormat(value, destination, out var bytes))
+                ThrowHelper.Format();
+            return bytes;
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void SlowWrite(long value)
         {
@@ -186,14 +204,25 @@ namespace Respite.Internal
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(double value)
         {
-            if (Utf8Formatter.TryFormat(value, _currentSpan, out var bytes)) Commit(bytes);
+            if (Utf8Formatter.TryFormat(value, _currentSpan, out var bytes, s_DoubleFormat)) Commit(bytes);
             else SlowWrite(value);
         }
+
+        private static readonly StandardFormat s_DoubleFormat
+            = new StandardFormat('G', 17);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Write(double value, Span<byte> destination)
+        {
+            if (!Utf8Formatter.TryFormat(value, destination, out var bytes, s_DoubleFormat))
+                ThrowHelper.Format();
+            return bytes;
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void SlowWrite(double value)
         {
             Flush();
-            if (!Utf8Formatter.TryFormat(value, _currentSpan, out var bytes))
+            if (!Utf8Formatter.TryFormat(value, _currentSpan, out var bytes, s_DoubleFormat))
                 ThrowHelper.Format();
             Commit(bytes);
         }
