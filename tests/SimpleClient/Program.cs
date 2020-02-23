@@ -7,6 +7,7 @@ using Respite.Redis;
 using StackExchange.Redis;
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -25,17 +26,59 @@ namespace SimpleClient
         {
             using var redis = await RedisConnection.ConnectAsync(ServerEndpoint);
 
+            // bump the server into RESP 3
+            Dump(await redis.CallAsync("hello", 3));
 
-
+            // simple list
             await redis.CallAsync("del", "foo");
             await redis.CallAsync("lpush", "foo", 123);
             await redis.CallAsync("lpush", "foo", 456);
-            Console.WriteLine(await redis.CallAsync("llen", "foo"));
-            var arr = (object[]) await redis.CallAsync("lrange", "foo", 0, -1);
-            foreach (var obj in arr)
-                Console.WriteLine(obj);
+            Dump(await redis.CallAsync("llen", "foo"));
+            Dump(await redis.CallAsync("lrange", "foo", 0, -1));
 
+            // counter (note: to redis this is still a string)
+            await redis.CallAsync("del", "counter");
+            await redis.CallAsync("incrbyfloat", "counter", 42.5);
+            await redis.CallAsync("incrbyfloat", "counter", -3);
+            Dump(await redis.CallAsync("get", "counter"));
+
+            // map; note this behaves differently between RESPs
+            await redis.CallAsync("del", "bar");
+            await redis.CallAsync("hset", "bar", "name", "Marc", "shoe-size", 10);
+            Dump(await redis.CallAsync("hgetall", "bar"));
         }
+
+        private static void Dump(object obj, string prefix = "")
+        {
+            switch (obj)
+            {
+                case null:
+                    Console.WriteLine($"{prefix}(null)");
+                    break;
+                case object[] arr:
+                    Console.WriteLine($"{prefix}array [{arr.Length}]");
+                    foreach (var el in arr) Dump(el, "> " + prefix);
+                    break;
+                case ISet<object> set:
+                    Console.WriteLine($"{prefix}set [{set.Count}]");
+                    foreach (var el in set) Dump(el, "> " + prefix);
+                    break;
+                case IDictionary<object,object> map:
+                    Console.WriteLine($"{prefix}map [{map.Count}]");
+                    foreach (var pair in map)
+                    {
+                        Dump(pair.Key, $"{prefix}(key)> ");
+                        Dump(pair.Value, $"{prefix}(val)> ");
+                    }
+                    break;
+                default:
+                    Console.WriteLine($"{prefix}{obj} ({obj.GetType().Name})");
+                    break;
+            }
+            if (string.IsNullOrEmpty(prefix))
+                Console.WriteLine();
+        }
+
 
 #pragma warning disable IDE0051 // Remove unused private members
         static void Main2()
@@ -85,7 +128,7 @@ namespace SimpleClient
                 socket.Connect(ServerEndpoint);
                 var connection = asNetworkStream ? RespConnection.Create(new NetworkStream(socket)) : RespConnection.Create(socket);
                 // connection.Ping();
-                
+
                 clients[i] = connection;
             }
 
@@ -260,7 +303,7 @@ namespace SimpleClient
             await Task.WhenAll(tasks);
             timer.Stop();
             Log("async", timer.Elapsed, totalPings, payload);
-            
+
             var threads = new Thread[clientCount];
 #pragma warning disable IDE0039 // Use local function
             ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, pipelineDepth, payload);
@@ -344,7 +387,7 @@ namespace SimpleClient
                 EndPoints = { ServerEndpoint }
             });
             var db = muxer.GetDatabase();
-            
+
             var tasks = new Task[workers];
             Stopwatch timer = Stopwatch.StartNew();
             for (int i = 0; i < tasks.Length; i++)
