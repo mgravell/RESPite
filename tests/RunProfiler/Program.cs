@@ -6,12 +6,12 @@ using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
 using Respite;
-using Respite.Redis;
 using Respite.Bedrock;
 using StackExchange.Redis;
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace RunProfiler
@@ -38,15 +38,35 @@ public class RedisPingPong : IAsyncDisposable
 
     [BenchmarkCategory("Async")]
     [Benchmark(Description = nameof(Bedrock))]
-    public Task BedrockAsync() => _bedrock.PingAsync().AsTask();
+    public Task BedrockAsync() => PingAsync(_bedrock);
 
     [BenchmarkCategory("Async")]
     [Benchmark(Description = nameof(Socket))]
-    public Task SocketAsync() => _socket.PingAsync().AsTask();
+    public Task SocketAsync() => PingAsync(_socket);
 
     [BenchmarkCategory("Async")]
     [Benchmark(Description = nameof(Stream))]
-    public Task StreamAsync() => _stream.PingAsync().AsTask();
+    public Task StreamAsync() => PingAsync(_stream);
+
+    static readonly RespValue
+        s_ping = RespValue.CreateAggregate(RespType.Array, "PING"),
+        s_pong = RespValue.Create(RespType.SimpleString, "PONG");
+
+    static Task PingAsync(RespConnection connection)
+        => connection.CallAsync(s_ping, resp =>
+        {
+            resp.ThrowIfError();
+            if (!resp.Equals(s_pong)) Throw();
+        }).AsTask();
+    static void Ping(RespConnection connection)
+        => connection.Call(s_ping, resp =>
+        {
+            resp.ThrowIfError();
+            if (!resp.Equals(s_pong)) Throw();
+        });
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void Throw() => throw new InvalidOperationException();
 
     [BenchmarkCategory("Sync")]
     [Benchmark(Baseline = true)]
@@ -54,15 +74,15 @@ public class RedisPingPong : IAsyncDisposable
 
     [BenchmarkCategory("Sync")]
     [Benchmark]
-    public void Bedrock() => _bedrock.Ping();
+    public void Bedrock() => Ping(_bedrock);
 
     [BenchmarkCategory("Sync")]
     [Benchmark]
-    public void Socket() => _socket.Ping();
+    public void Socket() => Ping(_socket);
 
     [BenchmarkCategory("Sync")]
     [Benchmark]
-    public void Stream() => _stream.Ping();
+    public void Stream() => Ping(_stream);
 
 
     public ValueTask DisposeAsync()

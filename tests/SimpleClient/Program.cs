@@ -46,7 +46,7 @@ namespace SimpleClient
         {
             const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
 
-            var payload = "abc"; //  new string('a', 2048);
+            string payload = null; // "abc"; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
             {
                 await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
@@ -75,11 +75,20 @@ namespace SimpleClient
 
         }
 
+
+        static readonly RespValue
+            s_ping = RespValue.CreateAggregate(RespType.Array, "PING"),
+            s_pong = RespValue.Create(RespType.SimpleString, "PONG");
+
         static async Task RunClientAsync(RespConnection client, int pingsPerClient, int pipelineDepth, string payload)
         {
             var frame = string.IsNullOrEmpty(payload)
-                ? RespValue.Ping
-                : RespValue.CreateAggregate(RespType.Array, "ping", payload);
+                ? s_ping
+                : RespValue.CreateAggregate(RespType.Array, "PING", payload);
+            var expected = string.IsNullOrEmpty(payload)
+                ? s_pong
+                : RespValue.Create(RespType.BlobString, payload);
+
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)
@@ -87,6 +96,8 @@ namespace SimpleClient
                     await client.SendAsync(frame).ConfigureAwait(false);
                     using var result = await client.ReceiveAsync().ConfigureAwait(false);
                     result.Value.ThrowIfError();
+
+                    if (!result.Value.Equals(expected)) Throw();
                     // await client.PingAsync();
                 }
             }
@@ -96,10 +107,14 @@ namespace SimpleClient
                 for (int i = 0; i < pingsPerClient; i++)
                 {
                     using var batch = await client.BatchAsync(frames.Value).ConfigureAwait(false);
-                    CheckBatchForErrors(batch.Value);
+                    CheckBatchForErrors(batch.Value, expected);
                 }
             }
         }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void Throw() => throw new InvalidOperationException();
+
         static async Task RunClientAsync(IDatabase client, int pingsPerClient, int pipelineDepth, object[] args)
         {
             for (int i = 0; i < pingsPerClient; i++)
@@ -129,8 +144,11 @@ namespace SimpleClient
         static void RunClient(RespConnection client, int pingsPerClient, int pipelineDepth, string payload)
         {
             var frame = string.IsNullOrEmpty(payload)
-                ? RespValue.Ping
+                ? s_ping
                 : RespValue.CreateAggregate(RespType.Array, "ping", payload);
+            var expected = string.IsNullOrEmpty(payload)
+                ? s_pong
+                : RespValue.Create(RespType.BlobString, payload);
             if (pipelineDepth == 1)
             {
                 for (int i = 0; i < pingsPerClient; i++)
@@ -138,6 +156,8 @@ namespace SimpleClient
                     client.Send(frame);
                     using var result = client.Receive();
                     result.Value.ThrowIfError();
+
+                    if (!result.Value.Equals(expected)) Throw();
                     // client.Ping();
                 }
             }
@@ -147,14 +167,18 @@ namespace SimpleClient
                 for (int i = 0; i < pingsPerClient; i++)
                 {
                     using var batch = client.Batch(frames.Value);
-                    CheckBatchForErrors(batch.Value);
+                    CheckBatchForErrors(batch.Value, expected);
                 }
             }
         }
 
-        static void CheckBatchForErrors(ReadOnlyMemory<RespValue> values)
+        static void CheckBatchForErrors(ReadOnlyMemory<RespValue> values, in RespValue expected)
         {
-            foreach (var value in values.Span) value.ThrowIfError();
+            foreach (var value in values.Span)
+            {
+                value.ThrowIfError();
+                if (!value.Equals(expected)) Throw();
+            }
         }
         static void RunClient(IDatabase client, int pingsPerClient, int pipelineDepth, object[] args)
         {
@@ -187,7 +211,7 @@ namespace SimpleClient
 
         static void Log(string label, TimeSpan elapsed, long count, string payload)
         {
-            var MiB = (count * 2 * Encoding.UTF8.GetByteCount(payload)) / (double)(1024 * 1024);
+            var MiB = (count * 2 * Encoding.UTF8.GetByteCount(payload ?? "")) / (double)(1024 * 1024);
             Console.WriteLine($"{label}: {(int)elapsed.TotalMilliseconds}ms, {count / elapsed.TotalSeconds:###,##0} ops/s, {MiB / elapsed.TotalSeconds:###,##0.00} MiB/s");
         }
 
@@ -204,7 +228,7 @@ namespace SimpleClient
             Console.WriteLine();
             Console.WriteLine(caller);
             Console.WriteLine($"{clientCount} clients, {pingsPerClient}x{pipelineDepth} pings each, total {totalPings}");
-            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload)} bytes");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload ?? "")} bytes");
 
             var clients = CreateClients(clientCount, asNetworkStream);
             await RunClientAsync(clients[0], 1, pipelineDepth, payload);
@@ -244,7 +268,7 @@ namespace SimpleClient
             Console.WriteLine();
             Console.WriteLine(Me());
             Console.WriteLine($"{clientCount} clients, {pingsPerClient}x{pipelineDepth} pings each, total {totalPings}");
-            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload)} bytes");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload ?? "")} bytes");
             var clients = new RespBedrockProtocol[clientCount];
             for (int i = 0; i < clients.Length; i++)
             {
@@ -293,7 +317,7 @@ namespace SimpleClient
             Console.WriteLine();
             Console.WriteLine(Me());
             Console.WriteLine($"{workers} clients, {pingsPerWorker}x{pipelineDepth} pings each, total {totalPings}");
-            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(sPayload)} bytes");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(sPayload ?? "")} bytes");
 
             RedisValue payload = sPayload;
             object[] args = string.IsNullOrEmpty(sPayload) ? Array.Empty<object>() : new object[] { payload };

@@ -59,8 +59,6 @@ namespace Respite
         private readonly State _state;
         private readonly object? _obj0, _obj1;
 
-        public static readonly RespValue Ping = Command("PING");
-
         public RespType Type => _state.Type;
 
         public ReadOnlyBlock<RespValue> SubItems
@@ -343,15 +341,31 @@ namespace Respite
         //    }
         //}
 
+        /// <summary>
+        /// Compares the context portion of the value (not the type), using
+        /// case-insensitive ASCII comparisons; for non-ASCII data, the
+        /// result of this is not defined
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsShortAlphaIgnoreCase(in RespValue other)
+        public bool EqualsAsciiIgnoreCase(in RespValue other)
         {
             ref readonly State x = ref _state, y = ref other._state;
             // 0x20 is 00100000, which is the bit which **for purely alpha** can be used
-            return x.Storage == StorageKind.InlinedBytes
-                & y.Storage == StorageKind.InlinedBytes
-                & (x.Int64 | 0x2020202020202020) == (y.Int64 | 0x2020202020202020)
-                & (x.HighInt32 | 0x20202020) == (y.HighInt32 | 0x20202020);
+            if (x.Storage == StorageKind.InlinedBytes
+                & y.Storage == StorageKind.InlinedBytes)
+            {
+                return (x.Int64 | 0x2020202020202020) == (y.Int64 | 0x2020202020202020)
+                     & (x.HighInt32 | 0x20202020) == (y.HighInt32 | 0x20202020);
+            }
+            return EqualsAsciiIgnoreCase(in this, in other);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool EqualsAsciiIgnoreCase(in RespValue x, in RespValue y)
+        {
+            using var xLife = x.GetSequence();
+            using var yLife = y.GetSequence();
+            return AsciiComparer.EqualCaseInsensitive(xLife.Value, yLife.Value);
         }
 
         private void WriteValue(ref RespWriter writer, RespType type)
@@ -486,7 +500,7 @@ namespace Respite
             return source.IsSingleSegment
                 ? UTF8.GetBytes(source.FirstSpan, destination)
                 : Slow(source, destination);
-            
+
             static int Slow(in ReadOnlySequence<char> source, Span<byte> destination)
             {
                 int total = 0;
