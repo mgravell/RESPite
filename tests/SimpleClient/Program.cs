@@ -4,6 +4,7 @@ using Pipelines.Sockets.Unofficial;
 using Respite;
 using Respite.Bedrock;
 using Respite.Redis;
+using ServiceStack.Redis;
 using StackExchange.Redis;
 using System;
 using System.Buffers;
@@ -21,8 +22,9 @@ namespace SimpleClient
     class Program
     {
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
+        private static readonly string ServerEndpointString = "127.0.0.1:6379";
 
-        static async Task Main()
+        static async Task Main3()
         {
             using var redis = await RedisConnection.ConnectAsync(ServerEndpoint);
 
@@ -102,7 +104,7 @@ namespace SimpleClient
             Log("sync", timer.Elapsed, 1000, payload);
         }
 #pragma warning disable IDE0051 // Remove unused private members
-        static async Task Main3()
+        static async Task Main()
 #pragma warning restore IDE0051 // Remove unused private members
         {
             const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
@@ -110,10 +112,14 @@ namespace SimpleClient
             string payload = null; // "abc"; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
             {
-                await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                // await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 await ExecuteNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
-                await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 await ExecuteBedrockAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SERVICESTACK_LICENSE")))
+                {
+                    await ExecuteServiceStackRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                }
             }
         }
 
@@ -256,6 +262,27 @@ namespace SimpleClient
                     batch.Execute();
                     foreach (var result in results.Value.Span)
                         result.Wait();
+                }
+            }
+        }
+
+        static void RunClient(RedisManagerPool pool, int pingsPerClient, int pipelineDepth, object[] args)
+        {
+            using var client = pool.GetClient();
+            for (int i = 0; i < pingsPerClient; i++)
+            {
+                if (pipelineDepth == 1)
+                {
+                    client.Ping();
+                }
+                else
+                {
+                    using var batch = client.CreatePipeline();
+                    for (int j = 0; j < pipelineDepth; j++)
+                    {
+                        batch.QueueCommand(x => x.Ping());
+                    }
+                    batch.Flush();
                 }
             }
         }
@@ -403,6 +430,48 @@ namespace SimpleClient
             ThreadStart starter = () => RunClient(db, pingsPerWorker, pipelineDepth, args);
 #pragma warning restore IDE0039 // Use local function
             timer = Stopwatch.StartNew();
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i] = new Thread(starter);
+                threads[i].Start();
+            }
+            for (int i = 0; i < threads.Length; i++)
+            {
+                threads[i].Join();
+            }
+            timer.Stop();
+            Log("sync", timer.Elapsed, totalPings, payload);
+        }
+
+        static async Task ExecuteServiceStackRedisAsync(int pingsPerWorker, int workers, int pipelineDepth, string sPayload)
+        {
+            await Task.Yield();
+            pingsPerWorker /= pipelineDepth;
+            var totalPings = pingsPerWorker * workers * pipelineDepth;
+            Console.WriteLine();
+            Console.WriteLine(Me());
+            Console.WriteLine($"{workers} clients, {pingsPerWorker}x{pipelineDepth} pings each, total {totalPings}");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(sPayload ?? "")} bytes");
+
+            RedisValue payload = sPayload;
+            object[] args = string.IsNullOrEmpty(sPayload) ? Array.Empty<object>() : new object[] { payload };
+            using var manager = new RedisManagerPool(ServerEndpointString);
+            
+            //var tasks = new Task[workers];
+            //Stopwatch timer = Stopwatch.StartNew();
+            //for (int i = 0; i < tasks.Length; i++)
+            //{
+            //    tasks[i] = Task.Run(() => RunClientAsync(manager, pingsPerWorker, pipelineDepth, args));
+            //}
+            //await Task.WhenAll(tasks);
+            //timer.Stop();
+            //Log("async", timer.Elapsed, totalPings, payload);
+
+            var threads = new Thread[workers];
+#pragma warning disable IDE0039 // Use local function
+            ThreadStart starter = () => RunClient(manager, pingsPerWorker, pipelineDepth, args);
+#pragma warning restore IDE0039 // Use local function
+            var timer = Stopwatch.StartNew();
             for (int i = 0; i < threads.Length; i++)
             {
                 threads[i] = new Thread(starter);

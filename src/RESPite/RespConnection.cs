@@ -10,7 +10,8 @@ namespace Respite
     public abstract partial class RespConnection : IDisposable
     {
         public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
-        public static RespConnection Create(Socket socket) => new SocketRespConnection(socket);
+        public static RespConnection Create(Socket socket) => Create(new NetworkStream(socket));
+            // => new SocketRespConnection(socket);
         public abstract void Send(in RespValue value);
         public abstract Lifetime<RespValue> Receive();
 
