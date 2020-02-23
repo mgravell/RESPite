@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\RESPite.Bedrock\RESPite.Bedrock.csproj" />
+    <ProjectReference Include="..\..\src\RESPite.Redis\RESPite.Redis.csproj" />
   </ItemGroup>
 
 </Project>

@@ -307,40 +307,7 @@ namespace Respite
             }
         }
 
-        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
-        //private static bool EqualsShortAlphaIgnoreCase(ReadOnlySpan<byte> value, ReadOnlySpan<byte> lowerCaseValue)
-        //{
-        //    return value.Length switch
-        //    {
-
-        //        // to lower-casify; note that for non-alpha, this is an invalid thing, so
-        //        // this should *only* be used when the comparison value is known to be alpha
-
-        //        // OK
-        //        2 => (BitConverter.ToInt16(value) | 0x2020) == BitConverter.ToInt16(lowerCaseValue),
-        //        // PONG
-        //        4 => (BitConverter.ToInt32(value) | 0x20202020) == BitConverter.ToInt32(lowerCaseValue),
-        //        _ => EqualsSlow(value, lowerCaseValue),
-        //    };
-
-        //    static bool EqualsSlow(ReadOnlySpan<byte> value, ReadOnlySpan<byte> lowerCaseValue)
-        //    {
-        //        // compare in 8-byte chunks as var as possible; could also look at SIMD, but...
-        //        // how large values are we expecting, really?
-        //        var value64 = MemoryMarshal.Cast<byte, long>(value);
-        //        var lowerCaseValue64 = MemoryMarshal.Cast<byte, long>(lowerCaseValue);
-        //        for (int i = 0; i < value64.Length; i++)
-        //        {
-        //            if ((value64[i] | 0x2020202020202020) != lowerCaseValue64[i]) return false;
-        //        }
-        //        for (int i = value64.Length * 8; i < value.Length; i++)
-        //        {
-        //            if ((value[i] | 0x20) != lowerCaseValue[i]) return false;
-        //        }
-        //        return true;
-        //    }
-        //}
-
+      
         /// <summary>
         /// Compares the context portion of the value (not the type), using
         /// case-insensitive ASCII comparisons; for non-ASCII data, the
@@ -465,6 +432,16 @@ namespace Respite
                 case StorageKind.InlinedBytes:
                     WriteLengthPrefix(ref writer, type, _state.PayloadLength);
                     writer.Write(_state.AsSpan());
+                    writer.WriteLine();
+                    break;
+                case StorageKind.InlinedInt64:
+                case StorageKind.InlinedDouble:
+                case StorageKind.InlinedUInt32:
+                    Span<byte> tmp = stackalloc byte[32];
+                    int len = this.CopyTo(tmp);
+                    WriteLengthPrefix(ref writer, type, (uint)len);
+                    tmp.Slice(0, len).CopyTo(writer.Ensure(len));
+                    writer.Commit(len);
                     writer.WriteLine();
                     break;
                 default:
@@ -848,12 +825,35 @@ namespace Respite
             var arity = GetAggregateArity(type);
             if (arity == 0) ThrowHelper.Argument(nameof(type));
             if (values == null) return new RespValue(new State(type));
-            if (values.Length == 0) return new RespValue(new State(type, StorageKind.Empty, 0, 0));
+            return CreateAggregate(type, new ReadOnlyMemory<RespValue>(values));
+        }
+
+        public static RespValue CreateAggregate(RespType type, ReadOnlyMemory<RespValue> values)
+        {
+            var arity = GetAggregateArity(type);
+            if (arity == 0) ThrowHelper.Argument(nameof(type));
+            if (values.IsEmpty) return new RespValue(new State(type, StorageKind.Empty, 0, 0));
 
             if ((values.Length % arity) != 0) ThrowHelper.Argument(nameof(values));
-            if (values.Length == 1 && values[0]._state.CanWrap) return new RespValue(values[0]._state.Wrap(type));
+            if (values.Length == 1)
+            {
+                ref readonly RespValue.State first = ref values.Span[0]._state;
+                if (first.CanWrap) return new RespValue(first.Wrap(type));
+            }
 
-            return new RespValue(new State(type, StorageKind.ArraySegmentRespValue, 0, values.Length), values);
+            if (MemoryMarshal.TryGetArray(values, out var segment))
+            {
+                return new RespValue(new State(type, StorageKind.ArraySegmentRespValue,
+                    segment.Offset, segment.Count), segment.Array);
+            }
+            if (MemoryMarshal.TryGetMemoryManager(values, out MemoryManager<RespValue> manager,
+                out var start, out var length))
+            {
+                return new RespValue(new State(type, StorageKind.MemoryManagerRespValue,
+                    start, length), manager);
+            }
+            ThrowHelper.UnknownSequenceVariety();
+            return default;
         }
 
         public static RespValue Create(RespType type, string value)

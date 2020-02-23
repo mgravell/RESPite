@@ -8,7 +8,9 @@ namespace BedrockRespProtocolTests
         static int Count(in RespValue value)
         {
             int count = 0;
+#pragma warning disable IDE0059 // Unnecessary assignment of a value
             foreach (var item in value.SubItems)
+#pragma warning restore IDE0059 // Unnecessary assignment of a value
                 count++;
             return count;
         }

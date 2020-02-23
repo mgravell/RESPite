@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
 using Respite;
 using Respite.Bedrock;
+using Respite.Redis;
 using StackExchange.Redis;
 using System;
 using System.Buffers;
@@ -19,6 +20,23 @@ namespace SimpleClient
     class Program
     {
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
+
+        static async Task Main()
+        {
+            using var redis = await RedisConnection.ConnectAsync(ServerEndpoint);
+
+
+
+            await redis.CallAsync("del", "foo");
+            await redis.CallAsync("lpush", "foo", 123);
+            await redis.CallAsync("lpush", "foo", 456);
+            Console.WriteLine(await redis.CallAsync("llen", "foo"));
+            var arr = (object[]) await redis.CallAsync("lrange", "foo", 0, -1);
+            foreach (var obj in arr)
+                Console.WriteLine(obj);
+
+        }
+
 #pragma warning disable IDE0051 // Remove unused private members
         static void Main2()
 #pragma warning restore IDE0051 // Remove unused private members
@@ -41,7 +59,7 @@ namespace SimpleClient
             Log("sync", timer.Elapsed, 1000, payload);
         }
 #pragma warning disable IDE0051 // Remove unused private members
-        static async Task Main()
+        static async Task Main3()
 #pragma warning restore IDE0051 // Remove unused private members
         {
             const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;

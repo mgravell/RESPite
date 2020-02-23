@@ -1,4 +1,7 @@
-﻿using System.Buffers;
+﻿using Respite.Internal;
+using System;
+using System.Buffers;
+using System.Buffers.Text;
 using System.Numerics;
 
 namespace Respite
@@ -29,5 +32,61 @@ namespace Respite
         }
 
         public static explicit operator string(in RespValue value) => value.ToString();
+
+        public bool ToBoolean()
+        {
+            if (_state.Storage == StorageKind.InlinedBytes)
+            {
+                if (_state.PayloadLength == 1)
+                {
+                    switch (_state.AsSpan()[0])
+                    {
+                        case (byte)'t': return true;
+                        case (byte)'f': return false;
+                    }
+                }
+                ThrowHelper.Format();
+            }
+            ThrowHelper.StorageKindNotImplemented(_state.Storage);
+            return default;
+        }
+
+        public long ToInt64()
+        {
+            switch (_state.Storage)
+            {
+                case StorageKind.InlinedBytes:
+                    if (Utf8Parser.TryParse(_state.AsSpan(), out long i64, out int bytes)
+                        && bytes == _state.PayloadLength) return i64;
+                    if (Utf8Parser.TryParse(_state.AsSpan(), out double d64, out bytes)
+                        && bytes == _state.PayloadLength) return (long)d64;
+                    ThrowHelper.Format();
+                    return default;
+                case StorageKind.InlinedDouble:
+                    return (long)_state.Double;
+                case StorageKind.InlinedInt64:
+                    return _state.Int64;
+            }
+            ThrowHelper.StorageKindNotImplemented(_state.Storage);
+            return default;
+        }
+
+        public double ToDouble()
+        {
+            switch (_state.Storage)
+            {
+                case StorageKind.InlinedBytes:
+                    if (Utf8Parser.TryParse(_state.AsSpan(), out double d64, out var bytes)
+                        && bytes == _state.PayloadLength) return d64;
+                    ThrowHelper.Format();
+                    return default;
+                case StorageKind.InlinedDouble:
+                    return _state.Double;
+                case StorageKind.InlinedInt64:
+                    return _state.Int64;
+            }
+            ThrowHelper.StorageKindNotImplemented(_state.Storage);
+            return default;
+        }
     }
 }

@@ -48,7 +48,7 @@ namespace Respite.Internal
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void Commit(int count)
+        public void Commit(int count)
         {
             if (count < 0) ThrowHelper.ArgumentOutOfRange(nameof(count));
             _currentSpan = _currentSpan.Slice(count);
@@ -113,6 +113,17 @@ namespace Respite.Internal
                 Commit(bytes);
                 Flush(); // we expect more, note
             }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public Span<byte> Ensure(int sizeHint)
+            => _currentSpan.Length >= sizeHint ? _currentSpan : SlowEnsure(sizeHint);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private Span<byte> SlowEnsure(int sizeHint)
+        {
+            Flush(sizeHint);
+            return _currentSpan;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
