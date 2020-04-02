@@ -6,6 +6,7 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <AssemblyOriginatorKeyFile>../../RESPite.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
+    <Features>strict</Features>
     <LangVersion>8.0</LangVersion>
     <NoWarn>NU5105</NoWarn>
     

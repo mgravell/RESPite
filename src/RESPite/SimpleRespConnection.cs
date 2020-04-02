@@ -35,13 +35,11 @@ namespace Respite
             field = null;
             tmp?.Dispose();
         }
-        protected override void Dispose(bool disposing)
+        protected override ValueTask OnDisposeAsync()
         {
-            if (disposing)
-            {
-                Dispose(ref _outBuffer);
-                Dispose(ref _inBuffer);
-            }
+            Dispose(ref _outBuffer);
+            Dispose(ref _inBuffer);
+            return base.OnDisposeAsync();
         }
 
         SequencePosition _currentEnd;

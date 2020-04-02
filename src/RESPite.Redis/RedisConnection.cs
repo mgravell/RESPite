@@ -11,14 +11,14 @@ using System.Threading.Tasks;
 
 namespace Respite.Redis
 {
-    public class RedisConnection : IDisposable
+    public class RedisConnection : IAsyncDisposable
     {
         private readonly RespConnection _connection;
 
         public RedisConnection(RespConnection connection)
             => _connection = connection;
 
-        public void Dispose() => _connection.Dispose();
+        public ValueTask DisposeAsync() => _connection.DisposeAsync();
 
 #pragma warning disable IDE0060 // Remove unused parameter
         public static async ValueTask<RedisConnection> ConnectAsync(EndPoint endpoint, CancellationToken cancellationToken = default)

@@ -9,14 +9,17 @@ namespace Respite
     internal sealed class StreamRespConnection : SimpleRespConnection
     {
         private readonly Stream _stream;
-        public StreamRespConnection(Stream stream)
-        {
-            _stream = stream;
-        }
+        public StreamRespConnection(Stream stream) => _stream = stream;
 
-        protected override void Dispose(bool disposing)
+        protected override ValueTask OnDisposeAsync()
         {
-            if (disposing) _stream?.Dispose();
+            var pending = _stream == null ? default : _stream.DisposeAsync();
+            return pending.IsCompletedSuccessfully ? base.OnDisposeAsync(): AwaitedBaseDisposeAsync(pending);
+        }
+        private async ValueTask AwaitedBaseDisposeAsync(ValueTask pending)
+        {
+            await pending.ConfigureAwait(false);
+            await base.OnDisposeAsync().ConfigureAwait(false);
         }
 
         protected override int Read(Memory<byte> buffer)

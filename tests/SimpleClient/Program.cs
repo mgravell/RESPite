@@ -25,16 +25,13 @@ namespace SimpleClient
         private static readonly string ServerEndpointString = "127.0.0.1:6379";
 
 
-        static async Task Main()
-        {
-            await TestArdb();
-        }
+        static Task Main() => BasicBenchmark();
 
         //SocketConnection.SetRecommendedClientOptions(socket);
 
         static async Task TestArdb()
         {
-            using var redis = await RedisConnection.ConnectAsync(
+            await using var redis = await RedisConnection.ConnectAsync(
                 new IPEndPoint(IPAddress.Loopback, 16379));
 
             await redis.CallAsync("set", "foo", "bar", "ex", 5);
@@ -42,7 +39,7 @@ namespace SimpleClient
         }
         static async Task TestResp3()
         {
-            using var redis = await RedisConnection.ConnectAsync(ServerEndpoint);
+            await using var redis = await RedisConnection.ConnectAsync(ServerEndpoint);
 
             // bump the server into RESP 3
             Dump(await redis.CallAsync("hello", 3));
@@ -99,13 +96,13 @@ namespace SimpleClient
 
 
 #pragma warning disable IDE0051 // Remove unused private members
-        static void BasicTest()
+        static async ValueTask BasicTest()
 #pragma warning restore IDE0051 // Remove unused private members
         {
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             SocketConnection.SetRecommendedClientOptions(socket);
             socket.Connect(ServerEndpoint);
-            using var client = RespConnection.Create(socket);
+            await using var client = RespConnection.Create(socket);
             var payload = new string('a', 2048);
             var frame = RespValue.CreateAggregate(RespType.Array, "ping", payload);
             var timer = Stopwatch.StartNew();
@@ -128,14 +125,16 @@ namespace SimpleClient
             string payload = null; // "abc"; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
             {
-                // await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                await ExecutePooledNetworkStreamAsync(PER_CLIENT, CLIENTS * 10, PIPELINE_DEPTH, payload);
+                //await ExecutePooledSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 await ExecuteNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
-                await ExecuteBedrockAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
-                await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
-                if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SERVICESTACK_LICENSE")))
-                {
-                    await ExecuteServiceStackRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
-                }
+                //await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                //await ExecuteBedrockAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                //await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                //if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SERVICESTACK_LICENSE")))
+                //{
+                //    await ExecuteServiceStackRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                //}
             }
         }
 
@@ -145,17 +144,21 @@ namespace SimpleClient
 
             for (int i = 0; i < clients.Length; i++)
             {
-                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                SocketConnection.SetRecommendedClientOptions(socket);
-                socket.Connect(ServerEndpoint);
-                var connection = asNetworkStream ? RespConnection.Create(new NetworkStream(socket)) : RespConnection.Create(socket);
-                // connection.Ping();
-
+                var connection = CreateClient(asNetworkStream);
                 clients[i] = connection;
             }
 
             return clients;
+        }
 
+        static RespConnection CreateClient(bool asNetworkStream)
+        {
+            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            SocketConnection.SetRecommendedClientOptions(socket);
+            socket.Connect(ServerEndpoint);
+            var connection = asNetworkStream ? RespConnection.Create(new NetworkStream(socket)) : RespConnection.Create(socket);
+            // connection.Ping();
+            return connection;
         }
 
 
@@ -189,6 +192,42 @@ namespace SimpleClient
                 using var frames = Replicate(frame, pipelineDepth);
                 for (int i = 0; i < pingsPerClient; i++)
                 {
+                    using var batch = await client.BatchAsync(frames.Value).ConfigureAwait(false);
+                    CheckBatchForErrors(batch.Value, expected);
+                }
+            }
+        }
+
+        static async Task RunClientAsync(RespConnectionPool pool, int pingsPerClient, int pipelineDepth, string payload)
+        {
+            var frame = string.IsNullOrEmpty(payload)
+                ? s_ping
+                : RespValue.CreateAggregate(RespType.Array, "PING", payload);
+            var expected = string.IsNullOrEmpty(payload)
+                ? s_pong
+                : RespValue.Create(RespType.BlobString, payload);
+
+            if (pipelineDepth == 1)
+            {
+                for (int i = 0; i < pingsPerClient; i++)
+                {
+                    await using var lease = await pool.RentAsync();
+                    var client = lease.Value;
+                    await client.SendAsync(frame).ConfigureAwait(false);
+                    using var result = await client.ReceiveAsync().ConfigureAwait(false);
+                    result.Value.ThrowIfError();
+
+                    if (!result.Value.Equals(expected)) Throw();
+                    // await client.PingAsync();
+                }
+            }
+            else
+            {
+                using var frames = Replicate(frame, pipelineDepth);
+                for (int i = 0; i < pingsPerClient; i++)
+                {
+                    await using var lease = await pool.RentAsync();
+                    var client = lease.Value;
                     using var batch = await client.BatchAsync(frames.Value).ConfigureAwait(false);
                     CheckBatchForErrors(batch.Value, expected);
                 }
@@ -363,6 +402,52 @@ namespace SimpleClient
             }
             timer.Stop();
             Log("sync", timer.Elapsed, totalPings, payload);
+        }
+
+        static ValueTask ExecutePooledSocketAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload)
+            => ExecutePooledDirectAsync(pingsPerClient, clientCount, pipelineDepth, payload, false);
+
+        static ValueTask ExecutePooledNetworkStreamAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload)
+            => ExecutePooledDirectAsync(pingsPerClient, clientCount, pipelineDepth, payload, true);
+        static async ValueTask ExecutePooledDirectAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload, bool asNetworkStream, [CallerMemberName]string caller = null)
+        {
+            pingsPerClient /= pipelineDepth;
+            var totalPings = pingsPerClient * clientCount * pipelineDepth;
+            Console.WriteLine();
+            Console.WriteLine(caller);
+            Console.WriteLine($"{clientCount} clients, {pingsPerClient}x{pipelineDepth} pings each, total {totalPings}");
+            Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload ?? "")} bytes");
+
+            await using var pool = new RespConnectionPool(ct => new ValueTask<RespConnection>(CreateClient(asNetworkStream)));
+
+            var tasks = new Task[clientCount];
+            Stopwatch timer = Stopwatch.StartNew();
+            for (int i = 0; i < tasks.Length; i++)
+            {
+                tasks[i] = Task.Run(() => RunClientAsync(pool, pingsPerClient, pipelineDepth, payload));
+            }
+            await Task.WhenAll(tasks);
+            timer.Stop();
+            Log("async", timer.Elapsed, totalPings, payload);
+
+            Console.WriteLine($"Pool count: {pool.ConnectionCount} ({pool.TotalConnectionCount})");
+
+//            var threads = new Thread[clientCount];
+//#pragma warning disable IDE0039 // Use local function
+//            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, pipelineDepth, payload);
+//#pragma warning restore IDE0039 // Use local function
+//            timer = Stopwatch.StartNew();
+//            for (int i = 0; i < threads.Length; i++)
+//            {
+//                threads[i] = new Thread(starter);
+//                threads[i].Start(pool);
+//            }
+//            for (int i = 0; i < threads.Length; i++)
+//            {
+//                threads[i].Join();
+//            }
+//            timer.Stop();
+//            Log("sync", timer.Elapsed, totalPings, payload);
         }
 
         static async Task ExecuteBedrockAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload)

@@ -85,12 +85,12 @@ public class RedisPingPong : IAsyncDisposable
     public void Stream() => Ping(_stream);
 
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         _muxer?.Dispose();
-        _stream?.Dispose();
-        _socket?.Dispose();
-        return _connection == null ? default : _connection.DisposeAsync();
+        if (_stream != null) await _stream.DisposeAsync().ConfigureAwait(false);
+        if (_socket != null) await _socket.DisposeAsync().ConfigureAwait(false);
+        if (_connection != null) await _connection.DisposeAsync().ConfigureAwait(false);
     }
 
     [GlobalSetup]

@@ -7,8 +7,33 @@ using System.Threading.Tasks;
 
 namespace Respite
 {
-    public abstract partial class RespConnection : IDisposable
+    public abstract partial class RespConnection : IAsyncDisposable
     {
+        [Flags]
+        enum RespConnectionFlags
+        {
+            None = 0,
+            IsDoomed = 1 << 0,
+        }
+
+        private int _flags;
+        private void SetFlag(RespConnectionFlags flag, bool value)
+        {
+            int newValue, oldValue;
+            do
+            {
+                oldValue = Volatile.Read(ref _flags);
+                newValue = value ? (oldValue | (int)flag) : (oldValue & ~(int)flag);
+            } while (oldValue != newValue && Interlocked.CompareExchange(ref _flags, newValue, oldValue) == oldValue);
+        }
+        private bool GetFlag(RespConnectionFlags flag)
+        {
+            var flags = (RespConnectionFlags)Volatile.Read(ref _flags);
+            return (flags & flag) != 0;
+        }
+        public void Doom() => SetFlag(RespConnectionFlags.IsDoomed, true);
+        public bool IsDoomed => GetFlag(RespConnectionFlags.IsDoomed);
+
         public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
         public static RespConnection Create(Socket socket) => Create(new NetworkStream(socket));
             // => new SocketRespConnection(socket);
@@ -53,12 +78,13 @@ namespace Respite
         [MethodImpl(MethodImplOptions.NoInlining)]
         protected static void ThrowAborted() => throw new InvalidOperationException("operation aborted");
 
-        public void Dispose()
+        public ValueTask DisposeAsync()
         {
-            Dispose(true);
+            Doom();
             GC.SuppressFinalize(this);
+            return OnDisposeAsync();
         }
 
-        protected virtual void Dispose(bool disposing) { }
+        protected virtual ValueTask OnDisposeAsync() => default;
     }
 }
