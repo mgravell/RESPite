@@ -32,7 +32,7 @@ namespace Respite.Internal
         public Pool(PoolOptions<T>? options = null)
         {
             _options = options ?? PoolOptions<T>.Default;
-            _available = Channel.CreateBounded<T>(new BoundedChannelOptions(_options.MaxCount));
+            _available = _options.CreateChannel();
         }
 
         static readonly Func<T, object?, ValueTask> s_Return = (value, state) => (state as Pool<T>)?.ReturnAsync(value) ?? default;

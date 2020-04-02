@@ -1,6 +1,7 @@
 ﻿using Respite.Internal;
 using System;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace Respite
@@ -21,6 +22,21 @@ namespace Respite
             MaxCount = maxCount;
             Factory = factory;
             OnRemoved = onRemoved;
+        }
+
+        private BoundedChannelOptions? _channelOptions;
+        internal Channel<T> CreateChannel()
+        {
+            _channelOptions ??= new BoundedChannelOptions(MaxCount)
+            {
+                AllowSynchronousContinuations = false,
+                Capacity = MaxCount,
+                SingleReader = false,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait,
+            };
+
+            return Channel.CreateBounded<T>(_channelOptions);
         }
     }
 }
