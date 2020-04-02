@@ -120,12 +120,12 @@ namespace SimpleClient
         static async Task BasicBenchmark()
 #pragma warning restore IDE0051 // Remove unused private members
         {
-            const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
+            const int CLIENTS = 100, PER_CLIENT = 10000, PIPELINE_DEPTH = 20, POOL_SIZE = 30;
 
             string payload = null; // "abc"; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
             {
-                await ExecutePooledNetworkStreamAsync(PER_CLIENT, CLIENTS * 10, PIPELINE_DEPTH, payload);
+                await ExecutePooledNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload, POOL_SIZE);
                 //await ExecutePooledSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 await ExecuteNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 //await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
@@ -404,12 +404,12 @@ namespace SimpleClient
             Log("sync", timer.Elapsed, totalPings, payload);
         }
 
-        static ValueTask ExecutePooledSocketAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload)
-            => ExecutePooledDirectAsync(pingsPerClient, clientCount, pipelineDepth, payload, false);
+        static ValueTask ExecutePooledSocketAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload, int maxCount)
+            => ExecutePooledDirectAsync(pingsPerClient, clientCount, pipelineDepth, payload, false, maxCount);
 
-        static ValueTask ExecutePooledNetworkStreamAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload)
-            => ExecutePooledDirectAsync(pingsPerClient, clientCount, pipelineDepth, payload, true);
-        static async ValueTask ExecutePooledDirectAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload, bool asNetworkStream, [CallerMemberName]string caller = null)
+        static ValueTask ExecutePooledNetworkStreamAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload, int maxCount)
+            => ExecutePooledDirectAsync(pingsPerClient, clientCount, pipelineDepth, payload, true, maxCount);
+        static async ValueTask ExecutePooledDirectAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload, bool asNetworkStream, int maxCount, [CallerMemberName]string caller = null)
         {
             pingsPerClient /= pipelineDepth;
             var totalPings = pingsPerClient * clientCount * pipelineDepth;
@@ -418,7 +418,9 @@ namespace SimpleClient
             Console.WriteLine($"{clientCount} clients, {pingsPerClient}x{pipelineDepth} pings each, total {totalPings}");
             Console.WriteLine($"payload: {Encoding.UTF8.GetByteCount(payload ?? "")} bytes");
 
-            await using var pool = new RespConnectionPool(ct => new ValueTask<RespConnection>(CreateClient(asNetworkStream)));
+            await using var pool = new RespConnectionPool(
+                ct => new ValueTask<RespConnection>(CreateClient(asNetworkStream)),
+                RespConnectionPoolOptions.Create(maxCount));
 
             var tasks = new Task[clientCount];
             Stopwatch timer = Stopwatch.StartNew();
