@@ -8,18 +8,21 @@ using System.Threading.Tasks;
 
 namespace Respite.Internal
 {
-    internal sealed class Pool<T> : IDisposable where T : class
+    internal sealed class Pool<T> : IAsyncDisposable where T : class
     {
-        public void Dispose()
+        public ValueTask DisposeAsync()
         {
+            if (_isDisposed) return default;
+
             _isDisposed = true;
             _available.Writer.TryComplete();
             _inUse.Clear();
             Volatile.Write(ref _count, 0);
+            return DiscardAsync(_ => true);
         }
 
         private volatile bool _isDisposed;
-        private int _count;
+        private int _count, _waiting;
         private readonly PoolOptions<T> _options;
         private readonly ConcurrentDictionary<T, T> _inUse = new ConcurrentDictionary<T, T>(RefComparer.Instance);
         private readonly Channel<T> _available;
@@ -52,8 +55,7 @@ namespace Respite.Internal
 
         private T MarkInUse(T item)
         {
-            if (_isDisposed) ThrowHelper.Disposed(ToString());
-            _inUse[item] = item;
+            if (!_isDisposed) _inUse[item] = item;
             return item;
         }
 
@@ -75,14 +77,13 @@ namespace Respite.Internal
             return default;
         }
 
-        public async ValueTask<int> DiscardAsync(Func<T, bool> predicate)
+        public async ValueTask DiscardAsync(Func<T, bool> predicate, CancellationToken cancellationToken = default)
         {
             if (predicate == null)
             {
                 ThrowHelper.ArgumentNull(nameof(predicate));
-                return 0;
+                return;
             }
-            int count = 0;
             var onRemoved = _options.OnRemoved;
             foreach (var pair in _inUse)
             {
@@ -96,16 +97,23 @@ namespace Respite.Internal
                     {
                         await onRemoved(item).ConfigureAwait(false);
                     }
+
+                    // now that we've abandoned something, we might have capacity
+                    if (Volatile.Read(ref _waiting) != 0 && TryGrow())
+                    {
+                        var newItem = await GrowAsync(cancellationToken).ConfigureAwait(false);
+                        await ReturnAsync(newItem).ConfigureAwait(false);
+                        await Task.Yield(); // try to let the consumers get hold of the next item
+                    }
                 }
             }
-            return count;
         }
 
         bool TryGrow()
         {
             int count;
             // can we safely increase it without blowing max-count?
-            while ((count = Count) < _options.MaxCount)
+            while (!_isDisposed & (count = Count) < _options.MaxCount)
             {
                 if (Interlocked.CompareExchange(ref _count, count + 1, count) == count)
                     return true;
@@ -123,7 +131,19 @@ namespace Respite.Internal
                 : Awaited(this, pending);
 
             async static ValueTask<T> Awaited(Pool<T> @this, ValueTask<T> pending)
-                => @this.MarkInUse(await pending.ConfigureAwait(false));
+            {
+                T value;
+                try
+                {
+                    Interlocked.Increment(ref @this._waiting);
+                    value = await pending.ConfigureAwait(false);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref @this._waiting);
+                }
+                return @this.MarkInUse(value);
+            }
         }
         private async ValueTask<T> GrowAsync(CancellationToken cancellationToken)
         {
