@@ -17,7 +17,12 @@ namespace Respite
             s_PositiveInfinity = Create(RespType.Double, "+inf"),
             s_NegativeInfinity = Create(RespType.Double, "-inf");
 
-        public static implicit operator RespValue(string value) => Create(RespType.BlobString, value);
+        public static implicit operator RespValue(string value)
+            => Create(RespType.BlobString, value);
+        public static implicit operator RespValue(byte[] value)
+            => Create(RespType.BlobString, new ReadOnlySequence<byte>(value));
+        public static implicit operator RespValue(ArraySegment<byte> value)
+            => Create(RespType.BlobString, new ReadOnlySequence<byte>(value.Array, value.Offset, value.Count));
 
         public static implicit operator RespValue(bool value) => value ? s_True : s_False;
 

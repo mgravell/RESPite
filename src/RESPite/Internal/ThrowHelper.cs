@@ -34,6 +34,10 @@ namespace Respite.Internal
             => throw new NotImplementedException($"Storage kind not implemented by '{caller}': {storage}");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Disposed(string objectName)
+            => throw new ObjectDisposedException(objectName);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void Argument(string message, string paramName)
             => throw new ArgumentException(message, paramName);
 

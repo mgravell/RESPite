@@ -24,7 +24,23 @@ namespace SimpleClient
         private static readonly EndPoint ServerEndpoint = new IPEndPoint(IPAddress.Loopback, 6379);
         private static readonly string ServerEndpointString = "127.0.0.1:6379";
 
-        static async Task Main3()
+
+        static async Task Main()
+        {
+            await TestArdb();
+        }
+
+        //SocketConnection.SetRecommendedClientOptions(socket);
+
+        static async Task TestArdb()
+        {
+            using var redis = await RedisConnection.ConnectAsync(
+                new IPEndPoint(IPAddress.Loopback, 16379));
+
+            await redis.CallAsync("set", "foo", "bar", "ex", 5);
+            Console.WriteLine(redis.CallAsync("get", "foo"));
+        }
+        static async Task TestResp3()
         {
             using var redis = await RedisConnection.ConnectAsync(ServerEndpoint);
 
@@ -83,7 +99,7 @@ namespace SimpleClient
 
 
 #pragma warning disable IDE0051 // Remove unused private members
-        static void Main2()
+        static void BasicTest()
 #pragma warning restore IDE0051 // Remove unused private members
         {
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -104,7 +120,7 @@ namespace SimpleClient
             Log("sync", timer.Elapsed, 1000, payload);
         }
 #pragma warning disable IDE0051 // Remove unused private members
-        static async Task Main()
+        static async Task BasicBenchmark()
 #pragma warning restore IDE0051 // Remove unused private members
         {
             const int CLIENTS = 20, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
