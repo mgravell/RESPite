@@ -120,17 +120,21 @@ namespace SimpleClient
         static async Task BasicBenchmark()
 #pragma warning restore IDE0051 // Remove unused private members
         {
-            const int CLIENTS = 100, PER_CLIENT = 10000, PIPELINE_DEPTH = 20, POOL_SIZE = 30;
-
+            const int CLIENTS = 100, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
+            int[] POOL_SIZES = { 1, 2, 3, 5, 10, 20, 30 };
             string payload = null; // "abc"; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
             {
-                await ExecutePooledNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload, POOL_SIZE);
+
+                foreach(int poolSize in POOL_SIZES)
+                {
+                    await ExecutePooledNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload, poolSize);
+                }
                 //await ExecutePooledSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
-                await ExecuteNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                //await ExecuteNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 //await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 //await ExecuteBedrockAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
-                //await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+                await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 //if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SERVICESTACK_LICENSE")))
                 //{
                 //    await ExecuteServiceStackRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
@@ -211,13 +215,11 @@ namespace SimpleClient
             {
                 for (int i = 0; i < pingsPerClient; i++)
                 {
-                    await using var lease = await pool.RentAsync();
-                    var client = lease.Value;
-                    await client.SendAsync(frame).ConfigureAwait(false);
-                    using var result = await client.ReceiveAsync().ConfigureAwait(false);
-                    result.Value.ThrowIfError();
-
-                    if (!result.Value.Equals(expected)) Throw();
+                    await pool.CallAsync(frame, result =>
+                    {
+                        result.ThrowIfError();
+                        if (!result.Equals(expected)) Throw();
+                    });
                     // await client.PingAsync();
                 }
             }
@@ -226,9 +228,7 @@ namespace SimpleClient
                 using var frames = Replicate(frame, pipelineDepth);
                 for (int i = 0; i < pingsPerClient; i++)
                 {
-                    await using var lease = await pool.RentAsync();
-                    var client = lease.Value;
-                    using var batch = await client.BatchAsync(frames.Value).ConfigureAwait(false);
+                    using var batch = await pool.BatchAsync(frames.Value).ConfigureAwait(false);
                     CheckBatchForErrors(batch.Value, expected);
                 }
             }

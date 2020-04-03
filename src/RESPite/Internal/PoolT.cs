@@ -56,10 +56,17 @@ namespace Respite.Internal
             static AsyncLifetime<T> AsLifetime(Pool<T> @this, T value) => new AsyncLifetime<T>(value, s_Return, @this);
         }
 
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void ThrowDisposed() => ThrowHelper.Disposed(ToString());
+
         public ValueTask<T> TakeAsync(CancellationToken cancellationToken = default)
-            => _available.Reader.TryRead(out var item)
+        {
+            if (_isDisposed) ThrowDisposed();
+            return _available.Reader.TryRead(out var item)
                 ? new ValueTask<T>(MarkInUse(item))
                 : TakeSlowAsync(cancellationToken);
+        }
 
         private T MarkInUse(T item)
         {

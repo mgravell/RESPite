@@ -73,7 +73,7 @@ namespace Respite
         public long TotalBytesSent { get; private set; }
         public long TotalBytesRead { get; private set; }
 
-        public sealed override void Send(in RespValue value)
+        protected sealed override void OnSend(in RespValue value)
         {
             TotalBytesSent += value.Write(_outBuffer!, Version);
             var buffer = _outBuffer!.GetBuffer();
@@ -83,7 +83,7 @@ namespace Respite
                 _outBuffer.ConsumeTo(buffer.End);
             }
         }
-        public sealed override ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default)
+        protected sealed override ValueTask OnSendAsync(RespValue value, CancellationToken cancellationToken)
         {
             value.Write(_outBuffer!, Version);
             var buffer = _outBuffer!.GetBuffer();
@@ -146,7 +146,7 @@ namespace Respite
             this.Flush();
         }
 
-        public sealed override Lifetime<RespValue> Receive()
+        protected sealed override Lifetime<RespValue> OnReceive()
         {
             Lifetime<RespValue> value;
             while (!TryRead(out value))
@@ -156,7 +156,7 @@ namespace Respite
             return value;
         }
 
-        public sealed override ValueTask<Lifetime<RespValue>> ReceiveAsync(CancellationToken cancellationToken = default)
+        protected sealed override ValueTask<Lifetime<RespValue>> OnReceiveAsync(CancellationToken cancellationToken)
         {
             Lifetime<RespValue> value;
             while (!TryRead(out value))

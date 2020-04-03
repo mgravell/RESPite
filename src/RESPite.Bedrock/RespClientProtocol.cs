@@ -20,22 +20,22 @@ namespace Respite.Bedrock
             _writer = connection.CreateWriter();
         }
 
-        public override void Send(in RespValue value)
+        protected override void OnSend(in RespValue value)
         {
             var vt = SendAsync(value, default);
             if (!vt.IsCompletedSuccessfully) vt.AsTask().Wait();
         }
 
-        public override Lifetime<RespValue> Receive()
+        protected override Lifetime<RespValue> OnReceive()
         {
             var vt = ReceiveAsync(default);
             return vt.IsCompletedSuccessfully ? vt.Result : vt.AsTask().Result;
         }
 
-        public override ValueTask SendAsync(RespValue frame, CancellationToken cancellationToken)
+        protected override ValueTask OnSendAsync(RespValue frame, CancellationToken cancellationToken)
             => _writer.WriteAsync<RespValue>(RespFormatter.Instance, frame, cancellationToken);
 
-        public override ValueTask<Lifetime<RespValue>> ReceiveAsync(CancellationToken cancellationToken)
+        protected override ValueTask<Lifetime<RespValue>> OnReceiveAsync(CancellationToken cancellationToken)
         {
             var result = _reader.ReadAsync<RespValue>(RespFormatter.Instance, cancellationToken);
             // avoid the async machinery if we already have the result on the pipe

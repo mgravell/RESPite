@@ -30,6 +30,10 @@ namespace Respite.Internal
             => throw new NotSupportedException("The ReadOnlySequence variety was not understood");
 
         [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void NotSupported(string message)
+            => throw new NotSupportedException(message);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void StorageKindNotImplemented(StorageKind storage, [CallerMemberName] string? caller = null)
             => throw new NotImplementedException($"Storage kind not implemented by '{caller}': {storage}");
 
