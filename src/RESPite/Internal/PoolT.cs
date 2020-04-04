@@ -18,7 +18,7 @@ namespace Respite.Internal
             _available.Writer.TryComplete();
             _inUse.Clear();
             Volatile.Write(ref _count, 0);
-            return DiscardAsync((state, item) => false, default);
+            return DiscardAsync((state, item) => false);
         }
 
         private volatile bool _isDisposed;
@@ -74,7 +74,7 @@ namespace Respite.Internal
             return item;
         }
 
-        public ValueTask ReturnAsync(T value, CancellationToken cancellationToken = default)
+        public ValueTask ReturnAsync(T value)
         {
             if (value != null)
             {
@@ -90,12 +90,36 @@ namespace Respite.Internal
                     }
                 }
 
-                if (!returned) return SurrenderAsync(value, cancellationToken);
+                if (!returned) return SurrenderAsync(value);
             }
             return default;
         }
 
-        private async ValueTask SurrenderAsync(T value, CancellationToken cancellationToken)
+        private async ValueTask SpawnInBackground(CancellationToken cancellationToken = default)
+        {
+            T? newItem = null;
+            try
+            {
+                await Task.Yield();
+                newItem = await GrowAsync(cancellationToken).ConfigureAwait(false);
+                await ReturnAsync(newItem).ConfigureAwait(false);
+            }
+            catch
+            {
+                // swallow the exception; we're on the background
+
+                var onRemoved = _options.OnRemoved;
+                if (onRemoved is object && newItem is object)
+                {
+                    try
+                    {
+                        await onRemoved(_state, newItem).ConfigureAwait(false);
+                    }
+                    catch { } // more swallowing; best efforts!
+                }
+            }
+        }
+        private async ValueTask SurrenderAsync(T value)
         {
             // note we don't decrement _count, because this wasn't valid any more
             var onRemoved = _options.OnRemoved;
@@ -103,20 +127,16 @@ namespace Respite.Internal
 
             // now that we've abandoned something, we might have capacity
             if (Volatile.Read(ref _waiting) != 0 && TryGrow())
-            {
-                var newItem = await GrowAsync(cancellationToken).ConfigureAwait(false);
-                await ReturnAsync(newItem).ConfigureAwait(false);
-                await Task.Yield(); // try to let the consumers get hold of the next item
-            }
+                _ = SpawnInBackground();
         }
 
-        public ValueTask DiscardAsync(CancellationToken cancellationToken = default)
+        public ValueTask DiscardAsync()
         {
             var predicate = _options.OnValidate;
-            return predicate == null ? default : DiscardAsync(predicate, cancellationToken);
+            return predicate == null ? default : DiscardAsync(predicate);
         }
 
-        private async ValueTask DiscardAsync(Func<object?, T, bool> predicate, CancellationToken cancellationToken)
+        private async ValueTask DiscardAsync(Func<object?, T, bool> predicate)
         {
             foreach (var pair in _inUse)
             {
@@ -124,7 +144,7 @@ namespace Respite.Internal
                 if (!predicate(_state, item) && _inUse.TryRemove(item, out _))
                 {
                     Interlocked.Decrement(ref _count);
-                    await SurrenderAsync(item, cancellationToken);
+                    await SurrenderAsync(item);
                 }
             }
         }
