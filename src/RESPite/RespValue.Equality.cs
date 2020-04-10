@@ -208,8 +208,7 @@ namespace Respite
                 case StorageKind.InlinedUInt32:
                     return RespWriter.Write(_state.UInt32, destination);
                 case StorageKind.InlinedBytes:
-                    _state.AsSpan().CopyTo(destination);
-                    return _state.PayloadLength;
+                    return _state.CopyInlinedBytesTo(destination);
             }
             ThrowHelper.StorageKindNotImplemented(_state.Storage);
             return 0;

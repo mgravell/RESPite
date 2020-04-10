@@ -124,7 +124,7 @@ namespace Respite
                 case StorageKind.Null:
                     return "";
                 case StorageKind.InlinedBytes:
-                    return UTF8.GetString(_state.AsSpan());
+                    return _state.InlinedBytesToString(UTF8);
                 case StorageKind.InlinedInt64:
                     return _state.Int64.ToString(NumberFormatInfo.InvariantInfo);
                 case StorageKind.InlinedUInt32:
@@ -166,8 +166,9 @@ namespace Respite
             var len = ASCII.GetByteCount(command);
             if (len <= State.InlineSize)
             {
-                var state = new State((byte)len, RespType.Array, RespType.BlobString);
-                ASCII.GetBytes(command.AsSpan(), state.AsWritableSpan());
+                Span<byte> payload = stackalloc byte[len];
+                ASCII.GetBytes(command.AsSpan(), payload);
+                var state = new State(payload, RespType.Array, RespType.BlobString);
                 return new RespValue(state);
             }
             else
@@ -188,8 +189,17 @@ namespace Respite
             }
             else if (len <= State.InlineSize)
             {
-                var state = new State((byte)len, type);
-                if (len != 0) payload.CopyTo(state.AsWritableSpan());
+                State state;
+                if (payload.IsSingleSegment)
+                {
+                    state = new State(payload.First.Span, type);
+                }
+                else
+                {
+                    Span<byte> copy = stackalloc byte[(int)len];
+                    payload.CopyTo(copy);
+                    state = new State(copy, type);
+                }
                 return new RespValue(state);
             }
             else if (payload.IsSingleSegment)
@@ -371,7 +381,7 @@ namespace Respite
                 switch (_state.Storage)
                 {
                     case StorageKind.InlinedBytes:
-                        writer.Write(_state.AsSpan());
+                        _state.WriteInlinedBytes(ref writer);
                         break;
                     case StorageKind.InlinedDouble:
                         writer.Write(_state.Double);
@@ -431,7 +441,7 @@ namespace Respite
                     break;
                 case StorageKind.InlinedBytes:
                     WriteLengthPrefix(ref writer, type, _state.PayloadLength);
-                    writer.Write(_state.AsSpan());
+                    _state.WriteInlinedBytes(ref writer);
                     writer.WriteLine();
                     break;
                 case StorageKind.InlinedInt64:
@@ -545,7 +555,7 @@ namespace Respite
             writer.Write(writer.Downgrade(_state.SubType));
             writer.Write(_state.PayloadLength);
             writer.WriteLine();
-            writer.Write(_state.AsSpan());
+            _state.WriteInlinedBytes(ref writer);
             writer.WriteLine();
         }
 
@@ -778,8 +788,9 @@ namespace Respite
                         {
                             if (length <= State.InlineSize)
                             {
-                                var state = new State((byte)length, type);
-                                if (!input.TryCopyTo(state.AsWritableSpan())) ThrowHelper.Argument(nameof(length));
+                                Span<byte> payload = stackalloc byte[length];
+                                if (!input.TryCopyTo(payload)) ThrowHelper.Argument(nameof(length));
+                                var state = new State(payload, type);
                                 message = new RespValue(state);
                             }
                             else
@@ -867,8 +878,9 @@ namespace Respite
             }
             if (value.Length <= State.InlineSize && (len = UTF8.GetByteCount(value)) <= State.InlineSize)
             {
-                var state = new State((byte)len, type);
-                UTF8.GetBytes(value.AsSpan(), state.AsWritableSpan());
+                Span<byte> payload = stackalloc byte[len];
+                UTF8.GetBytes(value.AsSpan(), payload);
+                var state = new State(payload, type);
                 return new RespValue(state);
             }
             return new RespValue(new State(type, StorageKind.StringSegment, 0, value.Length), value);

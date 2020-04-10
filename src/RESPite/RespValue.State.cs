@@ -1,6 +1,10 @@
-﻿using System;
+﻿using Respite.Internal;
+using System;
+using System.Buffers.Text;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Respite
 {
@@ -71,20 +75,26 @@ namespace Respite
                 SubType = subType;
             }
 
-            public State(byte length, RespType type, RespType subType = RespType.Unknown) : this()
+            public State(ReadOnlySpan<byte> payload, RespType type, RespType subType = RespType.Unknown) : this()
             {
                 Storage = StorageKind.InlinedBytes;
-                PayloadLength = length;
+                byte  len = PayloadLength = (byte)payload.Length;
+                Debug.Assert(len <= InlineSize);
                 Type = type;
                 SubType = subType;
+
+                if (len != 0)
+                {
+                    unsafe
+                    {
+                        fixed (byte* source = payload)
+                        fixed (byte* destination = &Byte)
+                        {
+                            Buffer.MemoryCopy(source, destination, InlineSize, len);
+                        }
+                    }
+                }
             }
-
-            internal Span<byte> AsWritableSpan() => MemoryMarshal.CreateSpan(
-                ref Unsafe.AsRef(in Byte), PayloadLength);
-
-
-            internal ReadOnlySpan<byte> AsSpan() => MemoryMarshal.CreateReadOnlySpan(
-                ref Unsafe.AsRef(in Byte), PayloadLength);
 
             public const int InlineSize = 12;
 
@@ -136,6 +146,48 @@ namespace Respite
 
             internal bool CanWrap => IsInlined && SubType == RespType.Unknown;
             internal bool CanUnwrap => IsInlined && SubType != RespType.Unknown;
+
+            internal unsafe void WriteInlinedBytes(ref RespWriter writer)
+            {
+                fixed (byte* b = &Byte)
+                {
+                    writer.Write(new ReadOnlySpan<byte>(b, PayloadLength));
+                }
+            }
+
+            internal unsafe string InlinedBytesToString(Encoding encoding)
+            {
+                fixed (byte* b = &Byte)
+                {
+                    return encoding.GetString(b, PayloadLength);
+                }
+            }
+
+            internal unsafe int CopyInlinedBytesTo(Span<byte> destination)
+            {
+                fixed (byte* b = &Byte)
+                {
+                    new ReadOnlySpan<byte>(b, PayloadLength).CopyTo(destination);
+                    return PayloadLength;
+                }
+            }
+
+            internal unsafe bool TryParseInlinedBytes(out long value)
+            {
+                fixed (byte* b = &Byte)
+                {
+                    return Utf8Parser.TryParse(new ReadOnlySpan<byte>(b, PayloadLength), out value, out int bytes)
+                        && bytes == PayloadLength;
+                }
+            }
+            internal unsafe bool TryParseInlinedBytes(out double value)
+            {
+                fixed (byte* b = &Byte)
+                {
+                    return Utf8Parser.TryParse(new ReadOnlySpan<byte>(b, PayloadLength), out value, out int bytes)
+                        && bytes == PayloadLength;
+                }
+            }
         }
     }
 }

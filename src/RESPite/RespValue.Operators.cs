@@ -44,7 +44,7 @@ namespace Respite
             {
                 if (_state.PayloadLength == 1)
                 {
-                    switch (_state.AsSpan()[0])
+                    switch (_state.Byte)
                     {
                         case (byte)'t': return true;
                         case (byte)'f': return false;
@@ -61,10 +61,10 @@ namespace Respite
             switch (_state.Storage)
             {
                 case StorageKind.InlinedBytes:
-                    if (Utf8Parser.TryParse(_state.AsSpan(), out long i64, out int bytes)
-                        && bytes == _state.PayloadLength) return i64;
-                    if (Utf8Parser.TryParse(_state.AsSpan(), out double d64, out bytes)
-                        && bytes == _state.PayloadLength) return (long)d64;
+                    if (_state.TryParseInlinedBytes(out long i64))
+                        return i64;
+                    if (_state.TryParseInlinedBytes(out double d64))
+                        return (long)d64;
                     ThrowHelper.Format();
                     return default;
                 case StorageKind.InlinedDouble:
@@ -81,8 +81,8 @@ namespace Respite
             switch (_state.Storage)
             {
                 case StorageKind.InlinedBytes:
-                    if (Utf8Parser.TryParse(_state.AsSpan(), out double d64, out var bytes)
-                        && bytes == _state.PayloadLength) return d64;
+                    if (_state.TryParseInlinedBytes(out double d64))
+                        return d64;
                     ThrowHelper.Format();
                     return default;
                 case StorageKind.InlinedDouble:
