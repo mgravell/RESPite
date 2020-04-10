@@ -64,7 +64,7 @@ namespace Respite.Internal
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(in ReadOnlySequence<byte> value)
         {
-            if (value.IsSingleSegment) Write(value.FirstSpan);
+            if (value.IsSingleSegment) Write(value.First.Span);
             else SlowWrite(in value);
         }
 
@@ -78,7 +78,7 @@ namespace Respite.Internal
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(in ReadOnlySequence<char> value)
         {
-            if (value.IsSingleSegment) Write(value.FirstSpan);
+            if (value.IsSingleSegment) Write(value.First.Span);
             else SlowWrite(in value);
         }
 

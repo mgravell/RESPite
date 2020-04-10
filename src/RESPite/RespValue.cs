@@ -109,7 +109,7 @@ namespace Respite
                     {
                         return s.Substring(start, length);
                     }
-                    return new string(chars.First.Span);
+                    return chars.First.Span.CreateString();
                 }
             }
             if (TryGetBytes(out var bytes))
@@ -475,7 +475,7 @@ namespace Respite
         static int EncodeUtf8(in ReadOnlySequence<char> source, Span<byte> destination)
         {
             return source.IsSingleSegment
-                ? UTF8.GetBytes(source.FirstSpan, destination)
+                ? UTF8.GetBytes(source.First.Span, destination)
                 : Slow(source, destination);
 
             static int Slow(in ReadOnlySequence<char> source, Span<byte> destination)
@@ -494,7 +494,7 @@ namespace Respite
         {
             if (payload.IsSingleSegment)
             {
-                return UTF8.GetByteCount(payload.FirstSpan);
+                return UTF8.GetByteCount(payload.First.Span);
             }
             else
             {

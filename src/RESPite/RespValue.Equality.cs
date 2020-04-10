@@ -100,13 +100,13 @@ namespace Respite
 
         static bool SequenceEqual<T>(ReadOnlySequence<T> x, ReadOnlySequence<T> y) where T : IEquatable<T>
         {
-            if (x.IsSingleSegment & y.IsSingleSegment) return x.FirstSpan.SequenceEqual(y.FirstSpan);
+            if (x.IsSingleSegment & y.IsSingleSegment) return x.First.Span.SequenceEqual(y.First.Span);
 
             if (x.Length != x.Length) return false;
             while (!x.IsEmpty)
             {
-                var xs = x.FirstSpan;
-                var ys = y.FirstSpan;
+                var xs = x.First.Span;
+                var ys = y.First.Span;
                 var min = Math.Min(xs.Length, ys.Length);
                 if (min == 0) ThrowHelper.NotImplemented();
                 if (!xs.Slice(0, min).SequenceEqual(ys.Slice(0, min))) return false;

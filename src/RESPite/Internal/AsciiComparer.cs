@@ -14,7 +14,7 @@ namespace Respite.Internal
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool EqualCaseInsensitive(in ReadOnlySequence<byte> x, in ReadOnlySequence<byte> y)
-            => (x.IsSingleSegment & x.IsSingleSegment) ? EqualCaseInsensitive(x.FirstSpan, y.FirstSpan)
+            => (x.IsSingleSegment & x.IsSingleSegment) ? EqualCaseInsensitive(x.First.Span, y.First.Span)
                 : SlowEqualCaseInsensitive(x, y);
 
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -23,7 +23,7 @@ namespace Respite.Internal
             if (x.Length != y.Length) return false;
             while (!x.IsEmpty)
             {
-                ReadOnlySpan<byte> a = x.FirstSpan, b = y.FirstSpan;
+                ReadOnlySpan<byte> a = x.First.Span, b = y.First.Span;
                 var take = Math.Min(a.Length, b.Length);
                 if (take == 0) ThrowHelper.Invalid("math is hard");
 

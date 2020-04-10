@@ -40,7 +40,7 @@ namespace Respite
         {
             if (IsSequence && _values.IsSingleSegment)
             {
-                span = _values.FirstSpan;
+                span = _values.First.Span;
                 return true;
             }
             span = default;

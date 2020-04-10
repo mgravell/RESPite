@@ -62,5 +62,14 @@ namespace Respite.Internal
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void Invalid(string message)
             => throw new InvalidOperationException(message);
+
+        internal static void ThrowArgumentOutOfRangeException_OffsetOutOfRange()
+            => ArgumentOutOfRange("offset");
+        internal static void ThrowArgumentOutOfRangeException(string name)
+            => ArgumentOutOfRange(name);
+    }
+    internal static class ExceptionArgument
+    {
+        internal const string count = nameof(count);
     }
 }
