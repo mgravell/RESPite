@@ -11,6 +11,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "general", "general", "{CC88
 	ProjectSection(SolutionItems) = preProject
 		.gitignore = .gitignore
 		Directory.Build.props = Directory.Build.props
+		Directory.Build.targets = Directory.Build.targets
 		global.json = global.json
 		README.md = README.md
 		version.json = version.json
@@ -32,7 +33,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RESPite", "src\RESPite\RESP
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RESPite.Bedrock", "src\RESPite.Bedrock\RESPite.Bedrock.csproj", "{837BEDA0-DB7C-4EC1-A21D-FA7F9432A5DB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RESPite.Redis", "src\RESPite.Redis\RESPite.Redis.csproj", "{407C04FC-D989-4C55-88F9-84BEDF9F4382}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RESPite.Redis", "src\RESPite.Redis\RESPite.Redis.csproj", "{407C04FC-D989-4C55-88F9-84BEDF9F4382}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
