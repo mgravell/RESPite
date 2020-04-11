@@ -117,7 +117,11 @@ namespace Respite.Redis
 
             static ISet<object> ToSet(in ReadOnlyBlock<RespValue> values)
             {
+#if NET461 || NETSTANDARD2_0
+                var set = new HashSet<object>();
+#else
                 var set = new HashSet<object>(values.Count);
+#endif
                 foreach (var value in values)
                     set.Add(value);
                 return set;

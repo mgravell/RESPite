@@ -166,9 +166,8 @@ namespace Respite
             var len = ASCII.GetByteCount(command);
             if (len <= State.InlineSize)
             {
-                Span<byte> payload = stackalloc byte[len];
-                ASCII.GetBytes(command.AsSpan(), payload);
-                var state = new State(payload, RespType.Array, RespType.BlobString);
+                var state = new State((byte)len, RespType.Array, RespType.BlobString);
+                state.DangerousFillFrom(ASCII, command);
                 return new RespValue(state);
             }
             else
@@ -189,17 +188,8 @@ namespace Respite
             }
             else if (len <= State.InlineSize)
             {
-                State state;
-                if (payload.IsSingleSegment)
-                {
-                    state = new State(payload.First.Span, type);
-                }
-                else
-                {
-                    Span<byte> copy = stackalloc byte[(int)len];
-                    payload.CopyTo(copy);
-                    state = new State(copy, type);
-                }
+                State state = new State((byte)len, type);
+                state.DangerousFillFrom(in payload);
                 return new RespValue(state);
             }
             else if (payload.IsSingleSegment)
@@ -788,9 +778,8 @@ namespace Respite
                         {
                             if (length <= State.InlineSize)
                             {
-                                Span<byte> payload = stackalloc byte[length];
-                                if (!input.TryCopyTo(payload)) ThrowHelper.Argument(nameof(length));
-                                var state = new State(payload, type);
+                                var state = new State((byte)length, type);
+                                state.DangerousFillFrom(ref input);
                                 message = new RespValue(state);
                             }
                             else
@@ -878,9 +867,8 @@ namespace Respite
             }
             if (value.Length <= State.InlineSize && (len = UTF8.GetByteCount(value)) <= State.InlineSize)
             {
-                Span<byte> payload = stackalloc byte[len];
-                UTF8.GetBytes(value.AsSpan(), payload);
-                var state = new State(payload, type);
+                var state = new State((byte)len, type);
+                state.DangerousFillFrom(UTF8, value);
                 return new RespValue(state);
             }
             return new RespValue(new State(type, StorageKind.StringSegment, 0, value.Length), value);

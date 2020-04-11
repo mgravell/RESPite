@@ -1,8 +1,6 @@
-﻿using Bedrock.Framework;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
 using Respite;
-using Respite.Bedrock;
 using Respite.Redis;
 using ServiceStack.Redis;
 using StackExchange.Redis;
@@ -16,6 +14,11 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+
+#if NETCOREAPP3_1
+using Bedrock.Framework;
+using Respite.Bedrock;
+#endif
 
 namespace SimpleClient
 {
@@ -120,7 +123,7 @@ namespace SimpleClient
         static async Task BasicBenchmark()
 #pragma warning restore IDE0051 // Remove unused private members
         {
-            const int CLIENTS = 100, PER_CLIENT = 10000, PIPELINE_DEPTH = 20;
+            const int CLIENTS = 100, PER_CLIENT = 1000, PIPELINE_DEPTH = 20;
             int[] POOL_SIZES = { 1, 2, 3, 5, 10, 20, 30 };
             string payload = null; // "abc"; //  new string('a', 2048);
             for (int i = 0; i < 3; i++)
@@ -133,7 +136,9 @@ namespace SimpleClient
                 //await ExecutePooledSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 //await ExecuteNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 //await ExecuteSocketAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+#if NETCOREAPP3_1
                 //await ExecuteBedrockAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
+#endif
                 await ExecuteStackExchangeRedisAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload);
                 //if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SERVICESTACK_LICENSE")))
                 //{
@@ -451,7 +456,7 @@ namespace SimpleClient
 //            timer.Stop();
 //            Log("sync", timer.Elapsed, totalPings, payload);
         }
-
+#if NETCOREAPP3_1
         static async Task ExecuteBedrockAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload)
         {
             pingsPerClient /= pipelineDepth;
@@ -500,6 +505,7 @@ namespace SimpleClient
             timer.Stop();
             Log("sync", timer.Elapsed, totalPings, payload);
         }
+#endif
 
         static async Task ExecuteStackExchangeRedisAsync(int pingsPerWorker, int workers, int pipelineDepth, string sPayload)
         {

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -7,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Respite.Internal
 {
-    internal static class Lowfxs
+    internal static class Lowfx
     {
 #if LOWFX
         public unsafe static int GetBytes(this Encoding encoding, ReadOnlySpan<char> chars, Span<byte> bytes)
@@ -70,18 +71,41 @@ namespace Respite.Internal
                 ArrayPool<byte>.Shared.Return(arr);
             }
         }
-        public static async ValueTask<int> ReadAsync(this Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
+        public static ValueTask<int> ReadAsync(this Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
         {
             var arr = ArrayPool<byte>.Shared.Rent(buffer.Length);
             try
             {
-                int bytes = await stream.ReadAsync(arr, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-                if (bytes != 0) new ReadOnlySpan<byte>(arr, 0, bytes).CopyTo(buffer.Span);
+                var pending = stream.ReadAsync(arr, 0, buffer.Length, cancellationToken);
+                if (pending.Status != TaskStatus.RanToCompletion) return Awaited(arr, buffer, pending);
+
+                var bytes = Complete(arr, buffer, pending.Result);
+                return new ValueTask<int>(bytes);
+            }
+            catch
+            {
+                Complete(arr, buffer, 0);
+                throw;
+            }
+            static int Complete(byte[] source, Memory<byte> destination, int bytes)
+            {
+                if (bytes > 0) new ReadOnlySpan<byte>(source, 0, bytes).CopyTo(destination.Span);
+                ArrayPool<byte>.Shared.Return(source);
                 return bytes;
             }
-            finally
+
+            static async ValueTask<int> Awaited(byte[] arr, Memory<byte> buffer, Task<int> pending)
             {
-                ArrayPool<byte>.Shared.Return(arr);
+                try
+                {
+                    var bytes = await pending.ConfigureAwait(false);
+                    return Complete(arr, buffer, bytes);
+                }
+                catch
+                {
+                    Complete(arr, buffer, 0);
+                    throw;
+                }
             }
         }
 
@@ -98,17 +122,33 @@ namespace Respite.Internal
                 ArrayPool<byte>.Shared.Return(arr);
             }
         }
-        public static async ValueTask WriteAsync(this Stream stream, ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+        public static ValueTask WriteAsync(this Stream stream, ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
         {
             var arr = ArrayPool<byte>.Shared.Rent(buffer.Length);
             try
             {
                 buffer.CopyTo(arr);
-                await stream.WriteAsync(arr, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+                var pending = stream.WriteAsync(arr, 0, buffer.Length, cancellationToken);
+                if (pending.Status != TaskStatus.RanToCompletion) return Awaited(arr, pending);
+                Return(arr);
+                return default;
             }
-            finally
+            catch
             {
-                ArrayPool<byte>.Shared.Return(arr);
+                Return(arr);
+                throw;
+            }
+            static void Return(byte[] arr) => ArrayPool<byte>.Shared.Return(arr);
+            static async ValueTask Awaited(byte[] arr, Task pending)
+            {
+                try
+                {
+                    await pending.ConfigureAwait(false);
+                }
+                finally
+                {
+                    Return(arr);
+                }
             }
         }
 #else

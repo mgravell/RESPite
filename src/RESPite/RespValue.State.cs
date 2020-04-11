@@ -1,5 +1,6 @@
 ﻿using Respite.Internal;
 using System;
+using System.Buffers;
 using System.Buffers.Text;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -75,25 +76,13 @@ namespace Respite
                 SubType = subType;
             }
 
-            public State(ReadOnlySpan<byte> payload, RespType type, RespType subType = RespType.Unknown) : this()
+            public State(byte length, RespType type, RespType subType = RespType.Unknown) : this()
             {
+                Debug.Assert(length <= InlineSize);
                 Storage = StorageKind.InlinedBytes;
-                byte  len = PayloadLength = (byte)payload.Length;
-                Debug.Assert(len <= InlineSize);
+                PayloadLength = length;
                 Type = type;
                 SubType = subType;
-
-                if (len != 0)
-                {
-                    unsafe
-                    {
-                        fixed (byte* source = payload)
-                        fixed (byte* destination = &Byte)
-                        {
-                            Buffer.MemoryCopy(source, destination, InlineSize, len);
-                        }
-                    }
-                }
             }
 
             public const int InlineSize = 12;
@@ -186,6 +175,34 @@ namespace Respite
                 {
                     return Utf8Parser.TryParse(new ReadOnlySpan<byte>(b, PayloadLength), out value, out int bytes)
                         && bytes == PayloadLength;
+                }
+            }
+
+            internal unsafe void DangerousFillFrom(Encoding encoding, string value)
+            {
+                fixed (char* c = value)
+                fixed (byte* b = &Byte)
+                {
+                    int bytes = encoding.GetBytes(c, value.Length, b, PayloadLength);
+                    Debug.Assert(bytes == PayloadLength);
+                }
+            }
+
+            internal unsafe void DangerousFillFrom(in ReadOnlySequence<byte> payload)
+            {
+                fixed (byte* b = &Byte)
+                {
+                    var span = new Span<byte>(b, PayloadLength);
+                    payload.CopyTo(span);
+                }
+            }
+
+            internal unsafe void DangerousFillFrom(ref SequenceReader<byte> payload)
+            {
+                fixed (byte* b = &Byte)
+                {
+                    var span = new Span<byte>(b, PayloadLength);
+                    if (!payload.TryCopyTo(span)) ThrowHelper.Invalid("payload mismatch");
                 }
             }
         }
