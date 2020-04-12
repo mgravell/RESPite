@@ -44,6 +44,7 @@ namespace Respite
             get => Volatile.Read(ref _pendingCount);
         }
 
+        public bool IsDoomed => GetFlag(RespConnectionFlags.IsDoomed);
         public void Doom() => SetFlag(RespConnectionFlags.IsDoomed, true);
         internal bool IsReusable => OutstandingResponseCount == 0 & !GetFlag(RespConnectionFlags.IsDoomed);
 

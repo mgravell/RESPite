@@ -40,7 +40,6 @@ namespace Respite.Internal
 
         static readonly Func<T, object?, ValueTask> s_Return = (value, state) => (state as Pool<T>)?.ReturnAsync(value) ?? default;
 
-        private AsyncLifetime<T> AsLifetime(T value) => new AsyncLifetime<T>(value, s_Return, this);
         public ValueTask<AsyncLifetime<T>> RentAsync(CancellationToken cancellationToken = default)
         {
             var pending = TakeAsync(cancellationToken);
@@ -51,11 +50,12 @@ namespace Respite.Internal
             static async ValueTask<AsyncLifetime< T >> Awaited(Pool<T> @this, ValueTask<T> pending)
             {
                 var item = await pending.ConfigureAwait(false);
-                return @this.AsLifetime(item);
+                return AsLifetime(@this, item);
             }
             static AsyncLifetime<T> AsLifetime(Pool<T> @this, T value) => new AsyncLifetime<T>(value, s_Return, @this);
         }
 
+        public bool TryDetach(T value) => _inUse.TryRemove(value, out _);
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void ThrowDisposed() => ThrowHelper.Disposed(ToString());
