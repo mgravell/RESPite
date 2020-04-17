@@ -13,7 +13,7 @@ namespace Respite
         public int ConnectionCount => _pool.Count;
         public int TotalConnectionCount => _pool.TotalCount;
 
-        public RespConnectionPool(Func<CancellationToken, ValueTask<RespConnection>> factory, RespConnectionPoolOptions? options = null)
+        public RespConnectionPool(Func<CancellationToken, ValueTask<RespConnection>> factory, RespConnectionPoolOptions? options = null, object? state = null) : base(state)
         {
             if (factory == null) ThrowHelper.ArgumentNull(nameof(factory));
             options ??= RespConnectionPoolOptions.Default;

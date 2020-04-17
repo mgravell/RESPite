@@ -8,13 +8,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="3.1.1" />
-    <PackageReference Include="StackExchange.Redis" Version="2.0.601" />
+    <PackageReference Include="StackExchange.Redis" Version="2.1.30" />
     <PackageReference Include="ServiceStack.Redis" Version="5.8.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RESPite.Bedrock\RESPite.Bedrock.csproj" Condition="'$(TargetFramework)'=='netcoreapp3.1'"/>
+    <ProjectReference Include="..\..\src\RESPite.Bedrock\RESPite.Bedrock.csproj" Condition="'$(TargetFramework)'=='netcoreapp3.1'" />
     <ProjectReference Include="..\..\src\RESPite.Redis\RESPite.Redis.csproj" />
+    <ProjectReference Include="..\..\src\RESPite.StackExchange.Redis\RESPite.StackExchange.Redis.csproj" />
   </ItemGroup>
 
 </Project>

@@ -10,7 +10,7 @@ namespace Respite
     internal sealed class StreamRespConnection : SimpleRespConnection
     {
         private readonly Stream _stream;
-        public StreamRespConnection(Stream stream) => _stream = stream;
+        public StreamRespConnection(Stream stream, object? state) : base(state) => _stream = stream;
 
         protected override ValueTask OnDisposeAsync()
         {

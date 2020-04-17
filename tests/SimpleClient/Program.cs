@@ -14,6 +14,8 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using RESPite.StackExchange.Redis;
+using System.Linq;
 
 #if NETCOREAPP3_1
 using Bedrock.Framework;
@@ -28,9 +30,37 @@ namespace SimpleClient
         private static readonly string ServerEndpointString = "127.0.0.1:6379";
 
 
-        static Task Main() => BasicBenchmark();
+        static Task Main() => SERedisShim();
 
         //SocketConnection.SetRecommendedClientOptions(socket);
+
+        static async Task SERedisShim()
+        {
+            var config = ConfigurationOptions.Parse(ServerEndpointString);
+            using var muxer = await config.GetPooledMultiplexerAsync(10);
+            IDatabaseAsync db = muxer.GetDatabase();
+            //var pings = new Task<TimeSpan>[200];
+            //for (int i = 0; i < pings.Length; i++)
+            //{
+            //    pings[i] = db.PingAsync();
+            //}
+            //var pingResults = await Task.WhenAll(pings);
+            //for (int i = 0; i < pingResults.Length; i++)
+            //{
+            //    Console.WriteLine(pingResults[i]);
+            //}
+
+            var clients = new Task<RedisResult>[2000];
+            for (int i = 0; i < clients.Length; i++)
+            {
+                clients[i] = db.ExecuteAsync("client", "id");
+            }
+            var clientResults = await Task.WhenAll(clients);
+            foreach(var grp in clientResults.GroupBy(x => (long)x).OrderBy(x => x.Key))
+            {
+                Console.WriteLine($"client: {grp.Key}, uses: {grp.Count()}");
+            }
+        }
 
         static async Task TestArdb()
         {

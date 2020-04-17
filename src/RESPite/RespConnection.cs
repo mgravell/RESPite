@@ -9,6 +9,9 @@ namespace Respite
 {
     public abstract partial class RespConnection : IAsyncDisposable
     {
+        protected RespConnection(object? state) => State = state;
+        public object? State { get; }
+
         [Flags]
         enum RespConnectionFlags
         {
@@ -48,8 +51,8 @@ namespace Respite
         public void Doom() => SetFlag(RespConnectionFlags.IsDoomed, true);
         internal bool IsReusable => OutstandingResponseCount == 0 & !GetFlag(RespConnectionFlags.IsDoomed);
 
-        public static RespConnection Create(Stream stream) => new StreamRespConnection(stream);
-        public static RespConnection Create(Socket socket) => Create(new NetworkStream(socket));
+        public static RespConnection Create(Stream stream, object? state = null) => new StreamRespConnection(stream, state);
+        public static RespConnection Create(Socket socket, object? state = null) => Create(new NetworkStream(socket), state);
             // => new SocketRespConnection(socket);
         public void Send(in RespValue value)
         {

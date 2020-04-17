@@ -196,6 +196,13 @@ namespace Respite.Internal
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write(ulong value)
+        {
+            if (Utf8Formatter.TryFormat(value, _currentSpan, out var bytes)) Commit(bytes);
+            else SlowWrite(value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int Write(long value, Span<byte> destination)
         {
             if (!Utf8Formatter.TryFormat(value, destination, out var bytes))
@@ -212,6 +219,15 @@ namespace Respite.Internal
             Commit(bytes);
         }
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void SlowWrite(ulong value)
+        {
+            Flush();
+            if (!Utf8Formatter.TryFormat(value, _currentSpan, out var bytes))
+                ThrowHelper.Format();
+            Commit(bytes);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(double value)
         {
@@ -219,8 +235,7 @@ namespace Respite.Internal
             else SlowWrite(value);
         }
 
-        private static readonly StandardFormat s_DoubleFormat
-            = new StandardFormat('G', 17);
+        private static readonly StandardFormat s_DoubleFormat = new StandardFormat('G', 17);
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int Write(double value, Span<byte> destination)
         {

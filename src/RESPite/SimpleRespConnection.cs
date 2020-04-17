@@ -23,7 +23,7 @@ namespace Respite
 
         protected IBufferWriter<byte> InputWriter => _inBuffer!;
 
-        private protected SimpleRespConnection()
+        private protected SimpleRespConnection(object? state) : base(state)
         {
             _outBuffer = new SimplePipe();
             _inBuffer = new SimplePipe();

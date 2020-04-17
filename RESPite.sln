@@ -35,6 +35,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RESPite.Bedrock", "src\RESP
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RESPite.Redis", "src\RESPite.Redis\RESPite.Redis.csproj", "{407C04FC-D989-4C55-88F9-84BEDF9F4382}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RESPite.StackExchange.Redis", "src\RESPite.StackExchange.Redis\RESPite.StackExchange.Redis.csproj", "{EEFF9BEE-80F7-4BD9-BAF2-42CBE6A07885}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -73,6 +75,10 @@ Global
 		{407C04FC-D989-4C55-88F9-84BEDF9F4382}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{407C04FC-D989-4C55-88F9-84BEDF9F4382}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{407C04FC-D989-4C55-88F9-84BEDF9F4382}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EEFF9BEE-80F7-4BD9-BAF2-42CBE6A07885}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EEFF9BEE-80F7-4BD9-BAF2-42CBE6A07885}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EEFF9BEE-80F7-4BD9-BAF2-42CBE6A07885}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EEFF9BEE-80F7-4BD9-BAF2-42CBE6A07885}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -86,6 +92,7 @@ Global
 		{B4DBFB7A-1CEE-43E3-B8B1-1CB7F2115877} = {A95AEB27-DAED-4500-A426-B5A9F0210984}
 		{837BEDA0-DB7C-4EC1-A21D-FA7F9432A5DB} = {A95AEB27-DAED-4500-A426-B5A9F0210984}
 		{407C04FC-D989-4C55-88F9-84BEDF9F4382} = {A95AEB27-DAED-4500-A426-B5A9F0210984}
+		{EEFF9BEE-80F7-4BD9-BAF2-42CBE6A07885} = {A95AEB27-DAED-4500-A426-B5A9F0210984}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {6FFF7D37-6A5E-471D-8CEC-C4A91D3BD624}

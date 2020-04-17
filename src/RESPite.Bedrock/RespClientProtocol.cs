@@ -13,7 +13,7 @@ namespace Respite.Bedrock
         private readonly ProtocolReader _reader;
         private readonly ProtocolWriter _writer;
 
-        public RespBedrockProtocol(ConnectionContext connection)
+        public RespBedrockProtocol(ConnectionContext connection, object state = null) : base(state)
         {
             // _connection = connection;
             _reader = connection.CreateReader();
