@@ -178,6 +178,9 @@ namespace Respite
             }
         }
 
+        public static RespValue Create(RespType type, byte[] payload)
+            => Create(type, new ReadOnlySequence<byte>(payload));
+
         public static RespValue Create(RespType type, in ReadOnlySequence<byte> payload)
         {
             var len = payload.Length;

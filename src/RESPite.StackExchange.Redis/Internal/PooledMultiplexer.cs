@@ -3,11 +3,11 @@ using Respite;
 using StackExchange.Redis;
 using StackExchange.Redis.Profiling;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -39,51 +39,73 @@ namespace RESPite.StackExchange.Redis.Internal
         private ValueTask<RespConnection> HandshakeAsync(RespConnection connection, CancellationToken cancellationToken)
             => new ValueTask<RespConnection>(connection);
 
-        //private readonly AsyncLocal<int> _inFlight = new AsyncLocal<int>();
-
-        //[MethodImpl(MethodImplOptions.NoInlining)]
-        //static void ThrowOverlapped() => throw new InvalidOperationException($"Overlapped operations are not supported; you must await each operation to guarantee ordering");
-
         long _opCount;
 
-        internal async Task CallAsync(ReadOnlyMemory<RespValue> args, CancellationToken cancellationToken, Action<RespValue>? inspector = null)
+        internal async Task CallAsync(Lifetime<Memory<RespValue>> args, CancellationToken cancellationToken, Action<RespValue>? inspector = null)
         {
-            Interlocked.Increment(ref _opCount);
-            //var inflight = _inFlight.Value++;
-            //Console.WriteLine($"> {op}, inflight = {inflight}");
-            //try
-            //{
-                //await Task.Yield();
-                //await Task.Delay(100);
-                //if (inflight != 0) ThrowOverlapped();
+            using (args)
+            {
+                Interlocked.Increment(ref _opCount);
                 await using var lease = await _pool.RentAsync(cancellationToken).ConfigureAwait(false);
-                //Console.WriteLine($"= {op} is on {lease.Value.State}");
-                await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args), cancellationToken).ConfigureAwait(false);
+                await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
                 using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
                 response.Value.ThrowIfError();
                 inspector?.Invoke(response.Value);
-            //}
-            //finally
-            //{
-            //    //_inFlight.Value--;
-            //    //Console.WriteLine($"< {op}");
-            //}
+            }
         }
-        internal async Task<T> CallAsync<T>(ReadOnlyMemory<RespValue> args, Func<RespValue, T> selector, CancellationToken cancellationToken)
+        internal async Task<T> CallAsync<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector, CancellationToken cancellationToken)
         {
-            //if (_inFlight.Value != 0) ThrowOverlapped();
-            //_inFlight.Value++;
-            //try
-            //{
+            using (args)
+            {
+                Interlocked.Increment(ref _opCount);
                 await using var lease = await _pool.RentAsync(cancellationToken).ConfigureAwait(false);
-                await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args), cancellationToken).ConfigureAwait(false);
+                await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
                 using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
                 response.Value.ThrowIfError();
                 return selector(response.Value);
-            //}
-            //finally
+            }
+        }
+        internal async Task CallAsync(List<IBatchedOperation> operations, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await using var lease = await _pool.RentAsync(cancellationToken).ConfigureAwait(false);
+                foreach (var op in operations) // send all
+                {
+                    Interlocked.Increment(ref _opCount);
+                    using var args = op.ConsumeArgs();
+                    await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
+                }
+                foreach (var op in operations) // then receive all
+                {
+                    using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        response.Value.ThrowIfError();
+                        op.ProcessResponse(response.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        op.TrySetException(ex);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                foreach (var op in operations) // fault anything that is left after a global explosion
+                {
+                    op.TrySetException(ex);
+                }
+            }
+
+            //using (args)
             //{
-            //    //_inFlight.Value--;
+            //    Interlocked.Increment(ref _opCount);
+                
+            //    await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
+            //    using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+            //    response.Value.ThrowIfError();
+            //    return selector(response.Value);
             //}
         }
 

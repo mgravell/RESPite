@@ -1,34 +1,40 @@
 ﻿using Respite;
 using StackExchange.Redis;
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace RESPite.StackExchange.Redis.Internal
 {
-    internal partial class PooledDatabase : IDatabaseAsync
+    internal partial class PooledBase : IDatabaseAsync
     {
+        protected abstract Task CallAsync(Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null);
+        protected abstract Task<T> CallAsync<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector);
+
         Task<RedisValue> IDatabaseAsync.DebugObjectAsync(RedisKey key, CommandFlags flags)
         {
             throw new NotImplementedException();
         }
 
-        async Task<RedisResult> IDatabaseAsync.ExecuteAsync(string command, params object[] args)
+        Task<RedisResult> IDatabaseAsync.ExecuteAsync(string command, params object[] args)
         {
-            using var lease = Args(command, args);
-            return await _parent.CallAsync<RedisResult>(lease.Value, val => AsRedisResult(val), _cancellationToken).ConfigureAwait(false);
+            return CallAsync(Args(command, args), val => AsRedisResult(val));
+            static RedisResult AsRedisResult(in RespValue value) => RedisResult.Create(ToRedisValue(value));
+        }
 
-            static RedisResult AsRedisResult(in RespValue value) => RedisResult.Create(value.Type switch
+        private static RedisValue ToRedisValue(in RespValue value)
+        {
+            return value.Type switch
             {
                 RespType.SimpleString => value.ToString(),
                 RespType.Number => value.ToInt64(),
                 RespType.Double => value.ToDouble(),
                 RespType.Boolean => value.ToBoolean(),
                 _ => SnapshotBytes(value),
-            });
+            };
             static RedisValue SnapshotBytes(in RespValue value)
             {
                 byte[] blob = new byte[value.GetByteCount()];
@@ -36,6 +42,8 @@ namespace RESPite.StackExchange.Redis.Internal
                 return blob;
             }
         }
+        static readonly RespValue s_OK = RespValue.Create(RespType.SimpleString, "ok");
+        private static bool IsOK(in RespValue value) => value.EqualsAsciiIgnoreCase(s_OK);
 
         Task<RedisResult> IDatabaseAsync.ExecuteAsync(string command, ICollection<object> args, CommandFlags flags)
         {
@@ -228,9 +236,7 @@ namespace RESPite.StackExchange.Redis.Internal
         }
 
         Task<bool> IDatabaseAsync.KeyDeleteAsync(RedisKey key, CommandFlags flags)
-        {
-            throw new NotImplementedException();
-        }
+            => CallAsync(Args("unlink", key), val => val.ToInt64() != 0);
 
         Task<long> IDatabaseAsync.KeyDeleteAsync(RedisKey[] keys, CommandFlags flags)
         {
@@ -414,12 +420,51 @@ namespace RESPite.StackExchange.Redis.Internal
 
         RespValue Command(string value) => RespValue.Create(RespType.BlobString, value);
 
+        Lifetime<Memory<RespValue>> Args(string command, in RedisKey key)
+        {
+            var lease = RespValue.Lease(2);
+            var span = lease.Value.Span;
+            span[0] = Command(command);
+            span[1] = ToBlobString(key);
+            return lease;
+        }
+        Lifetime<Memory<RespValue>> Args(string command, in RedisKey key, long value)
+        {
+            var lease = RespValue.Lease(2);
+            var span = lease.Value.Span;
+            span[0] = Command(command);
+            span[1] = ToBlobString(key);
+            span[2] = ToBlobString(value);
+            return lease;
+        }
+        Lifetime<Memory<RespValue>> Args(string command, in RedisKey key, double value)
+        {
+            var lease = RespValue.Lease(2);
+            var span = lease.Value.Span;
+            span[0] = Command(command);
+            span[1] = ToBlobString(key);
+            span[2] = ToBlobString(value);
+            return lease;
+        }
+
         Lifetime<Memory<RespValue>> Args(string command)
         {
             var lease = RespValue.Lease(1);
             lease.Value.Span[0] = Command(command);
             return lease;
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static RespValue ToBlobString(in RedisKey value) => RespValue.Create(RespType.BlobString, (byte[])value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static RespValue ToBlobString(in RedisValue value) => RespValue.Create(RespType.BlobString, (byte[])value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static RespValue ToBlobString(string value) => RespValue.Create(RespType.BlobString, value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static RespValue ToBlobString(long value) => RespValue.Create(RespType.BlobString, value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static RespValue ToBlobString(double value) => RespValue.Create(RespType.BlobString, value);
+
         Lifetime<Memory<RespValue>> Args(string command, object[] args)
         {
             args ??= Array.Empty<object>();
@@ -430,12 +475,14 @@ namespace RESPite.StackExchange.Redis.Internal
             {
                 span[i + 1] = (args[i]) switch
                 {
-                    string s => RespValue.Create(RespType.BlobString, s),
-                    int i32 => RespValue.Create(RespType.BlobString, i32),
-                    long i64 => RespValue.Create(RespType.BlobString, i64),
-                    double f64 => RespValue.Create(RespType.BlobString, f64),
-                    float f32 => RespValue.Create(RespType.BlobString, f32),
-                    byte[] blob => RespValue.Create(RespType.BlobString, new ReadOnlySequence<byte>(blob)),
+                    string s => ToBlobString(s),
+                    int i32 => ToBlobString(i32),
+                    long i64 => ToBlobString(i64),
+                    double f64 => ToBlobString(f64),
+                    float f32 => ToBlobString(f32),
+                    RedisKey key => ToBlobString(key),
+                    RedisValue value => ToBlobString(value),
+                    byte[] blob => RespValue.Create(RespType.BlobString, blob),
                     _ => throw new NotSupportedException(),
                 };
             }
@@ -446,9 +493,8 @@ namespace RESPite.StackExchange.Redis.Internal
 
         async Task<TimeSpan> IRedisAsync.PingAsync(CommandFlags flags)
         {
-            using var args = Args("ping");
             var start = Stopwatch.GetTimestamp();
-            await _parent.CallAsync(args.Value, _cancellationToken).ConfigureAwait(false);
+            await CallAsync(Args("ping")).ConfigureAwait(false);
             var end = Stopwatch.GetTimestamp();
             var ticks = (long)(TimestampToTicks * (end - start));
             return new TimeSpan(ticks);
@@ -870,9 +916,7 @@ namespace RESPite.StackExchange.Redis.Internal
         }
 
         Task<RedisValue> IDatabaseAsync.StringGetAsync(RedisKey key, CommandFlags flags)
-        {
-            throw new NotImplementedException();
-        }
+            => CallAsync(Args("get", key), val => ToRedisValue(val));
 
         Task<RedisValue[]> IDatabaseAsync.StringGetAsync(RedisKey[] keys, CommandFlags flags)
         {
@@ -905,14 +949,11 @@ namespace RESPite.StackExchange.Redis.Internal
         }
 
         Task<long> IDatabaseAsync.StringIncrementAsync(RedisKey key, long value, CommandFlags flags)
-        {
-            throw new NotImplementedException();
-        }
+            => CallAsync(value == 1 ? Args("incr", key) : Args("incrby", key, value),
+                val => val.ToInt64());
 
         Task<double> IDatabaseAsync.StringIncrementAsync(RedisKey key, double value, CommandFlags flags)
-        {
-            throw new NotImplementedException();
-        }
+            => CallAsync(Args("incrbyfloat", key, value), val => val.ToDouble());
 
         Task<long> IDatabaseAsync.StringLengthAsync(RedisKey key, CommandFlags flags)
         {

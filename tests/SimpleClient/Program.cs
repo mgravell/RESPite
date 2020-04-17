@@ -37,28 +37,67 @@ namespace SimpleClient
         static async Task SERedisShim()
         {
             var config = ConfigurationOptions.Parse(ServerEndpointString);
-            using var muxer = await config.GetPooledMultiplexerAsync(10);
-            IDatabaseAsync db = muxer.GetDatabase();
-            //var pings = new Task<TimeSpan>[200];
-            //for (int i = 0; i < pings.Length; i++)
-            //{
-            //    pings[i] = db.PingAsync();
-            //}
-            //var pingResults = await Task.WhenAll(pings);
-            //for (int i = 0; i < pingResults.Length; i++)
-            //{
-            //    Console.WriteLine(pingResults[i]);
-            //}
+            const int POOL_SIZE = 5;
+            using var pooled = await config.GetPooledMultiplexerAsync(POOL_SIZE);
+            using var multiplexed = await ConnectionMultiplexer.ConnectAsync(config);
 
-            var clients = new Task<RedisResult>[2000];
-            for (int i = 0; i < clients.Length; i++)
+            Console.WriteLine("Warming up...");// JIT
+            await TestConcurrentClients(null, multiplexed, 1, 2, 1);
+            await TestConcurrentClients(null, multiplexed, 1, 2, 2);
+            await TestConcurrentClients(null, pooled, 1, 2, 1);
+            await TestConcurrentClients(null, pooled, 1, 2, 2);
+
+            Console.WriteLine("Profiling...");
+            const int WORKERS = 50, PER_WORKER = 2000;
+            int[] depths = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 50, 100, 200 };
+            foreach (int depth in depths)
             {
-                clients[i] = db.ExecuteAsync("client", "id");
+                await TestConcurrentClients("Multiplexed", multiplexed, WORKERS, PER_WORKER, depth);
             }
-            var clientResults = await Task.WhenAll(clients);
-            foreach(var grp in clientResults.GroupBy(x => (long)x).OrderBy(x => x.Key))
+            Console.WriteLine();
+            string pooledName = $"Pooled x{POOL_SIZE}";
+            foreach (int depth in depths)
             {
-                Console.WriteLine($"client: {grp.Key}, uses: {grp.Count()}");
+                await TestConcurrentClients(pooledName, pooled, WORKERS, PER_WORKER, depth);
+            }
+        }
+
+        static async Task TestConcurrentClients(string label, IConnectionMultiplexer muxer, int workers, int perWorker, int depth)
+        {
+            var db = muxer.GetDatabase();
+            RedisKey key = Guid.NewGuid().ToString("N");
+            var tasks = new Task[workers];
+            var watch = Stopwatch.StartNew();
+            perWorker /= depth;
+            for (int i = 0; i < workers; i++)
+            {
+                tasks[i] = Task.Run(async () =>
+                {
+                    var tasks = new Task[depth];
+                    for (int j = 0; j < perWorker; j++)
+                    {
+                        if (depth == 1)
+                            await db.StringIncrementAsync(key);
+                        else
+                        {
+                            var batch = db.CreateBatch();
+                            for (int d = 0; d < depth; d++)
+                                tasks[d] = batch.StringIncrementAsync(key);
+                            batch.Execute();
+                            await Task.WhenAll(tasks);
+                        }
+                    }
+                });
+            }
+            await Task.WhenAll(tasks);
+            watch.Stop();
+            var total = (long)await db.StringGetAsync(key);
+            await db.KeyDeleteAsync(key);
+            var expected = workers * perWorker * depth;
+            if (!string.IsNullOrWhiteSpace(label))
+            {
+                if (total != expected) Console.WriteLine($"warning: expected {expected}, actual {total}");
+                Console.WriteLine($"{label}, {workers}x{perWorker}x{depth}\t{watch.ElapsedMilliseconds}ms\t{total / watch.Elapsed.TotalSeconds:F2} op/s");
             }
         }
 
@@ -111,7 +150,7 @@ namespace SimpleClient
                     Console.WriteLine($"{prefix}set [{set.Count}]");
                     foreach (var el in set) Dump(el, "> " + prefix);
                     break;
-                case IDictionary<object,object> map:
+                case IDictionary<object, object> map:
                     Console.WriteLine($"{prefix}map [{map.Count}]");
                     foreach (var pair in map)
                     {
@@ -159,7 +198,7 @@ namespace SimpleClient
             for (int i = 0; i < 3; i++)
             {
 
-                foreach(int poolSize in POOL_SIZES)
+                foreach (int poolSize in POOL_SIZES)
                 {
                     await ExecutePooledNetworkStreamAsync(PER_CLIENT, CLIENTS, PIPELINE_DEPTH, payload, poolSize);
                 }
@@ -469,22 +508,22 @@ namespace SimpleClient
 
             Console.WriteLine($"Pool count: {pool.ConnectionCount} ({pool.TotalConnectionCount})");
 
-//            var threads = new Thread[clientCount];
-//#pragma warning disable IDE0039 // Use local function
-//            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, pipelineDepth, payload);
-//#pragma warning restore IDE0039 // Use local function
-//            timer = Stopwatch.StartNew();
-//            for (int i = 0; i < threads.Length; i++)
-//            {
-//                threads[i] = new Thread(starter);
-//                threads[i].Start(pool);
-//            }
-//            for (int i = 0; i < threads.Length; i++)
-//            {
-//                threads[i].Join();
-//            }
-//            timer.Stop();
-//            Log("sync", timer.Elapsed, totalPings, payload);
+            //            var threads = new Thread[clientCount];
+            //#pragma warning disable IDE0039 // Use local function
+            //            ParameterizedThreadStart starter = state => RunClient((RespConnection)state, pingsPerClient, pipelineDepth, payload);
+            //#pragma warning restore IDE0039 // Use local function
+            //            timer = Stopwatch.StartNew();
+            //            for (int i = 0; i < threads.Length; i++)
+            //            {
+            //                threads[i] = new Thread(starter);
+            //                threads[i].Start(pool);
+            //            }
+            //            for (int i = 0; i < threads.Length; i++)
+            //            {
+            //                threads[i].Join();
+            //            }
+            //            timer.Stop();
+            //            Log("sync", timer.Elapsed, totalPings, payload);
         }
 #if NETCOREAPP3_1
         static async Task ExecuteBedrockAsync(int pingsPerClient, int clientCount, int pipelineDepth, string payload)
@@ -595,7 +634,7 @@ namespace SimpleClient
             RedisValue payload = sPayload;
             object[] args = string.IsNullOrEmpty(sPayload) ? Array.Empty<object>() : new object[] { payload };
             using var manager = new RedisManagerPool(ServerEndpointString);
-            
+
             //var tasks = new Task[workers];
             //Stopwatch timer = Stopwatch.StartNew();
             //for (int i = 0; i < tasks.Length; i++)

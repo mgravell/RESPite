@@ -1,4 +1,5 @@
-﻿using StackExchange.Redis;
+﻿using Respite;
+using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -6,32 +7,45 @@ using System.Threading.Tasks;
 
 namespace RESPite.StackExchange.Redis.Internal
 {
-    internal sealed partial class PooledDatabase
+    internal sealed partial class PooledDatabase : PooledBase
     {
         private readonly PooledMultiplexer _parent;
         private readonly CancellationToken _cancellationToken;
-        public int Database { get; }
 
-        public PooledDatabase(PooledMultiplexer parent, int db, in CancellationToken cancellationToken)
+        public PooledDatabase(PooledMultiplexer parent, int db, in CancellationToken cancellationToken) : base(db < 0 ? (parent.Configuration.DefaultDatabase ?? 0) : db)
         {
-            Database = db < 0 ? (parent.Configuration.DefaultDatabase ?? 0) : db;
             _parent = parent;
             _cancellationToken = cancellationToken;
         }
 
-        IConnectionMultiplexer IRedisAsync.Multiplexer => _parent;
+        protected override Task CallAsync(Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null)
+            => _parent.CallAsync(args, _cancellationToken, inspector);
+        protected override Task<T> CallAsync<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector)
+            => _parent.CallAsync<T>(args, selector, _cancellationToken);
+        protected internal override IConnectionMultiplexer Multiplexer => _parent;
+    }
+    internal abstract partial class PooledBase
+    {
+        protected internal abstract IConnectionMultiplexer Multiplexer { get; }
+        IConnectionMultiplexer IRedisAsync.Multiplexer => Multiplexer;
+        public int Database { get; }
 
-        bool IRedisAsync.TryWait(Task task) => task.Wait(_parent.TimeoutMilliseconds);
+        protected PooledBase(int database)
+        {
+            Database = database;
+        }
 
-        void IRedisAsync.Wait(Task task) => ((IConnectionMultiplexer)_parent).Wait(task);
+        bool IRedisAsync.TryWait(Task task) => task.Wait(Multiplexer.TimeoutMilliseconds);
 
-        T IRedisAsync.Wait<T>(Task<T> task) => ((IConnectionMultiplexer)_parent).Wait(task);
+        void IRedisAsync.Wait(Task task) => Multiplexer.Wait(task);
 
-        void IRedisAsync.WaitAll(params Task[] tasks) => ((IConnectionMultiplexer)_parent).WaitAll(tasks);
+        T IRedisAsync.Wait<T>(Task<T> task) => Multiplexer.Wait(task);
 
-        TimeSpan IRedis.Ping(CommandFlags flags) => _parent.Wait(((IRedisAsync)this).PingAsync(flags));
+        void IRedisAsync.WaitAll(params Task[] tasks) => Multiplexer.WaitAll(tasks);
 
-        IBatch IDatabase.CreateBatch(object asyncState) => throw new NotImplementedException();
+        TimeSpan IRedis.Ping(CommandFlags flags) => Multiplexer.Wait(((IRedisAsync)this).PingAsync(flags));
+
+        IBatch IDatabase.CreateBatch(object asyncState) => new PooledBatch(this);
         ITransaction IDatabase.CreateTransaction(object asyncState) => throw new NotImplementedException();
 
         IEnumerable<HashEntry> IDatabase.HashScan(RedisKey key, RedisValue pattern, int pageSize, CommandFlags flags)
