@@ -71,6 +71,12 @@ namespace Respite
                     return (long)_state.Double;
                 case StorageKind.InlinedInt64:
                     return _state.Int64;
+                case StorageKind.ArraySegmentByte:
+                    var span = new ReadOnlySpan<byte>((byte[])_obj0!, _state.StartOffset, _state.Length);
+                    if (Utf8Parser.TryParse(span, out i64, out int bytes) && bytes == span.Length)
+                        return i64;
+                    ThrowHelper.Format();
+                    return default;
             }
             ThrowHelper.StorageKindNotImplemented(_state.Storage);
             return default;
