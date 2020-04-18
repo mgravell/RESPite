@@ -50,27 +50,38 @@ namespace SimpleClient
             await TestConcurrentClients(null, pooled, 1, 2, 2, true);
 
 
-            const int WORKERS = 10, PER_WORKER = 2000;
+            const int WORKERS = 50, PER_WORKER = 2000;
             _ = WORKERS;
             string pooledName = $"Pooled x{POOL_SIZE}";
 
             int[] depths = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 50, 100, 200 };
-            Console.WriteLine("Profiling without congestion (1 worker)...");
-            foreach (int depth in depths)
+            for (int z = 0; z < 5; z++)
             {
-                await TestConcurrentClients("Multiplexed", multiplexed, 1, PER_WORKER, depth);
-                await TestConcurrentClients(pooledName, pooled, 1, PER_WORKER, depth);
-            }
-            Console.WriteLine($"Profiling with congestion ({WORKERS} workers)...");
-            foreach (int depth in depths)
-            {
-                await TestConcurrentClients("Multiplexed", multiplexed, WORKERS, PER_WORKER, depth);
-            }
-            Console.WriteLine();
-            foreach (int depth in depths)
-            {
-                await TestConcurrentClients(pooledName + "/d", pooled, WORKERS, PER_WORKER, depth, false);
-                await TestConcurrentClients(pooledName + "/l", pooled, WORKERS, PER_WORKER, depth, true);
+                Console.WriteLine($"Test run {z}");
+                Console.WriteLine();
+                Console.WriteLine("Profiling without congestion (1 worker)...");
+                foreach (int depth in depths)
+                {
+                    await TestConcurrentClients("Multiplexed", multiplexed, 1, PER_WORKER * 10, depth);
+                    await TestConcurrentClients(pooledName, pooled, 1, PER_WORKER * 10, depth);
+                }
+                Console.WriteLine();
+                Console.WriteLine($"Profiling with congestion ({WORKERS} workers)...");
+                foreach (int depth in depths)
+                {
+                    await TestConcurrentClients("Multiplexed", multiplexed, WORKERS, PER_WORKER, depth);
+                }
+                Console.WriteLine();
+                foreach (int depth in depths)
+                {
+                    await TestConcurrentClients(pooledName + "/d", pooled, WORKERS, PER_WORKER, depth, false);
+                    await TestConcurrentClients(pooledName + "/l", pooled, WORKERS, PER_WORKER, depth, true);
+                }
+                Console.WriteLine();
+                Console.WriteLine();
+                Console.WriteLine();
+                Console.WriteLine();
+                Console.WriteLine();
             }
         }
 
