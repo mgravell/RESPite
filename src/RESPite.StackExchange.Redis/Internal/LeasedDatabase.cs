@@ -1,6 +1,7 @@
 ﻿using Respite;
 using StackExchange.Redis;
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,8 +9,6 @@ namespace RESPite.StackExchange.Redis.Internal
 {
     class LeasedDatabase : PooledBase, IAsyncDisposable
     {
-        private readonly PooledMultiplexer _muxer;
-        protected internal override IConnectionMultiplexer Multiplexer => _muxer;
         private readonly AsyncLifetime<RespConnection> _lease;
         private readonly CancellationToken _cancellationToken;
 
@@ -17,7 +16,7 @@ namespace RESPite.StackExchange.Redis.Internal
         {
             using (args)
             {
-                _muxer.IncrementOpCount();
+                Multiplexer.IncrementOpCount();
                 await _lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), _cancellationToken).ConfigureAwait(false);
             }
             using var response = await _lease.Value.ReceiveAsync(_cancellationToken).ConfigureAwait(false);
@@ -28,7 +27,7 @@ namespace RESPite.StackExchange.Redis.Internal
         {
             using (args)
             {
-                _muxer.IncrementOpCount();
+                Multiplexer.IncrementOpCount();
                 await _lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), _cancellationToken).ConfigureAwait(false);
             }
             using var response = await _lease.Value.ReceiveAsync(_cancellationToken).ConfigureAwait(false);
@@ -36,9 +35,12 @@ namespace RESPite.StackExchange.Redis.Internal
             return selector(response.Value);
         }
 
-        private LeasedDatabase(IDatabase db, PooledMultiplexer muxer, AsyncLifetime<RespConnection> lease, CancellationToken cancellationToken) : base(db.Database)
+        internal override Task CallAsync(List<IBatchedOperation> operations, CancellationToken cancellationToken)
+            => Multiplexer.CallAsync(_lease.Value, operations, cancellationToken);
+
+        private LeasedDatabase(int db, PooledMultiplexer muxer, AsyncLifetime<RespConnection> lease, CancellationToken cancellationToken)
+            : base(muxer, db)
         {
-            _muxer = muxer;
             _lease = lease;
             _cancellationToken = cancellationToken;
         }
@@ -51,7 +53,7 @@ namespace RESPite.StackExchange.Redis.Internal
             static async ValueTask<AsyncLifetime<IDatabase>> Impl(IDatabase db, PooledMultiplexer muxer, CancellationToken cancellationToken)
             {
                 var lease = await muxer.RentAsync(cancellationToken).ConfigureAwait(false);
-                var leasedDb = new LeasedDatabase(db, muxer, lease, cancellationToken);
+                var leasedDb = new LeasedDatabase(db.Database, muxer, lease, cancellationToken);
                 return new AsyncLifetime<IDatabase>(leasedDb, obj => ((LeasedDatabase)obj).DisposeAsync());
             }
         }

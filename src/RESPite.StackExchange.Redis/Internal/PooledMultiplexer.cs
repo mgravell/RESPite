@@ -69,20 +69,20 @@ namespace RESPite.StackExchange.Redis.Internal
                 return selector(response.Value);
             }
         }
-        internal async Task CallAsync(List<IBatchedOperation> operations, CancellationToken cancellationToken)
+
+        internal async Task CallAsync(RespConnection connection, List<IBatchedOperation> operations, CancellationToken cancellationToken)
         {
             try
             {
-                await using var lease = await _pool.RentAsync(cancellationToken).ConfigureAwait(false);
                 foreach (var op in operations) // send all
                 {
                     Interlocked.Increment(ref _opCount);
                     using var args = op.ConsumeArgs();
-                    await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
+                    await connection.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
                 }
                 foreach (var op in operations) // then receive all
                 {
-                    using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                    using var response = await connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
                     try
                     {
                         response.Value.ThrowIfError();
@@ -101,16 +101,6 @@ namespace RESPite.StackExchange.Redis.Internal
                     op.TrySetException(ex);
                 }
             }
-
-            //using (args)
-            //{
-            //    Interlocked.Increment(ref _opCount);
-                
-            //    await lease.Value.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
-            //    using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            //    response.Value.ThrowIfError();
-            //    return selector(response.Value);
-            //}
         }
 
         public IDatabaseAsync GetDatabaseAsync(int db = -1, in CancellationToken cancellationToken = default)

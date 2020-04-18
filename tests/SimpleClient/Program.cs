@@ -41,23 +41,26 @@ namespace SimpleClient
             using var pooled = await config.GetPooledMultiplexerAsync(POOL_SIZE);
             using var multiplexed = await ConnectionMultiplexer.ConnectAsync(config);
 
-            Console.WriteLine("Warming up...");// JIT
+            //Console.WriteLine("Warming up...");// JIT
             await TestConcurrentClients(null, multiplexed, 1, 2, 1);
             await TestConcurrentClients(null, multiplexed, 1, 2, 2);
             await TestConcurrentClients(null, pooled, 1, 2, 1);
             await TestConcurrentClients(null, pooled, 1, 2, 2);
+            await TestConcurrentClients(null, pooled, 1, 2, 1, true);
+            await TestConcurrentClients(null, pooled, 1, 2, 2, true);
 
-            
+
             const int WORKERS = 10, PER_WORKER = 2000;
             _ = WORKERS;
             string pooledName = $"Pooled x{POOL_SIZE}";
+
             int[] depths = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 50, 100, 200 };
-            //Console.WriteLine("Profiling without congestion (1 worker)...");
-            //foreach (int depth in depths)
-            //{
-            //    await TestConcurrentClients("Multiplexed", multiplexed, 1, PER_WORKER, depth);
-            //    await TestConcurrentClients(pooledName, pooled, 1, PER_WORKER, depth);
-            //}
+            Console.WriteLine("Profiling without congestion (1 worker)...");
+            foreach (int depth in depths)
+            {
+                await TestConcurrentClients("Multiplexed", multiplexed, 1, PER_WORKER, depth);
+                await TestConcurrentClients(pooledName, pooled, 1, PER_WORKER, depth);
+            }
             Console.WriteLine($"Profiling with congestion ({WORKERS} workers)...");
             foreach (int depth in depths)
             {
@@ -67,10 +70,7 @@ namespace SimpleClient
             foreach (int depth in depths)
             {
                 await TestConcurrentClients(pooledName + "/d", pooled, WORKERS, PER_WORKER, depth, false);
-                if (depth == 1)
-                {
-                    await TestConcurrentClients(pooledName + "/l", pooled, WORKERS, PER_WORKER, depth, true);
-                }
+                await TestConcurrentClients(pooledName + "/l", pooled, WORKERS, PER_WORKER, depth, true);
             }
         }
 

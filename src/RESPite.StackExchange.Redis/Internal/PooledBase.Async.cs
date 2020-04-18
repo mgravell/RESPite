@@ -11,9 +11,6 @@ namespace RESPite.StackExchange.Redis.Internal
 {
     internal partial class PooledBase : IDatabaseAsync
     {
-        protected abstract Task CallAsync(Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null);
-        protected abstract Task<T> CallAsync<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector);
-
         Task<RedisValue> IDatabaseAsync.DebugObjectAsync(RedisKey key, CommandFlags flags)
         {
             throw new NotImplementedException();

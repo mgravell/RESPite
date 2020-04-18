@@ -14,11 +14,9 @@ namespace RESPite.StackExchange.Redis.Internal
     }
     internal sealed class PooledBatch : PooledBase, IBatch
     {
-        private readonly PooledMultiplexer _parent;
-        public PooledBatch(IDatabase parent) : base(parent.Database)
-            => _parent = (PooledMultiplexer)parent.Multiplexer;
-
-        protected internal override IConnectionMultiplexer Multiplexer => _parent;
+        private readonly PooledBase _gateway;
+        public PooledBatch(PooledBase parent) : base(parent.Multiplexer, parent.Database)
+            => _gateway = parent;
 
         List<IBatchedOperation>? _pending = null;
         void AddPending(IBatchedOperation handler) => (_pending ??= new List<IBatchedOperation>()).Add(handler);
@@ -89,7 +87,10 @@ namespace RESPite.StackExchange.Redis.Internal
         {
             var pending = Flush();
             if (pending != null)
-                _ = _parent.CallAsync(pending, default);
+            {
+                var send = _gateway.CallAsync(pending, default);
+                if (_gateway is LeasedDatabase) Multiplexer.Wait(send);
+            }
         }
     }
 }
