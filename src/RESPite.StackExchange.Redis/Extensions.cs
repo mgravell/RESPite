@@ -26,5 +26,8 @@ namespace RESPite.StackExchange.Redis
                 return db.Multiplexer;
             }
         }
+
+        public static ValueTask<AsyncLifetime<IDatabase>> LeaseDedicatedAsync(this IDatabase db, CancellationToken cancellationToken = default)
+            => LeasedDatabase.CreateAsync(db, cancellationToken);
     }
 }

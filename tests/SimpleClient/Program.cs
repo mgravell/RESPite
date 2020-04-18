@@ -37,7 +37,7 @@ namespace SimpleClient
         static async Task SERedisShim()
         {
             var config = ConfigurationOptions.Parse(ServerEndpointString);
-            const int POOL_SIZE = 5;
+            const int POOL_SIZE = 10;
             using var pooled = await config.GetPooledMultiplexerAsync(POOL_SIZE);
             using var multiplexed = await ConnectionMultiplexer.ConnectAsync(config);
 
@@ -47,22 +47,34 @@ namespace SimpleClient
             await TestConcurrentClients(null, pooled, 1, 2, 1);
             await TestConcurrentClients(null, pooled, 1, 2, 2);
 
-            Console.WriteLine("Profiling...");
-            const int WORKERS = 50, PER_WORKER = 2000;
+            
+            const int WORKERS = 10, PER_WORKER = 2000;
+            _ = WORKERS;
+            string pooledName = $"Pooled x{POOL_SIZE}";
             int[] depths = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 50, 100, 200 };
+            //Console.WriteLine("Profiling without congestion (1 worker)...");
+            //foreach (int depth in depths)
+            //{
+            //    await TestConcurrentClients("Multiplexed", multiplexed, 1, PER_WORKER, depth);
+            //    await TestConcurrentClients(pooledName, pooled, 1, PER_WORKER, depth);
+            //}
+            Console.WriteLine($"Profiling with congestion ({WORKERS} workers)...");
             foreach (int depth in depths)
             {
                 await TestConcurrentClients("Multiplexed", multiplexed, WORKERS, PER_WORKER, depth);
             }
             Console.WriteLine();
-            string pooledName = $"Pooled x{POOL_SIZE}";
             foreach (int depth in depths)
             {
-                await TestConcurrentClients(pooledName, pooled, WORKERS, PER_WORKER, depth);
+                await TestConcurrentClients(pooledName + "/d", pooled, WORKERS, PER_WORKER, depth, false);
+                if (depth == 1)
+                {
+                    await TestConcurrentClients(pooledName + "/l", pooled, WORKERS, PER_WORKER, depth, true);
+                }
             }
         }
 
-        static async Task TestConcurrentClients(string label, IConnectionMultiplexer muxer, int workers, int perWorker, int depth)
+        static async Task TestConcurrentClients(string label, IConnectionMultiplexer muxer, int workers, int perWorker, int depth, bool lease = false)
         {
             var db = muxer.GetDatabase();
             RedisKey key = Guid.NewGuid().ToString("N");
@@ -71,7 +83,7 @@ namespace SimpleClient
             perWorker /= depth;
             for (int i = 0; i < workers; i++)
             {
-                tasks[i] = Task.Run(async () =>
+                async Task DoTheThing(IDatabase db)
                 {
                     var tasks = new Task[depth];
                     for (int j = 0; j < perWorker; j++)
@@ -87,7 +99,19 @@ namespace SimpleClient
                             await Task.WhenAll(tasks);
                         }
                     }
-                });
+                }
+                if (lease)
+                {
+                    tasks[i] = Task.Run(async () =>
+                    {
+                        await using var tmp = await db.LeaseDedicatedAsync();
+                        await DoTheThing(tmp.Value);
+                    });
+                }
+                else
+                {
+                    tasks[i] = Task.Run(() => DoTheThing(db));
+                }
             }
             await Task.WhenAll(tasks);
             watch.Stop();

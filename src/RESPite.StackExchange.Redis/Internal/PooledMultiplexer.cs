@@ -26,6 +26,9 @@ namespace RESPite.StackExchange.Redis.Internal
 
         public ValueTask DisposeAsync() => _pool.DisposeAsync();
 
+        internal ValueTask<AsyncLifetime<RespConnection>> RentAsync(CancellationToken cancellationToken)
+            => _pool.RentAsync(cancellationToken);
+
         private ValueTask<RespConnection> ConnectAsync(CancellationToken cancellationToken)
         {
             int index = Interlocked.Increment(ref _nextConnectionIndex);
@@ -41,6 +44,7 @@ namespace RESPite.StackExchange.Redis.Internal
 
         long _opCount;
 
+        internal void IncrementOpCount() => Interlocked.Increment(ref _opCount);
         internal async Task CallAsync(Lifetime<Memory<RespValue>> args, CancellationToken cancellationToken, Action<RespValue>? inspector = null)
         {
             using (args)
