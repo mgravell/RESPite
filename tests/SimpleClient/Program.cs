@@ -50,7 +50,7 @@ namespace SimpleClient
             await TestConcurrentClients(null, pooled, 1, 2, 2, true);
 
 
-            const int WORKERS = 50, PER_WORKER = 2000;
+            const int WORKERS = 25, PER_WORKER = 2000;
             _ = WORKERS;
             string pooledName = $"Pooled x{POOL_SIZE}";
 
@@ -63,7 +63,8 @@ namespace SimpleClient
                 foreach (int depth in depths)
                 {
                     await TestConcurrentClients("Multiplexed", multiplexed, 1, PER_WORKER * 10, depth);
-                    await TestConcurrentClients(pooledName, pooled, 1, PER_WORKER * 10, depth);
+                    await TestConcurrentClients(pooledName + "/d", pooled, 1, PER_WORKER * 10, depth);
+                    await TestConcurrentClients(pooledName + "/l", pooled, 1, PER_WORKER * 10, depth, true);
                 }
                 Console.WriteLine();
                 Console.WriteLine($"Profiling with congestion ({WORKERS} workers)...");
