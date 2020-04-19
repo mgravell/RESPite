@@ -42,16 +42,22 @@ namespace SimpleClient
             using var multiplexed = await ConnectionMultiplexer.ConnectAsync(config);
 
             //Console.WriteLine("Warming up...");// JIT
-            await TestConcurrentClients(null, multiplexed, 1, 2, 1);
-            await TestConcurrentClients(null, multiplexed, 1, 2, 2);
-            await TestConcurrentClients(null, pooled, 1, 2, 1);
-            await TestConcurrentClients(null, pooled, 1, 2, 2);
-            await TestConcurrentClients(null, pooled, 1, 2, 1, true);
-            await TestConcurrentClients(null, pooled, 1, 2, 2, true);
+            //await TestConcurrentClients(null, multiplexed, 1, 2, 1);
+            //await TestConcurrentClientsSync(null, multiplexed, 1, 2, 1);
+            //await TestConcurrentClients(null, multiplexed, 1, 2, 2);
+            //await TestConcurrentClientsSync(null, multiplexed, 1, 2, 2);
+            //await TestConcurrentClients(null, pooled, 1, 2, 1);
+            //await TestConcurrentClientsSync(null, pooled, 1, 2, 1);
+            //await TestConcurrentClients(null, pooled, 1, 2, 2);
+            //await TestConcurrentClientsSync(null, pooled, 1, 2, 2);
+            //await TestConcurrentClients(null, pooled, 1, 2, 1, true);
+            //await TestConcurrentClientsSync(null, pooled, 1, 2, 1, true);
+            //await TestConcurrentClients(null, pooled, 1, 2, 2, true);
+            //await TestConcurrentClientsSync(null, pooled, 1, 2, 2, true);
 
-
-            const int WORKERS = 25, PER_WORKER = 2000;
+            const int WORKERS = 25, PER_WORKER = 1000;
             _ = WORKERS;
+
             string pooledName = $"Pooled x{POOL_SIZE}";
 
             int[] depths = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 50, 100, 200 };
@@ -62,9 +68,12 @@ namespace SimpleClient
                 Console.WriteLine("Profiling without congestion (1 worker)...");
                 foreach (int depth in depths)
                 {
-                    await TestConcurrentClients("Multiplexed", multiplexed, 1, PER_WORKER * 10, depth);
-                    await TestConcurrentClients(pooledName + "/d", pooled, 1, PER_WORKER * 10, depth);
-                    await TestConcurrentClients(pooledName + "/l", pooled, 1, PER_WORKER * 10, depth, true);
+                    await TestConcurrentClients("Multiplexed/a", multiplexed, 1, PER_WORKER * 10, depth);
+                    await TestConcurrentClientsSync("Multiplexed/s", multiplexed, 1, PER_WORKER * 10, depth);
+                    await TestConcurrentClients(pooledName + "/a/d", pooled, 1, PER_WORKER * 10, depth);
+                    await TestConcurrentClientsSync(pooledName + "/s/d", pooled, 1, PER_WORKER * 10, depth);
+                    await TestConcurrentClients(pooledName + "/a/l", pooled, 1, PER_WORKER * 10, depth, true);
+                    await TestConcurrentClientsSync(pooledName + "/s/l", pooled, 1, PER_WORKER * 10, depth, true);
                 }
                 Console.WriteLine();
                 Console.WriteLine($"Profiling with congestion ({WORKERS} workers)...");
@@ -118,6 +127,59 @@ namespace SimpleClient
                     {
                         await using var tmp = await db.LeaseDedicatedAsync();
                         await DoTheThing(tmp.Value);
+                    });
+                }
+                else
+                {
+                    tasks[i] = Task.Run(() => DoTheThing(db));
+                }
+            }
+            await Task.WhenAll(tasks);
+            watch.Stop();
+            var total = (long)await db.StringGetAsync(key);
+            await db.KeyDeleteAsync(key);
+            var expected = workers * perWorker * depth;
+            if (!string.IsNullOrWhiteSpace(label))
+            {
+                if (total != expected) Console.WriteLine($"warning: expected {expected}, actual {total}");
+                Console.WriteLine($"{label}, {workers}x{perWorker}x{depth}\t{watch.ElapsedMilliseconds}ms\t{total / watch.Elapsed.TotalSeconds:F2} op/s");
+            }
+        }
+
+        static async Task TestConcurrentClientsSync(string label, IConnectionMultiplexer muxer, int workers, int perWorker, int depth, bool lease = false)
+        {
+            var db = muxer.GetDatabase();
+            RedisKey key = Guid.NewGuid().ToString("N");
+            var tasks = new Task[workers];
+            var watch = Stopwatch.StartNew();
+            perWorker /= depth;
+            for (int i = 0; i < workers; i++)
+            {
+                void DoTheThing(IDatabase db)
+                {
+                    var tasks = new Task[depth];
+                    for (int j = 0; j < perWorker; j++)
+                    {
+                        if (depth == 1)
+                        {
+                            db.StringIncrement(key);
+                        }
+                        else
+                        {
+                            var batch = db.CreateBatch();
+                            for (int d = 0; d < depth; d++)
+                                tasks[d] = batch.StringIncrementAsync(key);
+                            batch.Execute();
+                            Task.WaitAll(tasks);
+                        }
+                    }
+                }
+                if (lease)
+                {
+                    tasks[i] = Task.Run(async () =>
+                    {
+                        await using var tmp = await db.LeaseDedicatedAsync();
+                        DoTheThing(tmp.Value);
                     });
                 }
                 else

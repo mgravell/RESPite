@@ -24,6 +24,9 @@ namespace Respite
         public ValueTask<AsyncLifetime<RespConnection>> RentAsync(CancellationToken cancellationToken = default)
             => _pool.RentAsync(cancellationToken);
 
+        public Lifetime<RespConnection> Rent()
+            => _pool.Rent();
+
         public bool TryDetach(RespConnection connection) => _pool.TryDetach(connection);
 
         internal ValueTask<RespConnection> ConnectAsync(CancellationToken cancellationToken) => _factory(cancellationToken);

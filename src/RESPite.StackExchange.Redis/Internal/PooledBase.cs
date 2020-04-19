@@ -38,8 +38,17 @@ namespace RESPite.StackExchange.Redis.Internal
             await Multiplexer.CallAsync(lease.Value, operations, cancellationToken).ConfigureAwait(false);
         }
 
+        internal virtual void Call(List<IBatchedOperation> operations)
+        {
+            using var lease = Multiplexer.Rent();
+            Multiplexer.Call(lease.Value, operations);
+        }
+
         protected abstract Task CallAsync(Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null);
         protected abstract Task<T> CallAsync<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector);
+
+        protected abstract void Call(Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null);
+        protected abstract T Call<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector);
 
 
         IEnumerable<HashEntry> IDatabase.HashScan(RedisKey key, RedisValue pattern, int pageSize, CommandFlags flags)

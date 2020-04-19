@@ -75,21 +75,31 @@ namespace RESPite.StackExchange.Redis.Internal
             AddPending(handler);
             return handler.Task;
         }
-            
+        protected override void Call(Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null)
+            => throw new NotSupportedException();
+
         protected override Task<T> CallAsync<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector)
         {
             var handler = new Handler<T>(args, selector);
             AddPending(handler);
             return handler.Task;
         }
+        protected override T Call<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector)
+            => throw new NotSupportedException();
 
         void IBatch.Execute()
         {
             var pending = Flush();
             if (pending != null)
             {
-                var send = _gateway.CallAsync(pending, default);
-                if (_gateway is LeasedDatabase) Multiplexer.Wait(send);
+                if (_gateway is LeasedDatabase)
+                {
+                    _gateway.Call(pending);
+                }
+                else
+                {
+                    _ = _gateway.CallAsync(pending, default);
+                }
             }
         }
     }

@@ -29,6 +29,9 @@ namespace RESPite.StackExchange.Redis.Internal
         internal ValueTask<AsyncLifetime<RespConnection>> RentAsync(CancellationToken cancellationToken)
             => _pool.RentAsync(cancellationToken);
 
+        internal Lifetime<RespConnection> Rent()
+            => _pool.Rent();
+
         private ValueTask<RespConnection> ConnectAsync(CancellationToken cancellationToken)
         {
             int index = Interlocked.Increment(ref _nextConnectionIndex);
@@ -57,6 +60,18 @@ namespace RESPite.StackExchange.Redis.Internal
                 inspector?.Invoke(response.Value);
             }
         }
+        internal void Call(RespConnection connection, Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null)
+        {
+            using (args)
+            {
+                Interlocked.Increment(ref _opCount);
+                connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value));
+            }
+            using var response = connection.Receive();
+            response.Value.ThrowIfError();
+            inspector?.Invoke(response.Value);
+        }
+
         internal async Task<T> CallAsync<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector, CancellationToken cancellationToken)
         {
             using (args)
@@ -68,6 +83,18 @@ namespace RESPite.StackExchange.Redis.Internal
                 response.Value.ThrowIfError();
                 return selector(response.Value);
             }
+        }
+
+        internal T Call<T>(RespConnection connection, Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector)
+        {
+            using (args)
+            {
+                Interlocked.Increment(ref _opCount);
+                connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value));
+            }
+            using var response = connection.Receive();
+            response.Value.ThrowIfError();
+            return selector(response.Value);
         }
 
         internal async Task CallAsync(RespConnection connection, List<IBatchedOperation> operations, CancellationToken cancellationToken)
@@ -83,6 +110,39 @@ namespace RESPite.StackExchange.Redis.Internal
                 foreach (var op in operations) // then receive all
                 {
                     using var response = await connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        response.Value.ThrowIfError();
+                        op.ProcessResponse(response.Value);
+                    }
+                    catch (Exception ex)
+                    {
+                        op.TrySetException(ex);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                foreach (var op in operations) // fault anything that is left after a global explosion
+                {
+                    op.TrySetException(ex);
+                }
+            }
+        }
+
+        internal void Call(RespConnection connection, List<IBatchedOperation> operations)
+        {
+            try
+            {
+                foreach (var op in operations) // send all
+                {
+                    Interlocked.Increment(ref _opCount);
+                    using var args = op.ConsumeArgs();
+                    connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value));
+                }
+                foreach (var op in operations) // then receive all
+                {
+                    using var response = connection.Receive();
                     try
                     {
                         response.Value.ThrowIfError();

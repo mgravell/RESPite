@@ -11,6 +11,8 @@ namespace Respite
     {
         protected RespConnection(object? state) => State = state;
         public object? State { get; }
+        public long Id { get; } = Interlocked.Increment(ref s_NextId);
+        private static long s_NextId;
 
         [Flags]
         enum RespConnectionFlags

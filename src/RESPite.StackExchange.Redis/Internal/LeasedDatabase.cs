@@ -35,8 +35,15 @@ namespace RESPite.StackExchange.Redis.Internal
             return selector(response.Value);
         }
 
+        protected override void Call(Lifetime<Memory<RespValue>> args, Action<RespValue>? inspector = null)
+            => Multiplexer.Call(_lease.Value, args, inspector);
+        protected override T Call<T>(Lifetime<Memory<RespValue>> args, Func<RespValue, T> selector)
+            => Multiplexer.Call<T>(_lease.Value, args, selector);
+        
         internal override Task CallAsync(List<IBatchedOperation> operations, CancellationToken cancellationToken)
             => Multiplexer.CallAsync(_lease.Value, operations, cancellationToken);
+        internal override void Call(List<IBatchedOperation> operations)
+            => Multiplexer.Call(_lease.Value, operations);
 
         private LeasedDatabase(int db, PooledMultiplexer muxer, AsyncLifetime<RespConnection> lease, CancellationToken cancellationToken)
             : base(muxer, db)

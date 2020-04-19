@@ -581,10 +581,10 @@ static class P
             => Multiplexer.Wait(((IDatabaseAsync)this).StringGetWithExpiryAsync(key, flags));
 
         long IDatabase.StringIncrement(RedisKey key, long value, CommandFlags flags)
-            => Multiplexer.Wait(((IDatabaseAsync)this).StringIncrementAsync(key, value, flags));
+            => Call(value == 1 ? Args("incr", key) : Args("incrby", key, value), val => val.ToInt64());
 
         double IDatabase.StringIncrement(RedisKey key, double value, CommandFlags flags)
-            => Multiplexer.Wait(((IDatabaseAsync)this).StringIncrementAsync(key, value, flags));
+            => Call(Args("incrbyfloat", key, value), val => val.ToDouble());
 
         long IDatabase.StringLength(RedisKey key, CommandFlags flags)
             => Multiplexer.Wait(((IDatabaseAsync)this).StringLengthAsync(key, flags));

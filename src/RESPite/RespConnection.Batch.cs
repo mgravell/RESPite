@@ -15,7 +15,7 @@ namespace Respite
             this.Send(in values.Span[0]); // send the first immediately
             int len = values.Length;
             if (len > 1) BeginSendInBackground(this, values.Slice(1));
-            var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
+            var arr = ArrayPool<RespValue>.Shared.Rent(len);
             for (int i = 0; i < len; i++)
             {
                 using var lifetime = this.Receive();
@@ -43,7 +43,7 @@ namespace Respite
             int len = values.Length;
             Task? pending = null;
             if (len > 1) pending = BeginSendInBackground(this, values.Slice(1), cancellationToken);
-            var arr = ArrayPool<RespValue>.Shared.Rent(values.Length);
+            var arr = ArrayPool<RespValue>.Shared.Rent(len);
             for (int i = 0; i < len; i++)
             {
                 using var lifetime = await this.ReceiveAsync(cancellationToken).ConfigureAwait(false);

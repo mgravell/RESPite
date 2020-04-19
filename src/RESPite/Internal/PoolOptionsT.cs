@@ -31,20 +31,5 @@ namespace Respite
             OnRemoved = onRemoved;
             OnValidate = onValidate;
         }
-
-        private BoundedChannelOptions? _channelOptions;
-        internal Channel<T> CreateChannel()
-        {
-            _channelOptions ??= new BoundedChannelOptions(MaxCount)
-            {
-                AllowSynchronousContinuations = false,
-                Capacity = MaxCount,
-                SingleReader = false,
-                SingleWriter = false,
-                FullMode = BoundedChannelFullMode.Wait,
-            };
-
-            return Channel.CreateBounded<T>(_channelOptions);
-        }
     }
 }

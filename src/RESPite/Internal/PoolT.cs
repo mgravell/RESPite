@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace Respite.Internal
@@ -15,7 +14,7 @@ namespace Respite.Internal
             if (_isDisposed) return default;
 
             _isDisposed = true;
-            _available.Writer.TryComplete();
+            _availableQueue.Dispose();
             _inUse.Clear();
             Volatile.Write(ref _count, 0);
             return DiscardAsync((state, item) => false);
@@ -26,7 +25,7 @@ namespace Respite.Internal
         private readonly PoolOptions<T> _options;
         private readonly object? _state;
         private readonly ConcurrentDictionary<T, T> _inUse = new ConcurrentDictionary<T, T>(RefComparer.Instance);
-        private readonly Channel<T> _available;
+        private readonly AwaitableQueue<T> _availableQueue;
         
         public int Count => Volatile.Read(ref _count);
         public int TotalCount => Volatile.Read(ref _totalCount);
@@ -34,11 +33,12 @@ namespace Respite.Internal
         public Pool(PoolOptions<T>? options = null, object? state = null)
         {
             _options = options ?? PoolOptions<T>.Default;
-            _available = _options.CreateChannel();
+            _availableQueue = new AwaitableQueue<T>(_options.MaxCount);
             _state = state;
         }
 
-        static readonly Func<T, object?, ValueTask> s_Return = (value, state) => (state as Pool<T>)?.ReturnAsync(value) ?? default;
+        static readonly Func<T, object?, ValueTask> s_ReturnAsync = (value, state) => (state as Pool<T>)?.ReturnAsync(value) ?? default;
+        static readonly Action<T, object?> s_ReturnSync = (value, state) => (state as Pool<T>)?.Return(value);
 
         public ValueTask<AsyncLifetime<T>> RentAsync(CancellationToken cancellationToken = default)
         {
@@ -52,21 +52,26 @@ namespace Respite.Internal
                 var item = await pending.ConfigureAwait(false);
                 return AsLifetime(@this, item);
             }
-            static AsyncLifetime<T> AsLifetime(Pool<T> @this, T value) => new AsyncLifetime<T>(value, s_Return, @this);
+            static AsyncLifetime<T> AsLifetime(Pool<T> @this, T value) => new AsyncLifetime<T>(value, s_ReturnAsync, @this);
         }
+
+        public Lifetime<T> Rent() => new Lifetime<T>(Take(), s_ReturnSync, this);
 
         public bool TryDetach(T value) => _inUse.TryRemove(value, out _);
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private void ThrowDisposed() => ThrowHelper.Disposed(ToString());
-
         public ValueTask<T> TakeAsync(CancellationToken cancellationToken = default)
         {
-            if (_isDisposed) ThrowDisposed();
-            return _available.Reader.TryRead(out var item)
-                ? new ValueTask<T>(MarkInUse(item))
+            return _availableQueue.TryTake(out var item)
+                ? new ValueTask<T>(MarkInUse(item!))
                 : TakeSlowAsync(cancellationToken);
         }
+        public T Take()
+        {
+            return _availableQueue.TryTake(out var item)
+                ? MarkInUse(item!) : TakeSlow();
+        }
+
+        private static readonly TimeSpan s_DefaultTimeout = TimeSpan.FromSeconds(20);
 
         private T MarkInUse(T item)
         {
@@ -85,7 +90,7 @@ namespace Respite.Internal
                     var predicate = _options.OnValidate;
                     if (predicate == null || predicate(_state, value))
                     {
-                        if (_available.Writer.TryWrite(value))
+                        if (_availableQueue.TryReturn(value))
                             returned = true;
                     }
                 }
@@ -93,6 +98,26 @@ namespace Respite.Internal
                 if (!returned) return SurrenderAsync(value);
             }
             return default;
+        }
+
+        public void Return(T value)
+        {
+            if (value != null)
+            {
+                bool returned = false;
+                if (_inUse.TryRemove(value, out _))
+                {
+                    // do we need to validate it?
+                    var predicate = _options.OnValidate;
+                    if (predicate == null || predicate(_state, value))
+                    {
+                        if (_availableQueue.TryReturn(value))
+                            returned = true;
+                    }
+                }
+
+                if (!returned) Surrender(value);
+            }
         }
 
         private async ValueTask SpawnInBackground(CancellationToken cancellationToken = default)
@@ -124,6 +149,17 @@ namespace Respite.Internal
             // note we don't decrement _count, because this wasn't valid any more
             var onRemoved = _options.OnRemoved;
             if (onRemoved != null) await onRemoved(_state, value).ConfigureAwait(false);
+
+            // now that we've abandoned something, we might have capacity
+            if (Volatile.Read(ref _waiting) != 0 && TryGrow())
+                _ = SpawnInBackground();
+        }
+
+        private void Surrender(T value)
+        {
+            // note we don't decrement _count, because this wasn't valid any more
+            var onRemoved = _options.OnRemoved;
+            if (onRemoved != null) onRemoved(_state, value).AsTask().Wait();
 
             // now that we've abandoned something, we might have capacity
             if (Volatile.Read(ref _waiting) != 0 && TryGrow())
@@ -162,10 +198,11 @@ namespace Respite.Internal
             return false;
         }
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
         private ValueTask<T> TakeSlowAsync(in CancellationToken cancellationToken)
         {
             if (TryGrow()) return GrowAsync(cancellationToken);
-            var pending = _available.Reader.ReadAsync(cancellationToken);
+            var pending = _availableQueue.TakeAsync(cancellationToken);
             return pending.IsCompletedSuccessfully
                 ? new ValueTask<T>(MarkInUse(pending.Result))
                 : Awaited(this, pending);
@@ -185,6 +222,14 @@ namespace Respite.Internal
                 return @this.MarkInUse(value);
             }
         }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private T TakeSlow()
+        {
+            if (TryGrow()) return Grow();
+            return MarkInUse(_availableQueue.Take(s_DefaultTimeout));
+        }
+
         private async ValueTask<T> GrowAsync(CancellationToken cancellationToken)
         {
             try
@@ -195,6 +240,33 @@ namespace Respite.Internal
                     : await factory(_state, cancellationToken).ConfigureAwait(false);
 
                 if (item is null) throw new InvalidOperationException(ToString() + " factory returned null");
+                Interlocked.Increment(ref _totalCount);
+                return MarkInUse(item);
+            }
+            catch
+            {
+                Interlocked.Decrement(ref _count);
+                throw;
+            }
+        }
+
+        private T Grow()
+        {
+            try
+            {
+                var factory = _options.Factory;
+                T item;
+                if (factory == null)
+                {
+                    item = Activator.CreateInstance<T>();
+                }
+                else
+                {
+                    var vt = factory(_state, default);
+                    item = vt.IsCompletedSuccessfully ? vt.Result
+                        : vt.AsTask().Result;
+                    if (item is null) throw new InvalidOperationException(ToString() + " factory returned null");
+                }
                 Interlocked.Increment(ref _totalCount);
                 return MarkInUse(item);
             }

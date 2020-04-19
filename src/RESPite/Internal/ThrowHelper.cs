@@ -67,6 +67,10 @@ namespace Respite.Internal
             => ArgumentOutOfRange("offset");
         internal static void ThrowArgumentOutOfRangeException(string name)
             => ArgumentOutOfRange(name);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Timeout()
+            => throw new TimeoutException();
     }
     internal static class ExceptionArgument
     {
