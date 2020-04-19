@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Respite.Internal
 {
-    internal sealed class SimplePipe : IBufferWriter<byte>, IDisposable
+    internal sealed partial class SimplePipe : IBufferWriter<byte>, IDisposable
     {
         public void Clear()
         {
@@ -12,15 +13,30 @@ namespace Respite.Internal
             _startSegment = _endSegment = null;
             _startIndex = _endIndex = _writeCapacity = 0;
             node?.RecycleBefore(null);
+            AssertValid();
         }
 
         public void Dispose() => Clear();
 
         private Segment? _startSegment, _endSegment;
         private int _startIndex, _endIndex, _writeCapacity;
+        partial void AssertValid();
 
-        public ReadOnlySequence<byte> GetBuffer() => _startSegment == null ? default
-            : new ReadOnlySequence<byte>(_startSegment, _startIndex, _endSegment, _endIndex);
+#if DEBUG
+        partial void AssertValid()
+        {
+            var start = (_startSegment?.RunningIndex).GetValueOrDefault() + _startIndex;
+            var end = (_endSegment?.RunningIndex).GetValueOrDefault() + _endIndex;
+            Debug.Assert(start <= end);
+        }
+#endif
+
+        public ReadOnlySequence<byte> GetBuffer()
+        {
+            AssertValid();
+            return _startSegment == null ? default
+                : new ReadOnlySequence<byte>(_startSegment, _startIndex, _endSegment, _endIndex);
+        }
 
         public void ConsumeTo(SequencePosition consumed)
         {
@@ -41,6 +57,7 @@ namespace Respite.Internal
                 _startSegment = segment;
                 _startIndex = index;
             }
+            AssertValid();
         }
 
         
@@ -52,6 +69,7 @@ namespace Respite.Internal
             if (count < 0 | count > _writeCapacity) OutOfRange(count, _writeCapacity);
             _endIndex += count;
             _writeCapacity = 0;
+            AssertValid();
         }
 
         private Memory<byte> GetWriteBuffer(int sizeHint)
@@ -64,6 +82,7 @@ namespace Respite.Internal
                 if (capacity >= sizeHint)
                 {
                     _writeCapacity = capacity;
+                    AssertValid();
                     return memory;
                 }
             }
@@ -77,6 +96,7 @@ namespace Respite.Internal
             if (maxBlockSize < minBlockSize) ThrowHelper.ArgumentOutOfRange(nameof(maxBlockSize));
             _minBlockSize = minBlockSize;
             _maxBlockSize = maxBlockSize;
+            AssertValid();
         }
 
         private Memory<byte> AppendNewBuffer(int sizeHint)
@@ -117,6 +137,7 @@ namespace Respite.Internal
                 _startIndex = 0;
             }
             _writeCapacity = buffer.Length;
+            AssertValid();
             return buffer;
         }
 

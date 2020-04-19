@@ -130,16 +130,42 @@ namespace RESPite.StackExchange.Redis.Internal
             }
         }
 
+
+
         internal void Call(RespConnection connection, List<IBatchedOperation> operations)
         {
+            static void Send(PooledMultiplexer @this, RespConnection connection, IBatchedOperation op, bool flush)
+            {
+                Interlocked.Increment(ref @this._opCount);
+                using var args = op.ConsumeArgs();
+                connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value), flush);
+            }
+            static void BeginSendInBackground(PooledMultiplexer @this, RespConnection connection,
+                List<IBatchedOperation> values)
+                => Task.Run(() =>
+                {
+                    var len = values.Count;
+                    try
+                    {
+                        for (int i = 1; i < len; i++)
+                        {
+                            Send(@this, connection, values[i], flush: i == len - 1);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        connection.Doom();
+                        Console.WriteLine("EEK!");
+                        Console.WriteLine(ex.Message);
+                    }
+                });
             try
             {
-                foreach (var op in operations) // send all
-                {
-                    Interlocked.Increment(ref _opCount);
-                    using var args = op.ConsumeArgs();
-                    connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value));
-                }
+                int len = operations.Count;
+                if (len == 0) return;
+                Send(this, connection, operations[0], true);
+                if (len != 1) BeginSendInBackground(this, connection, operations);
+
                 foreach (var op in operations) // then receive all
                 {
                     using var response = connection.Receive();
@@ -156,6 +182,9 @@ namespace RESPite.StackExchange.Redis.Internal
             }
             catch (Exception ex)
             {
+                Console.WriteLine("EEK!");
+                Console.WriteLine(ex.Message);
+                connection.Doom();
                 foreach (var op in operations) // fault anything that is left after a global explosion
                 {
                     op.TrySetException(ex);

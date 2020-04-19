@@ -29,7 +29,8 @@ namespace Respite
                 {
                     for (int i = 0; i < values.Length; i++)
                     {
-                        await connection.SendAsync(values.Span[i]).ConfigureAwait(false);
+                        await connection.SendAsync(values.Span[i],
+                            flush: i == values.Length - 1).ConfigureAwait(false);
                     }
                 });
         }
@@ -59,7 +60,8 @@ namespace Respite
                 {
                     for (int i = 0; i < values.Length; i++)
                     {
-                        await connection.SendAsync(values.Span[i], cancellationToken).ConfigureAwait(false);
+                        await connection.SendAsync(values.Span[i], cancellationToken,
+                            flush: i == values.Length - 1).ConfigureAwait(false);
                     }
                 });
         }

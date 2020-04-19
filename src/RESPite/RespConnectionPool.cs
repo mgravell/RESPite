@@ -35,13 +35,13 @@ namespace Respite
         private static void ThrowAPIsNotSupported() => ThrowHelper.NotSupported(NOT_SUPPORTED_APIS);
         protected override Lifetime<RespValue> OnReceive() { ThrowAPIsNotSupported(); return default; }
         protected override ValueTask<Lifetime<RespValue>> OnReceiveAsync(CancellationToken cancellationToken) { ThrowAPIsNotSupported(); return default; }
-        protected override void OnSend(in RespValue value) => ThrowAPIsNotSupported();
-        protected override ValueTask OnSendAsync(RespValue value, CancellationToken cancellationToken) { ThrowAPIsNotSupported(); return default;}
+        protected override void OnSend(in RespValue value, bool flush) => ThrowAPIsNotSupported();
+        protected override ValueTask OnSendAsync(RespValue value, bool flush, CancellationToken cancellationToken) { ThrowAPIsNotSupported(); return default;}
 
         [Obsolete(NOT_SUPPORTED_APIS, true)]
-        public new void Send(in RespValue value) => base.Send(value);
+        public new void Send(in RespValue value, bool flush) => base.Send(value, flush);
         [Obsolete(NOT_SUPPORTED_APIS, true)]
-        public new ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default) => base.SendAsync(value, cancellationToken);
+        public new ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default, bool flush = true) => base.SendAsync(value, cancellationToken, flush);
         [Obsolete(NOT_SUPPORTED_APIS, true)]
         public new Lifetime<RespValue> Receive() => base.Receive();
         [Obsolete(NOT_SUPPORTED_APIS, true)]
@@ -69,10 +69,26 @@ namespace Respite
             return await lease.Value.BatchAsync(values, cancellationToken).ConfigureAwait(false);
         }
 
-        public override Lifetime<ReadOnlyMemory<RespValue>> Batch(ReadOnlyMemory<RespValue> values) => throw new NotImplementedException();
+        public override Lifetime<ReadOnlyMemory<RespValue>> Batch(ReadOnlyMemory<RespValue> values)
+        {
+            using var lease = _pool.Rent();
+            return lease.Value.Batch(values);
+        }
 
-        public override void Call(in RespValue command, Action<RespValue> validator) => throw new NotImplementedException();
-        public override T Call<T>(in RespValue command, Func<RespValue, T> selector) => throw new NotImplementedException();
+        public override void Call(in RespValue command, Action<RespValue> validator)
+        {
+            using var lease = _pool.Rent();
+            lease.Value.Send(command);
+            using var response = lease.Value.Receive();
+            validator(response.Value);
+        }
+        public override T Call<T>(in RespValue command, Func<RespValue, T> selector)
+        {
+            using var lease = _pool.Rent();
+            lease.Value.Send(command);
+            using var response = lease.Value.Receive();
+            return selector(response.Value);
+        }
     }
 
     public sealed class RespConnectionPoolOptions

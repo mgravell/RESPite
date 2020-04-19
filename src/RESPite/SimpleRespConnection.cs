@@ -73,7 +73,7 @@ namespace Respite
         public long TotalBytesSent { get; private set; }
         public long TotalBytesRead { get; private set; }
 
-        protected sealed override void OnSend(in RespValue value)
+        protected sealed override void OnSend(in RespValue value, bool flush)
         {
             TotalBytesSent += value.Write(_outBuffer!, Version);
             var buffer = _outBuffer!.GetBuffer();
@@ -83,7 +83,7 @@ namespace Respite
                 _outBuffer.ConsumeTo(buffer.End);
             }
         }
-        protected sealed override ValueTask OnSendAsync(RespValue value, CancellationToken cancellationToken)
+        protected sealed override ValueTask OnSendAsync(RespValue value, bool flush, CancellationToken cancellationToken)
         {
             value.Write(_outBuffer!, Version);
             var buffer = _outBuffer!.GetBuffer();

@@ -56,12 +56,12 @@ namespace Respite
         public static RespConnection Create(Stream stream, object? state = null) => new StreamRespConnection(stream, state);
         public static RespConnection Create(Socket socket, object? state = null) => Create(new NetworkStream(socket), state);
             // => new SocketRespConnection(socket);
-        public void Send(in RespValue value)
+        public void Send(in RespValue value, bool flush = true)
         {
             Interlocked.Increment(ref _pendingCount);
             try
             {
-                OnSend(in value);
+                OnSend(in value, flush);
             }
             catch
             {
@@ -84,7 +84,7 @@ namespace Respite
             }
         }
 
-        protected abstract void OnSend(in RespValue value);
+        protected abstract void OnSend(in RespValue value, bool flush);
         protected abstract Lifetime<RespValue> OnReceive();
 
         public virtual T Call<T>(in RespValue command, Func<RespValue, T> selector)
@@ -100,10 +100,10 @@ namespace Respite
             validator(response.Value);
         }
 
-        public ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default)
+        public ValueTask SendAsync(RespValue value, CancellationToken cancellationToken = default, bool flush = true)
         {
             Interlocked.Increment(ref _pendingCount);
-            var pending = OnSendAsync(value, cancellationToken);
+            var pending = OnSendAsync(value, flush, cancellationToken);
             return pending.IsCompletedSuccessfully ? default : Awaited(this, pending);
 
             async static ValueTask Awaited(RespConnection @this, ValueTask pending)
@@ -146,7 +146,7 @@ namespace Respite
             }
         }
 
-        protected abstract ValueTask OnSendAsync(RespValue value, CancellationToken cancellationToken);
+        protected abstract ValueTask OnSendAsync(RespValue value, bool flush, CancellationToken cancellationToken);
 
         protected abstract ValueTask<Lifetime<RespValue>> OnReceiveAsync(CancellationToken cancellationToken);
 

@@ -20,9 +20,9 @@ namespace Respite.Bedrock
             _writer = connection.CreateWriter();
         }
 
-        protected override void OnSend(in RespValue value)
+        protected override void OnSend(in RespValue value, bool flush)
         {
-            var vt = SendAsync(value, default);
+            var vt = SendAsync(value, default, flush);
             if (!vt.IsCompletedSuccessfully) vt.AsTask().Wait();
         }
 
@@ -32,7 +32,7 @@ namespace Respite.Bedrock
             return vt.IsCompletedSuccessfully ? vt.Result : vt.AsTask().Result;
         }
 
-        protected override ValueTask OnSendAsync(RespValue frame, CancellationToken cancellationToken)
+        protected override ValueTask OnSendAsync(RespValue frame, bool flush, CancellationToken cancellationToken)
             => _writer.WriteAsync<RespValue>(RespFormatter.Instance, frame, cancellationToken);
 
         protected override ValueTask<Lifetime<RespValue>> OnReceiveAsync(CancellationToken cancellationToken)
