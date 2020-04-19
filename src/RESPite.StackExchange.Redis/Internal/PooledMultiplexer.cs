@@ -4,6 +4,7 @@ using StackExchange.Redis;
 using StackExchange.Redis.Profiling;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -101,15 +102,15 @@ namespace RESPite.StackExchange.Redis.Internal
         {
             try
             {
-                foreach (var op in operations) // send all
-                {
-                    Interlocked.Increment(ref _opCount);
-                    using var args = op.ConsumeArgs();
-                    await connection.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken).ConfigureAwait(false);
-                }
+                int len = operations.Count;
+                if (len == 0) return;
+                // push the fisrt *before* we context-switch; the rest can wait
+                await SendAsync(this, connection, operations[0], cancellationToken, true).ConfigureAwait(false);
+                Task? bgSend = len == 1 ? null : BeginSendRemainderInBackground(this, connection, operations, default);
+
                 foreach (var op in operations) // then receive all
                 {
-                    using var response = await connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                    using var response = await connection.ReceiveAsync().ConfigureAwait(false);
                     try
                     {
                         response.Value.ThrowIfError();
@@ -120,9 +121,11 @@ namespace RESPite.StackExchange.Redis.Internal
                         op.TrySetException(ex);
                     }
                 }
+                if (bgSend != null) Wait(bgSend);
             }
             catch (Exception ex)
             {
+                connection.Doom();
                 foreach (var op in operations) // fault anything that is left after a global explosion
                 {
                     op.TrySetException(ex);
@@ -130,41 +133,63 @@ namespace RESPite.StackExchange.Redis.Internal
             }
         }
 
-
+        static void Send(PooledMultiplexer @this, RespConnection connection, IBatchedOperation op, bool flush)
+        {
+            Interlocked.Increment(ref @this._opCount);
+            using var args = op.ConsumeArgs();
+            connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value), flush);
+        }
+        static async ValueTask SendAsync(PooledMultiplexer @this, RespConnection connection, IBatchedOperation op, CancellationToken cancellationToken, bool flush)
+        {
+            Interlocked.Increment(ref @this._opCount);
+            using var args = op.ConsumeArgs();
+            await connection.SendAsync(RespValue.CreateAggregate(RespType.Array, args.Value), cancellationToken, flush).ConfigureAwait(false);
+        }
+        static Task? BeginSendRemainderInBackground(PooledMultiplexer @this, RespConnection connection,
+                List<IBatchedOperation> values, CancellationToken cancellationToken)
+        {
+            return connection.PreferSync ? Task.Run(() =>
+            {
+                var len = values.Count;
+                try
+                {
+                    for (int i = 1; i < len; i++)
+                    {
+                        Send(@this, connection, values[i], flush: i == len - 1);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    connection.Doom();
+                    Debug.WriteLine(ex.Message);
+                }
+            }) : Task.Run(async () =>
+            {
+                var len = values.Count;
+                try
+                {
+                    for (int i = 1; i < len; i++)
+                    {
+                        await SendAsync(@this, connection, values[i], cancellationToken, flush: i == len - 1).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    connection.Doom();
+                    Debug.WriteLine(ex.Message);
+                }
+            });
+        }
 
         internal void Call(RespConnection connection, List<IBatchedOperation> operations)
         {
-            static void Send(PooledMultiplexer @this, RespConnection connection, IBatchedOperation op, bool flush)
-            {
-                Interlocked.Increment(ref @this._opCount);
-                using var args = op.ConsumeArgs();
-                connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value), flush);
-            }
-            static void BeginSendInBackground(PooledMultiplexer @this, RespConnection connection,
-                List<IBatchedOperation> values)
-                => Task.Run(() =>
-                {
-                    var len = values.Count;
-                    try
-                    {
-                        for (int i = 1; i < len; i++)
-                        {
-                            Send(@this, connection, values[i], flush: i == len - 1);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        connection.Doom();
-                        Console.WriteLine("EEK!");
-                        Console.WriteLine(ex.Message);
-                    }
-                });
             try
             {
                 int len = operations.Count;
                 if (len == 0) return;
+                // push the fisrt *before* we context-switch; the rest can wait
                 Send(this, connection, operations[0], true);
-                if (len != 1) BeginSendInBackground(this, connection, operations);
+                Task? bgSend = len == 1 ? null : BeginSendRemainderInBackground(this, connection, operations, default);
 
                 foreach (var op in operations) // then receive all
                 {
@@ -179,11 +204,10 @@ namespace RESPite.StackExchange.Redis.Internal
                         op.TrySetException(ex);
                     }
                 }
+                if (bgSend != null) Wait(bgSend);
             }
             catch (Exception ex)
             {
-                Console.WriteLine("EEK!");
-                Console.WriteLine(ex.Message);
                 connection.Doom();
                 foreach (var op in operations) // fault anything that is left after a global explosion
                 {

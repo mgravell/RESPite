@@ -1,7 +1,6 @@
 ﻿using Respite.Internal;
 using System;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace Respite
@@ -18,11 +17,13 @@ namespace Respite
         public static PoolOptions<T> Create(int maxCount = DefaultMaxCount,
             Func<object?, CancellationToken, ValueTask<T>>? factory = null,
             Func<object?, T, ValueTask>? onRemoved = null,
-            Func<object?, T, bool>? onValidate = null)
-            => maxCount == DefaultMaxCount && factory == null && onRemoved == null && onValidate == null
+            Func<object?, T, bool>? onValidate = null,
+            Action<object?, T>? onRent = null)
+            => maxCount == DefaultMaxCount && factory == null && onRemoved == null && onValidate == null && onRent == null
                 ? Default : new PoolOptions<T>(maxCount, factory, onRemoved, onValidate);
 
-        private PoolOptions(int maxCount, Func<object?, CancellationToken, ValueTask<T>>? factory, Func<object?, T, ValueTask>? onRemoved, Func<object?, T, bool>? onValidate)
+        private PoolOptions(int maxCount, Func<object?, CancellationToken, ValueTask<T>>? factory, Func<object?, T, ValueTask>? onRemoved,
+            Func<object?, T, bool>? onValidate)
         {
             if (maxCount < 1) ThrowHelper.ArgumentOutOfRange(nameof(maxCount));
 

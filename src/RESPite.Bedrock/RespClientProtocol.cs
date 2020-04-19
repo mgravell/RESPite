@@ -9,6 +9,8 @@ namespace Respite.Bedrock
 
     public sealed class RespBedrockProtocol : RespConnection
     {
+        public override bool PreferSync => false;
+
         // private readonly ConnectionContext _connection;
         private readonly ProtocolReader _reader;
         private readonly ProtocolWriter _writer;

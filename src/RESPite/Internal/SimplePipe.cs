@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Buffers;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace Respite.Internal
 {
@@ -9,11 +11,18 @@ namespace Respite.Internal
     {
         public void Clear()
         {
-            var node = _startSegment;
-            _startSegment = _endSegment = null;
-            _startIndex = _endIndex = _writeCapacity = 0;
-            node?.RecycleBefore(null);
-            AssertValid();
+            BeginCriticalRegion();
+            try
+            {
+                var node = _startSegment;
+                _startSegment = _endSegment = null;
+                _startIndex = _endIndex = _writeCapacity = 0;
+                node?.RecycleBefore(null);
+            }
+            finally
+            {
+                EndCriticalRegion();
+            }
         }
 
         public void Dispose() => Clear();
@@ -21,6 +30,8 @@ namespace Respite.Internal
         private Segment? _startSegment, _endSegment;
         private int _startIndex, _endIndex, _writeCapacity;
         partial void AssertValid();
+        partial void BeginCriticalRegion([CallerMemberName] string? caller = null);
+        partial void EndCriticalRegion([CallerMemberName] string? caller = null);
 
 #if DEBUG
         partial void AssertValid()
@@ -29,47 +40,98 @@ namespace Respite.Internal
             var end = (_endSegment?.RunningIndex).GetValueOrDefault() + _endIndex;
             Debug.Assert(start <= end);
         }
+        string? _critical;
+        partial void BeginCriticalRegion(string? caller)
+        {
+            var existing = Interlocked.CompareExchange(ref _critical, caller, null);
+            if (existing != null) Throw(existing, caller);
+            AssertValid();
+            static void Throw(string? existing, string? caller)
+                => ThrowHelper.Invalid($"Attempted to start critical region '{caller}', but was '{existing}'");
+        }
+        partial void EndCriticalRegion(string? caller)
+        {
+            try
+            {
+                AssertValid();
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Exchange(ref _critical, ex.Message);
+                throw;
+            }
+            var existing = Interlocked.CompareExchange(ref _critical, null, caller);
+            if (existing != caller) Throw(existing, caller);
+
+            static void Throw(string? existing, string? caller)
+                => ThrowHelper.Invalid($"Attempted to end critical region '{caller}', but was '{existing}'");
+        }
 #endif
 
         public ReadOnlySequence<byte> GetBuffer()
         {
-            AssertValid();
-            return _startSegment == null ? default
-                : new ReadOnlySequence<byte>(_startSegment, _startIndex, _endSegment, _endIndex);
+            BeginCriticalRegion();
+            try
+            {
+                return _startSegment == null ? default
+                    : new ReadOnlySequence<byte>(_startSegment, _startIndex, _endSegment, _endIndex);
+            }
+            finally
+            {
+                EndCriticalRegion();
+            }
         }
 
         public void ConsumeTo(SequencePosition consumed)
         {
-            var segment = (Segment)consumed.GetObject();
-            var index = consumed.GetInteger();
+            BeginCriticalRegion();
+            try
+            {
+                var segment = (Segment)consumed.GetObject();
+                var index = consumed.GetInteger();
 
-            if (segment == _endSegment && index == _endIndex)
-            {
-                // keep the last page; burn anything else
-                _startSegment!.RecycleBefore(segment);
-                _startSegment = _endSegment;
-                _startIndex = _endIndex = 0;
+                if (segment == _endSegment && index == _endIndex)
+                {
+                    // keep the last page; burn anything else
+                    _startSegment!.RecycleBefore(segment);
+                    _startSegment = _endSegment;
+                    _startIndex = _endIndex = 0;
+                    AssertValid();
+                }
+                else
+                {
+                    // discard any pages that we no longer need
+                    Debug.Assert(segment.RunningIndex + index
+                        <= (_endSegment?.RunningIndex ?? 0) + _endIndex, "out of bounds");
+                    _startSegment!.RecycleBefore(segment);
+                    _startSegment = segment;
+                    _startIndex = index;
+                    AssertValid();
+                }
             }
-            else
+            finally
             {
-                // discard any pages that we no longer need
-                _startSegment!.RecycleBefore(segment);
-                _startSegment = segment;
-                _startIndex = index;
+                EndCriticalRegion();
             }
-            AssertValid();
         }
 
-        
+
         void IBufferWriter<byte>.Advance(int count)
         {
-            static void OutOfRange(int count, int capacity)
-               => ThrowHelper.ArgumentOutOfRange(nameof(count), $"Advance called with count of {count}; write capacity is {capacity}");
+            BeginCriticalRegion();
+            try
+            {
+                static void OutOfRange(int count, int capacity)
+                   => ThrowHelper.ArgumentOutOfRange(nameof(count), $"Advance called with count of {count}; write capacity is {capacity}");
 
-            if (count < 0 | count > _writeCapacity) OutOfRange(count, _writeCapacity);
-            _endIndex += count;
-            _writeCapacity = 0;
-            AssertValid();
+                if (count < 0 | count > _writeCapacity) OutOfRange(count, _writeCapacity);
+                _endIndex += count;
+                _writeCapacity = 0;
+            }
+            finally
+            {
+                EndCriticalRegion();
+            }
         }
 
         private Memory<byte> GetWriteBuffer(int sizeHint)
@@ -82,7 +144,6 @@ namespace Respite.Internal
                 if (capacity >= sizeHint)
                 {
                     _writeCapacity = capacity;
-                    AssertValid();
                     return memory;
                 }
             }
@@ -141,8 +202,30 @@ namespace Respite.Internal
             return buffer;
         }
 
-        Memory<byte> IBufferWriter<byte>.GetMemory(int sizeHint) => GetWriteBuffer(sizeHint);
-        Span<byte> IBufferWriter<byte>.GetSpan(int sizeHint) => GetWriteBuffer(sizeHint).Span;
+        Memory<byte> IBufferWriter<byte>.GetMemory(int sizeHint)
+        {
+            BeginCriticalRegion();
+            try
+            {
+                return GetWriteBuffer(sizeHint);
+            }
+            finally
+            {
+                EndCriticalRegion();
+            }
+        }
+        Span<byte> IBufferWriter<byte>.GetSpan(int sizeHint)
+        {
+            BeginCriticalRegion();
+            try
+            {
+                return GetWriteBuffer(sizeHint).Span;
+            }
+            finally
+            {
+                EndCriticalRegion();
+            }
+        }
 
         private sealed class Segment : ReadOnlySequenceSegment<byte>
         {
@@ -181,7 +264,7 @@ namespace Respite.Internal
                 s_spare = Init(null, null);
             }
 
-            private Segment() {  }
+            private Segment() { }
             private Segment Init(Segment? previous, Memory<byte> buffer)
             {
                 Memory = buffer;

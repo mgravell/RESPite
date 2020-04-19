@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Respite.Internal;
+using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
@@ -52,6 +53,8 @@ namespace Respite
         public bool IsDoomed => GetFlag(RespConnectionFlags.IsDoomed);
         public void Doom() => SetFlag(RespConnectionFlags.IsDoomed, true);
         internal bool IsReusable => OutstandingResponseCount == 0 & !GetFlag(RespConnectionFlags.IsDoomed);
+
+        public abstract bool PreferSync { get; }
 
         public static RespConnection Create(Stream stream, object? state = null) => new StreamRespConnection(stream, state);
         public static RespConnection Create(Socket socket, object? state = null) => Create(new NetworkStream(socket), state);

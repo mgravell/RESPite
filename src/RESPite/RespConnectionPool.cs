@@ -7,6 +7,8 @@ namespace Respite
 {
     public sealed class RespConnectionPool : RespConnection
     {
+        public override bool PreferSync => false;
+
         private readonly Pool<RespConnection> _pool;
         private readonly Func<CancellationToken, ValueTask<RespConnection>> _factory;
 

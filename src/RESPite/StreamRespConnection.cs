@@ -9,8 +9,14 @@ namespace Respite
 {
     internal sealed class StreamRespConnection : SimpleRespConnection
     {
+        public override bool PreferSync { get; }
+
         private readonly Stream _stream;
-        public StreamRespConnection(Stream stream, object? state) : base(state) => _stream = stream;
+        public StreamRespConnection(Stream stream, object? state, bool preferSync = true) : base(state)
+        {
+            _stream = stream;
+            PreferSync = preferSync;
+        }
 
         protected override ValueTask OnDisposeAsync()
         {
