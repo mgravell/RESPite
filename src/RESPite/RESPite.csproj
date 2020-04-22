@@ -9,10 +9,8 @@
   <PropertyGroup Condition="'$(TargetFramework)'=='net461' or '$(TargetFramework)'=='net472' or '$(TargetFramework)'=='netstandard2.0'">
     <DefineConstants>$(DefineConstants);LOWFX</DefineConstants>
   </PropertyGroup>
-  <ItemGroup Condition="'$(TargetFramework)'=='net461' or '$(TargetFramework)'=='net472' or '$(TargetFramework)'=='netstandard2.0'">
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="1.1.0" />
-  </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="PooledAwait" Version="1.0.49" />
     <PackageReference Include="System.Memory" Version="4.5.4" />
     <PackageReference Include="System.Threading.Channels" Version="4.7.0" />
   </ItemGroup>

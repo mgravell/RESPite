@@ -1,4 +1,5 @@
-﻿using Respite.Internal;
+﻿using PooledAwait;
+using Respite.Internal;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,24 +52,36 @@ namespace Respite
 
         protected override ValueTask OnDisposeAsync() => _pool.DisposeAsync();
 
-        public override async ValueTask<T> CallAsync<T>(RespValue command, Func<RespValue, T> selector, CancellationToken cancellationToken = default)
+        public override ValueTask<T> CallAsync<T>(RespValue command, Func<RespValue, T> selector, CancellationToken cancellationToken = default)
         {
-            await using var lease = await _pool.RentAsync(cancellationToken).ConfigureAwait(false);
-            await lease.Value.SendAsync(command, cancellationToken).ConfigureAwait(false);
-            using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            return selector(response.Value);
+            return Impl(_pool, command, selector, cancellationToken);
+            static async PooledValueTask<T> Impl(Pool<RespConnection> pool, RespValue command, Func<RespValue, T> selector, CancellationToken cancellationToken)
+            {
+                await using var lease = await pool.RentAsync(cancellationToken).ConfigureAwait(false);
+                await lease.Value.SendAsync(command, cancellationToken).ConfigureAwait(false);
+                using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                return selector(response.Value);
+            }
         }
-        public override async ValueTask CallAsync(RespValue command, Action<RespValue> validator, CancellationToken cancellationToken = default)
+        public override ValueTask CallAsync(RespValue command, Action<RespValue> validator, CancellationToken cancellationToken = default)
         {
-            await using var lease = await _pool.RentAsync(cancellationToken).ConfigureAwait(false);
-            await lease.Value.SendAsync(command, cancellationToken).ConfigureAwait(false);
-            using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            validator(response.Value);
+            return Impl(_pool, command, validator, cancellationToken);
+            static async PooledValueTask Impl(Pool<RespConnection> pool, RespValue command, Action<RespValue> validator, CancellationToken cancellationToken)
+            {
+                await using var lease = await pool.RentAsync(cancellationToken).ConfigureAwait(false);
+                await lease.Value.SendAsync(command, cancellationToken).ConfigureAwait(false);
+                using var response = await lease.Value.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                validator(response.Value);
+            }
         }
-        public override async ValueTask<Lifetime<ReadOnlyMemory<RespValue>>> BatchAsync(ReadOnlyMemory<RespValue> values, CancellationToken cancellationToken = default)
+        public override ValueTask<Lifetime<ReadOnlyMemory<RespValue>>> BatchAsync(ReadOnlyMemory<RespValue> values, CancellationToken cancellationToken = default)
         {
-            await using var lease = await _pool.RentAsync(cancellationToken).ConfigureAwait(false);
-            return await lease.Value.BatchAsync(values, cancellationToken).ConfigureAwait(false);
+            return Impl(_pool, values, cancellationToken);
+            static async PooledValueTask<Lifetime<ReadOnlyMemory<RespValue>>> Impl(Pool<RespConnection> pool, ReadOnlyMemory<RespValue> values, CancellationToken cancellationToken)
+            {
+                await using var lease = await pool.RentAsync(cancellationToken).ConfigureAwait(false);
+                return await lease.Value.BatchAsync(values, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         public override Lifetime<ReadOnlyMemory<RespValue>> Batch(ReadOnlyMemory<RespValue> values)

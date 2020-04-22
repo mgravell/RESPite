@@ -1,4 +1,5 @@
-﻿using Respite.Internal;
+﻿using PooledAwait;
+using Respite.Internal;
 using System;
 using System.Buffers;
 using System.Threading;
@@ -95,7 +96,7 @@ namespace Respite
             }
             return default;
 
-            static async ValueTask Awaited(ValueTask flush, SimplePipe outbuffer, SequencePosition consumed)
+            static async PooledValueTask Awaited(ValueTask flush, SimplePipe outbuffer, SequencePosition consumed)
             {
                 await flush.ConfigureAwait(false);
                 outbuffer.ConsumeTo(consumed);
@@ -114,7 +115,7 @@ namespace Respite
             {
                 return FlushSlowAsync(this, payload, cancellationToken);
             }
-            static async ValueTask FlushSlowAsync(SimpleRespConnection connection, ReadOnlySequence<byte> payload, CancellationToken cancellationToken)
+            static async PooledValueTask FlushSlowAsync(SimpleRespConnection connection, ReadOnlySequence<byte> payload, CancellationToken cancellationToken)
             {
                 foreach (var segment in payload)
                 {
@@ -123,7 +124,7 @@ namespace Respite
                 await connection.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            static async ValueTask AwaitedWrite(SimpleRespConnection connection, ValueTask write, CancellationToken cancellationToken)
+            static async PooledValueTask AwaitedWrite(SimpleRespConnection connection, ValueTask write, CancellationToken cancellationToken)
             {
                 await write.ConfigureAwait(false);
                 await connection.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -167,7 +168,7 @@ namespace Respite
             }
             return new ValueTask<Lifetime<RespValue>>(value);
 
-            static async ValueTask<Lifetime<RespValue>> Awaited(SimpleRespConnection obj, ValueTask<bool> pending, CancellationToken cancellationToken)
+            static async PooledValueTask<Lifetime<RespValue>> Awaited(SimpleRespConnection obj, ValueTask<bool> pending, CancellationToken cancellationToken)
             {
 
                 while (true)
@@ -198,7 +199,7 @@ namespace Respite
 
             return new ValueTask<bool>(Complete(writer, pending.Result));
 
-            static async ValueTask<bool> Awaited(IBufferWriter<byte> writer, ValueTask<int> pending)
+            static async PooledValueTask<bool> Awaited(IBufferWriter<byte> writer, ValueTask<int> pending)
             {
                 var result = Complete(writer, await pending.ConfigureAwait(false));
                 return result;

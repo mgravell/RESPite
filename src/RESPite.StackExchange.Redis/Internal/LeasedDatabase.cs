@@ -1,4 +1,5 @@
-﻿using Respite;
+﻿using PooledAwait;
+using Respite;
 using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
@@ -57,7 +58,7 @@ namespace RESPite.StackExchange.Redis.Internal
             if (db.Multiplexer is PooledMultiplexer pooled) return Impl(db, pooled, cancellationToken);
             return new ValueTask<AsyncLifetime<IDatabase>>(new AsyncLifetime<IDatabase>(db));
 
-            static async ValueTask<AsyncLifetime<IDatabase>> Impl(IDatabase db, PooledMultiplexer muxer, CancellationToken cancellationToken)
+            static async PooledValueTask<AsyncLifetime<IDatabase>> Impl(IDatabase db, PooledMultiplexer muxer, CancellationToken cancellationToken)
             {
                 var lease = await muxer.RentAsync(cancellationToken).ConfigureAwait(false);
                 var leasedDb = new LeasedDatabase(db.Database, muxer, lease, cancellationToken);

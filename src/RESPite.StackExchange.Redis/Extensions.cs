@@ -1,4 +1,5 @@
-﻿using Respite;
+﻿using PooledAwait;
+using Respite;
 using RESPite.StackExchange.Redis.Internal;
 using StackExchange.Redis;
 using System.Threading;
@@ -20,7 +21,7 @@ namespace RESPite.StackExchange.Redis
             }
             return new ValueTask<IConnectionMultiplexer>(obj);
 
-            static async ValueTask<IConnectionMultiplexer> PingAsync(IDatabaseAsync db)
+            static async PooledValueTask<IConnectionMultiplexer> PingAsync(IDatabaseAsync db)
             {
                 await db.PingAsync().ConfigureAwait(false);
                 return db.Multiplexer;

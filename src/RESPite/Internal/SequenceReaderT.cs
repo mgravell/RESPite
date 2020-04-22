@@ -14,7 +14,9 @@ using System.Diagnostics;
 
 namespace Respite.Internal
 {
+#pragma warning disable IDE0064 // Make readonly fields writable
     internal ref partial struct SequenceReader<T> where T : unmanaged, IEquatable<T>
+#pragma warning restore IDE0064 // Make readonly fields writable
     {
         private SequencePosition _currentPosition;
         private SequencePosition _nextPosition;

@@ -30,8 +30,10 @@ namespace Respite.Internal
         private Segment? _startSegment, _endSegment;
         private int _startIndex, _endIndex, _writeCapacity;
         partial void AssertValid();
+#pragma warning disable IDE0060 // Remove unused parameter
         partial void BeginCriticalRegion([CallerMemberName] string? caller = null);
         partial void EndCriticalRegion([CallerMemberName] string? caller = null);
+#pragma warning restore IDE0060 // Remove unused parameter
 
 #if DEBUG
         partial void AssertValid()

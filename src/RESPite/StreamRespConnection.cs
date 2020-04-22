@@ -1,4 +1,5 @@
-﻿using Respite.Internal;
+﻿using PooledAwait;
+using Respite.Internal;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -23,7 +24,7 @@ namespace Respite
             var pending = _stream == null ? default : _stream.DisposeAsync();
             return pending.IsCompletedSuccessfully ? base.OnDisposeAsync(): AwaitedBaseDisposeAsync(pending);
         }
-        private async ValueTask AwaitedBaseDisposeAsync(ValueTask pending)
+        private async PooledValueTask AwaitedBaseDisposeAsync(ValueTask pending)
         {
             await pending.ConfigureAwait(false);
             await base.OnDisposeAsync().ConfigureAwait(false);

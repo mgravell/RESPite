@@ -1,4 +1,5 @@
 ﻿using Pipelines.Sockets.Unofficial;
+using PooledAwait;
 using Respite;
 using StackExchange.Redis;
 using StackExchange.Redis.Profiling;
@@ -139,7 +140,7 @@ namespace RESPite.StackExchange.Redis.Internal
             using var args = op.ConsumeArgs();
             connection.Send(RespValue.CreateAggregate(RespType.Array, args.Value), flush);
         }
-        static async ValueTask SendAsync(PooledMultiplexer @this, RespConnection connection, IBatchedOperation op, CancellationToken cancellationToken, bool flush)
+        private static async PooledValueTask SendAsync(PooledMultiplexer @this, RespConnection connection, IBatchedOperation op, CancellationToken cancellationToken, bool flush)
         {
             Interlocked.Increment(ref @this._opCount);
             using var args = op.ConsumeArgs();

@@ -1,4 +1,5 @@
-﻿using Respite.Internal;
+﻿using PooledAwait;
+using Respite.Internal;
 using System;
 using System.IO;
 using System.Net.Sockets;
@@ -109,7 +110,7 @@ namespace Respite
             var pending = OnSendAsync(value, flush, cancellationToken);
             return pending.IsCompletedSuccessfully ? default : Awaited(this, pending);
 
-            async static ValueTask Awaited(RespConnection @this, ValueTask pending)
+            async static PooledValueTask Awaited(RespConnection @this, ValueTask pending)
             {
                 try
                 {
@@ -133,7 +134,7 @@ namespace Respite
             }
             return Awaited(this, pending);
 
-            async static ValueTask<Lifetime<RespValue>> Awaited(RespConnection @this, ValueTask<Lifetime<RespValue>> pending)
+            async static PooledValueTask<Lifetime<RespValue>> Awaited(RespConnection @this, ValueTask<Lifetime<RespValue>> pending)
             {
                 try
                 {
@@ -153,18 +154,26 @@ namespace Respite
 
         protected abstract ValueTask<Lifetime<RespValue>> OnReceiveAsync(CancellationToken cancellationToken);
 
-        public virtual async ValueTask<T> CallAsync<T>(RespValue command, Func<RespValue, T> selector, CancellationToken cancellationToken = default)
+        public virtual ValueTask<T> CallAsync<T>(RespValue command, Func<RespValue, T> selector, CancellationToken cancellationToken = default)
         {
-            await SendAsync(command, cancellationToken).ConfigureAwait(false);
-            using var response = await ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            return selector(response.Value);
+            return Impl(this, command, selector, cancellationToken);
+            static async PooledValueTask<T> Impl(RespConnection @this, RespValue command, Func<RespValue, T> selector, CancellationToken cancellationToken)
+            {
+                await @this.SendAsync(command, cancellationToken).ConfigureAwait(false);
+                using var response = await @this.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                return selector(response.Value);
+            }
         }
 
-        public virtual async ValueTask CallAsync(RespValue command, Action<RespValue> validator, CancellationToken cancellationToken = default)
+        public virtual ValueTask CallAsync(RespValue command, Action<RespValue> validator, CancellationToken cancellationToken = default)
         {
-            await SendAsync(command, cancellationToken).ConfigureAwait(false);
-            using var response = await ReceiveAsync(cancellationToken).ConfigureAwait(false);
-            validator(response.Value);
+            return Impl(this, command, validator, cancellationToken);
+            static async PooledValueTask Impl(RespConnection @this, RespValue command, Action<RespValue> validator, CancellationToken cancellationToken)
+            {
+                await @this.SendAsync(command, cancellationToken).ConfigureAwait(false);
+                using var response = await @this.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                validator(response.Value);
+            }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

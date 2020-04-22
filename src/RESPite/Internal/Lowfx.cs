@@ -1,4 +1,5 @@
-﻿using System;
+﻿using PooledAwait;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
@@ -94,7 +95,7 @@ namespace Respite.Internal
                 return bytes;
             }
 
-            static async ValueTask<int> Awaited(byte[] arr, Memory<byte> buffer, Task<int> pending)
+            static async PooledValueTask<int> Awaited(byte[] arr, Memory<byte> buffer, Task<int> pending)
             {
                 try
                 {
@@ -139,7 +140,7 @@ namespace Respite.Internal
                 throw;
             }
             static void Return(byte[] arr) => ArrayPool<byte>.Shared.Return(arr);
-            static async ValueTask Awaited(byte[] arr, Task pending)
+            static async PooledValueTask Awaited(byte[] arr, Task pending)
             {
                 try
                 {

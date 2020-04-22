@@ -1,4 +1,5 @@
-﻿using System;
+﻿using PooledAwait;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -47,7 +48,7 @@ namespace Respite.Internal
                 ? new ValueTask<AsyncLifetime<T>>(AsLifetime(this, pending.Result))
                 : Awaited(this, pending);
 
-            static async ValueTask<AsyncLifetime< T >> Awaited(Pool<T> @this, ValueTask<T> pending)
+            static async PooledValueTask<AsyncLifetime< T >> Awaited(Pool<T> @this, ValueTask<T> pending)
             {
                 var item = await pending.ConfigureAwait(false);
                 return AsLifetime(@this, item);
@@ -120,7 +121,7 @@ namespace Respite.Internal
             }
         }
 
-        private async ValueTask SpawnInBackground(CancellationToken cancellationToken = default)
+        private async PooledValueTask SpawnInBackground(CancellationToken cancellationToken = default)
         {
             T? newItem = null;
             try
@@ -144,7 +145,7 @@ namespace Respite.Internal
                 }
             }
         }
-        private async ValueTask SurrenderAsync(T value)
+        private async PooledValueTask SurrenderAsync(T value)
         {
             // note we don't decrement _count, because this wasn't valid any more
             var onRemoved = _options.OnRemoved;
@@ -172,7 +173,7 @@ namespace Respite.Internal
             return predicate == null ? default : DiscardAsync(predicate);
         }
 
-        private async ValueTask DiscardAsync(Func<object?, T, bool> predicate)
+        private async PooledValueTask DiscardAsync(Func<object?, T, bool> predicate)
         {
             foreach (var pair in _inUse)
             {
@@ -230,7 +231,7 @@ namespace Respite.Internal
             return MarkInUse(_availableQueue.Take(s_DefaultTimeout));
         }
 
-        private async ValueTask<T> GrowAsync(CancellationToken cancellationToken)
+        private async PooledValueTask<T> GrowAsync(CancellationToken cancellationToken)
         {
             try
             {
