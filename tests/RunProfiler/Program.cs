@@ -1,4 +1,7 @@
-﻿using Bedrock.Framework;
+﻿Console.WriteLine("todo");
+
+/*
+using Bedrock.Framework;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
@@ -130,3 +133,4 @@ public class RedisPingPong : IAsyncDisposable
         await StreamAsync();
     }
 }
+*/

@@ -1,26 +1,23 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Description>Low level RESP primitives.</Description>
+        <AssemblyName>RESPite</AssemblyName>
+        <AssemblyTitle>RESPite</AssemblyTitle>
+        <RootNamespace>RESPite</RootNamespace>
+        <PackageId>RESPite</PackageId>
+        <PackageTags>RESP</PackageTags>
+    </PropertyGroup>
 
-  <PropertyGroup>
-    <TargetFrameworks>net461;net472;netstandard2.0;netstandard2.1</TargetFrameworks>
-    <Nullable>enable</Nullable>
-    <RootNamespace>Respite</RootNamespace>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)'=='net461' or '$(TargetFramework)'=='net472' or '$(TargetFramework)'=='netstandard2.0'">
-    <DefineConstants>$(DefineConstants);LOWFX</DefineConstants>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="PooledAwait" Version="1.0.49" />
-    <PackageReference Include="System.Memory" Version="4.5.4" />
-    <PackageReference Include="System.Threading.Channels" Version="4.7.0" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Update="RespValue.*.cs">
-      <DependentUpon>RespValue.cs</DependentUpon>
-    </Compile>
-    <Compile Update="RespConnection.*.cs">
-      <DependentUpon>RespConnection.cs</DependentUpon>
-    </Compile>
-  </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="RESPite.Tests" />
+        <Compile Include="..\Shared\NullableHacks.cs" Link="NullableHacks.cs" />
+        <PackageReference Remove="Microsoft.CodeAnalysis.PublicApiAnalyzers" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net472' or '$(TargetFramework)' == 'net461' or '$(TargetFramework)' == 'netstandard2.0'">
+        <PackageReference Include="System.Memory" />
+        <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
+        <PackageReference Include="System.Threading.Channels" />
+    </ItemGroup>
 
 </Project>

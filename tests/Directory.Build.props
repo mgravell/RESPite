@@ -1,0 +1,16 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <TargetFrameworks>net472;net8.0;net9.0</TargetFrameworks>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- security updates etc -->
+    <PackageReference Include="System.Drawing.Common" />
+    <PackageReference Include="System.Net.Http" />
+    <PackageReference Include="System.Private.Uri" />
+    <PackageReference Include="System.Text.RegularExpressions" />
+  </ItemGroup>
+</Project>

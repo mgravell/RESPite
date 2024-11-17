@@ -1,27 +1,35 @@
 <Project>
   <PropertyGroup>
-    <Copyright>2020 Marc Gravell</Copyright>
+    <Copyright>2020- Marc Gravell</Copyright>
     <Authors>Marc Gravell</Authors>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <AssemblyOriginatorKeyFile>../../RESPite.snk</AssemblyOriginatorKeyFile>
-    <SignAssembly>true</SignAssembly>
     <Features>strict</Features>
-    <LangVersion>8.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>13.0</LangVersion>
     <NoWarn>NU5105</NoWarn>
-    
+
     <PackageId>$(AssemblyName)</PackageId>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/mgravell/RESPite</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/mgravell/RESPite</RepositoryUrl>
     <Deterministic>false</Deterministic>
-    
     <DebugSymbols>true</DebugSymbols>
     <DebugType>embedded</DebugType>
     <DefaultLanguage>en-US</DefaultLanguage>
     <IncludeSymbols>false</IncludeSymbols>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <PublicSign Condition=" '$(OS)' != 'Windows_NT' ">true</PublicSign>
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <AssemblyOriginatorKeyFile>../../RESPite.snk</AssemblyOriginatorKeyFile>
+    <SignAssembly>true</SignAssembly>
+    <PublicKey>0024000004800000940000000602000000240000525341310004000001000100d5f5a320b8ae1d6520ca00426eb0cc4cd96f68a73179445c0a36a2679290dadfd28676089c6c5ed17ae7180db36e83a3d45156a6904b63d08dba70ae3a7ef6f2e51cbf64b03af06ea4ad208b38915cd5d4407c927504ad0c242107410d8e73276822552fc4a31399d130790820c3684c90a4cb8c32e4c45bc9a344ba38534ae2</PublicKey>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -34,7 +42,7 @@
     <SourceRoot Include="$(MSBuildThisFileDirectory)/"/>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Nerdbank.GitVersioning" Version="3.1.74" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" PrivateAssets="all" />
+    <PackageReference Include="StyleCop.Analyzers" PrivateAssets="All" />
   </ItemGroup>
 </Project>

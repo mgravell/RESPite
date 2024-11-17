@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Standard RESP command definitions using RESPite.Resp</Description>
+    <AssemblyName>RESPite.Resp.Client</AssemblyName>
+    <AssemblyTitle>RESPite.Resp.Client</AssemblyTitle>
+    <RootNamespace>RESPite.Resp</RootNamespace>
+    <PackageId>RESPite.Resp.Client</PackageId>
+    <PackageTags>RESP</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RESPite.Resp\RESPite.Resp.csproj" />
+    <ProjectReference Include="..\RESPite\RESPite.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Remove="Microsoft.CodeAnalysis.PublicApiAnalyzers" />
+
+    <Compile Include="..\Shared\IsExternalInit.cs" Link="IsExternalInit.cs" />
+    <Compile Include="..\Shared\NullableHacks.cs" Link="NullableHacks.cs" />
+
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)'=='net461' or '$(TargetFramework)'=='net472' or '$(TargetFramework)'=='netstandard2.0'">
+    <PackageReference Include="System.ValueTuple" />
+  </ItemGroup>
+
+</Project>

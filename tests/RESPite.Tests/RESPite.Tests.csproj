@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>RESPite</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--<PackageReference Include="coverlet.collector" />-->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <ProjectReference Include="..\..\src\RESPite\RESPite.csproj" />
+    <ProjectReference Include="..\..\src\RESPite.Resp\RESPite.Resp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

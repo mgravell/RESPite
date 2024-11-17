@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Description>Low level RESP primitives.</Description>
+        <AssemblyName>RESPite.Resp</AssemblyName>
+        <AssemblyTitle>RESPite.Resp</AssemblyTitle>
+        <RootNamespace>RESPite.Resp</RootNamespace>
+        <PackageId>RESPite.Resp</PackageId>
+        <PackageTags>RESP</PackageTags>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Remove="Microsoft.CodeAnalysis.PublicApiAnalyzers" />
+
+        <ProjectReference Include="..\RESPite\RESPite.csproj" />
+
+        <Compile Include="..\RESPite\Internal\Constants.cs" Link="Internal\Constants.cs" />
+
+        <Compile Include="..\RESPite\Internal\RuntimeShims.cs" Link="Internal\RuntimeShims.cs" />
+
+        <Compile Include="..\Shared\IsExternalInit.cs" Link="IsExternalInit.cs" />
+        <Compile Include="..\Shared\NullableHacks.cs" Link="NullableHacks.cs" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)'=='net461' or '$(TargetFramework)'=='net472' or '$(TargetFramework)'=='netstandard2.0'">
+        <PackageReference Include="System.ValueTuple" />
+    </ItemGroup>
+
+</Project>

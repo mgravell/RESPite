@@ -1,0 +1,13 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <TargetFrameworks>net461;netstandard2.0;net472;net8.0;net9.0</TargetFrameworks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\SkipLocalsInit.cs" Link="SkipLocalsInit.cs" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" Condition ="'$(PackAsTool)' != 'true'"/>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+    <PackageReference Include="Nerdbank.GitVersioning" PrivateAssets="all" Condition=" '$(DEVCONTAINER)' != 'true' " />
+  </ItemGroup>
+</Project>

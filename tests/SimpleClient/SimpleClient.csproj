@@ -2,20 +2,15 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFrameworks>net462;net472;netcoreapp3.1</TargetFrameworks>
-    <SignAssembly>false</SignAssembly>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="3.1.1" />
-    <PackageReference Include="StackExchange.Redis" Version="2.1.30" />
-    <PackageReference Include="ServiceStack.Redis" Version="5.8.0" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="ServiceStack.Redis" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RESPite.Bedrock\RESPite.Bedrock.csproj" Condition="'$(TargetFramework)'=='netcoreapp3.1'" />
-    <ProjectReference Include="..\..\src\RESPite.Redis\RESPite.Redis.csproj" />
-    <ProjectReference Include="..\..\src\RESPite.StackExchange.Redis\RESPite.StackExchange.Redis.csproj" />
+    <ProjectReference Include="..\..\src\RESPite.Resp.Client\RESPite.Resp.Client.csproj" />
   </ItemGroup>
 
 </Project>

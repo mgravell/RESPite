@@ -1,4 +1,7 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿Console.WriteLine("todo");
+
+/*
+using Microsoft.Extensions.DependencyInjection;
 using Pipelines.Sockets.Unofficial;
 using Respite;
 using Respite.Redis;
@@ -764,3 +767,4 @@ namespace SimpleClient
         static string Me([CallerMemberName] string caller = null) => caller;
     }
 }
+*/
