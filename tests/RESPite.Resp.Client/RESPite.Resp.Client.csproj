@@ -9,15 +9,17 @@
     <PackageTags>RESP</PackageTags>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(Configuration)'=='Release'">
+  <ItemGroup Condition="'$(Configuration)'!='Release'">
     <!-- in debug, keep all the parts separate so we can prove we don't need any
     extra knowledge; however, in release: bundle everything -->
-    <Compile Remove="**/*.cs" />
+    <Compile Include="../../src/RESPite/Shims/**/*.cs" Visible="false" />
+    <Compile Include="../../src/RESPite/Resp/Client/**/*.cs" Visible="false" />
   </ItemGroup>
 
+
   <ItemGroup>
+    <ProjectReference Include="..\..\src\RESPite\RESPite.csproj" />
     <ProjectReference Include="..\RESPite.Resp\RESPite.Resp.csproj" />
-    <ProjectReference Include="..\RESPite\RESPite.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)'=='net461' or '$(TargetFramework)'=='net472' or '$(TargetFramework)'=='netstandard2.0'">

@@ -2,7 +2,7 @@
 using RESPite.Resp.Writers;
 using static RESPite.Resp.Client.CommandFactory;
 
-namespace RESPite.Resp.KeyValueStore;
+namespace RESPite.Resp.Client;
 
 /// <summary>
 /// Server commands.

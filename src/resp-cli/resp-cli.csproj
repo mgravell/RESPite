@@ -18,12 +18,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RESPite.Resp.Client\RESPite.Resp.Client.csproj" />
-    <ProjectReference Include="..\RESPite.Resp\RESPite.Resp.csproj" />
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="System.Text.Json" VersionOverride="8.0.5" />
     <PackageReference Include="Terminal.Gui" />
     <None Include="readme.md" Link="readme.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RESPite\RESPite.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)'!='Release'">
+    <ProjectReference Include="..\..\tests\RESPite.Resp.Client\RESPite.Resp.Client.csproj" />
   </ItemGroup>
 </Project>
  

@@ -1,5 +1,4 @@
 ﻿using RESPite.Resp.Commands;
-using RESPite.Resp.KeyValueStore;
 using RESPite.Resp.Readers;
 using RESPite.Resp.Writers;
 

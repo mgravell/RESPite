@@ -1,5 +1,7 @@
 <Project>
   <PropertyGroup>
+    <TargetFrameworks>net461;netstandard2.0;net472;net8.0;net9.0</TargetFrameworks>
+    
     <Copyright>2020- Marc Gravell</Copyright>
     <Authors>Marc Gravell</Authors>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -29,6 +31,7 @@
     <DebugSymbols>true</DebugSymbols>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">

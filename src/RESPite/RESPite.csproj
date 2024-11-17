@@ -12,16 +12,11 @@
     <InternalsVisibleTo Include="RESPite.Tests" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(Configuration)'=='Release'">
+  <ItemGroup Condition="'$(Configuration)'!='Release'">
     <!-- in debug, keep all the parts separate so we can prove we don't need any
     extra knowledge; however, in release: bundle everything -->
-    <Compile Include="../RESPite.Resp/*.cs" />
-    <Compile Include="../RESPite.Resp/Commands/*.cs" />
-    <Compile Include="../RESPite.Resp/Internal/*.cs" />
-    <Compile Include="../RESPite.Resp/Readers/*.cs" />
-    <Compile Include="../RESPite.Resp/Writers/*.cs" />
-    <Compile Include="../RESPite.Resp.Client/*.cs"/>
-    <Compile Include="../RESPite.Resp.Client/KeyValueStore/*.cs"/>
+    <Compile Remove="Resp/**/*.cs" />
+    <None Include="Resp/**/*.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net472' or '$(TargetFramework)' == 'net461' or '$(TargetFramework)' == 'netstandard2.0'">

@@ -13,7 +13,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="..\..\src\RESPite\RESPite.csproj" />
-    <ProjectReference Include="..\..\src\RESPite.Resp\RESPite.Resp.csproj" />
+    <ProjectReference Include="..\RESPite.Resp.Client\RESPite.Resp.Client.csproj" />
+    <ProjectReference Include="..\RESPite.Resp\RESPite.Resp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

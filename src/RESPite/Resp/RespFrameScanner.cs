@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using RESPite.Resp.Readers;
 using RESPite.Transports;
-using static RESPite.Internal.Constants;
+using static RESPite.Resp.RespConstants;
 namespace RESPite.Resp;
 
 /// <summary>

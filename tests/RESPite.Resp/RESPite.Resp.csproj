@@ -17,12 +17,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RESPite\RESPite.csproj" />
-
-    <Compile Include="..\RESPite\Internal\Constants.cs" Link="Internal\Constants.cs" />
-    <Compile Include="..\RESPite\Internal\RuntimeShims.cs" Link="Internal\RuntimeShims.cs" />
+    <ProjectReference Include="..\..\src\RESPite\RESPite.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(Configuration)'!='Release'">
+    <!-- in debug, keep all the parts separate so we can prove we don't need any
+    extra knowledge; however, in release: bundle everything -->
+    <Compile Include="../../src/RESPite/Shims/**/*.cs" Visible="false" />
+    <Compile Include="../../src/RESPite/Resp/**/*.cs" Visible="false" />
+    <Compile Remove="../../src/RESPite/Resp/Client/**/*.cs" />
+  </ItemGroup>
+  
   <ItemGroup Condition="'$(TargetFramework)'=='net461' or '$(TargetFramework)'=='net472' or '$(TargetFramework)'=='netstandard2.0'">
     <PackageReference Include="System.ValueTuple" />
   </ItemGroup>

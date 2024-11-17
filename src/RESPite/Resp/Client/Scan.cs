@@ -2,7 +2,7 @@
 using RESPite.Resp.Commands;
 using RESPite.Transports;
 
-namespace RESPite.Resp.KeyValueStore;
+namespace RESPite.Resp.Client;
 
 /// <summary>
 /// Queries keys in a RESP database.

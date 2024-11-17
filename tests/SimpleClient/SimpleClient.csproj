@@ -9,8 +9,4 @@
     <PackageReference Include="ServiceStack.Redis" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\RESPite.Resp.Client\RESPite.Resp.Client.csproj" />
-  </ItemGroup>
-
 </Project>

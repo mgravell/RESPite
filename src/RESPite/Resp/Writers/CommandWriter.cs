@@ -68,7 +68,7 @@ public abstract class CommandWriter
 
         // *XX\r\n$YY\r\nCOMMAND\r\n : length of command, plus two integers, plus 8 symbols
         Span<byte> buffer = stackalloc byte[Constants.UTF8.GetMaxByteCount(Command.Length)
-            + (2 * Constants.MaxRawBytesInt32) + 8];
+            + (2 * RespConstants.MaxRawBytesInt32) + 8];
         var writer = new RespWriter(buffer);
         writer.WriteArray(ArgCount + 1);
         writer.WriteBulkString(Command);

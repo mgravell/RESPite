@@ -2,9 +2,9 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace RESPite.Internal;
+namespace RESPite.Resp;
 
-internal static partial class Constants
+internal static partial class RespConstants
 {
     public static ReadOnlySpan<byte> CrlfBytes => "\r\n"u8;
 

@@ -2,7 +2,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace RESPite.Internal;
+namespace RESPite;
 
 internal static class RuntimeShims
 {

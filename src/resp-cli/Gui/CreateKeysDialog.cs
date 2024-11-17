@@ -1,5 +1,5 @@
 ﻿using System.Diagnostics;
-using RESPite.Resp.KeyValueStore;
+using RESPite.Resp.Client;
 using Terminal.Gui;
 
 namespace StackExchange.Redis.Gui;

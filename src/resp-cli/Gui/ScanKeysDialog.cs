@@ -1,11 +1,9 @@
 ﻿using System.Collections.ObjectModel;
 using System.Globalization;
 using RESPite.Resp;
-using RESPite.Resp.Commands;
-using RESPite.Resp.KeyValueStore;
+using RESPite.Resp.Client;
 using Terminal.Gui;
-
-using static RESPite.Resp.KeyValueStore.Keys;
+using static RESPite.Resp.Client.Keys;
 
 namespace StackExchange.Redis.Gui;
 

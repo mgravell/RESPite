@@ -1,7 +1,7 @@
 ﻿using RESPite.Resp.Commands;
 using static RESPite.Resp.Client.CommandFactory;
 
-namespace RESPite.Resp.KeyValueStore;
+namespace RESPite.Resp.Client;
 
 /// <summary>
 /// Operations relating to sorted sets.

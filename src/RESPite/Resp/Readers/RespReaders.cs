@@ -2,7 +2,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using RESPite.Messages;
-using static RESPite.Internal.Constants;
+using static RESPite.Resp.RespConstants;
 
 namespace RESPite.Resp.Readers;
 
