@@ -121,7 +121,7 @@ public abstract class CommandWriter
         }
     }
 
-    private protected static void ThrowWriteArgs() => throw new NotSupportedException($"Either {nameof(CommandWriter<int>.WriteArgs)} or {nameof(CommandWriter<int>.Write)} must be overridden");
+    private protected static void ThrowWriteArgs() => throw new NotSupportedException($"Either WriteArgs or {nameof(CommandWriter<int>.Write)} must be overridden");
 
     /// <summary>
     /// Allows custom commands to be issued (including the command itself).
@@ -178,7 +178,7 @@ public abstract class CommandWriter<TRequest> : CommandWriter, IRespWriter<TRequ
     /// <summary>
     /// Write the arguments associated with the <paramref name="request"/>.
     /// </summary>
-    protected internal virtual void WriteArgs(in TRequest request, ref RespWriter writer)
+    protected virtual void WriteArgs(in TRequest request, ref RespWriter writer)
     {
         if (ArgCount != 0) ThrowWriteArgs();
     }

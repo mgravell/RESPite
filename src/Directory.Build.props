@@ -6,7 +6,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Shared\SkipLocalsInit.cs" Link="SkipLocalsInit.cs" />
-    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" Condition ="'$(PackAsTool)' != 'true'"/>
+    <Compile Include="..\Shared\NullableHacks.cs" Link="NullableHacks.cs" />
+    <Compile Include="..\Shared\IsExternalInit.cs" Link="IsExternalInit.cs" />
+    
+    <!--
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+    <PackageReference Remove="Microsoft.CodeAnalysis.PublicApiAnalyzers" />
+    -->
+    
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
     <PackageReference Include="Nerdbank.GitVersioning" PrivateAssets="all" Condition=" '$(DEVCONTAINER)' != 'true' " />
   </ItemGroup>

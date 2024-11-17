@@ -1,23 +1,33 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-    <PropertyGroup>
-        <Description>Low level RESP primitives.</Description>
-        <AssemblyName>RESPite</AssemblyName>
-        <AssemblyTitle>RESPite</AssemblyTitle>
-        <RootNamespace>RESPite</RootNamespace>
-        <PackageId>RESPite</PackageId>
-        <PackageTags>RESP</PackageTags>
-    </PropertyGroup>
+  <PropertyGroup>
+    <Description>Low level RESP primitives.</Description>
+    <AssemblyName>RESPite</AssemblyName>
+    <AssemblyTitle>RESPite</AssemblyTitle>
+    <RootNamespace>RESPite</RootNamespace>
+    <PackageId>RESPite</PackageId>
+    <PackageTags>RESP</PackageTags>
+  </PropertyGroup>
 
-    <ItemGroup>
-        <InternalsVisibleTo Include="RESPite.Tests" />
-        <Compile Include="..\Shared\NullableHacks.cs" Link="NullableHacks.cs" />
-        <PackageReference Remove="Microsoft.CodeAnalysis.PublicApiAnalyzers" />
-    </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="RESPite.Tests" />
+  </ItemGroup>
 
-    <ItemGroup Condition="'$(TargetFramework)' == 'net472' or '$(TargetFramework)' == 'net461' or '$(TargetFramework)' == 'netstandard2.0'">
-        <PackageReference Include="System.Memory" />
-        <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
-        <PackageReference Include="System.Threading.Channels" />
-    </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)'=='Release'">
+    <!-- in debug, keep all the parts separate so we can prove we don't need any
+    extra knowledge; however, in release: bundle everything -->
+    <Compile Include="../RESPite.Resp/*.cs" />
+    <Compile Include="../RESPite.Resp/Commands/*.cs" />
+    <Compile Include="../RESPite.Resp/Internal/*.cs" />
+    <Compile Include="../RESPite.Resp/Readers/*.cs" />
+    <Compile Include="../RESPite.Resp/Writers/*.cs" />
+    <Compile Include="../RESPite.Resp.Client/*.cs"/>
+    <Compile Include="../RESPite.Resp.Client/KeyValueStore/*.cs"/>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472' or '$(TargetFramework)' == 'net461' or '$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Memory" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
+    <PackageReference Include="System.Threading.Channels" />
+  </ItemGroup>
 
 </Project>
