@@ -21,7 +21,7 @@
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="System.Text.Json" VersionOverride="8.0.5" />
     <PackageReference Include="Terminal.Gui" />
-    <None Include="readme.md" Link="readme.md" Pack="true" PackagePath="/" />
+    <None Include="readme.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>

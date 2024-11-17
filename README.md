@@ -1,7 +1,8 @@
 # RESPite
+
 Low level RESP handling tools for .NET, intended for consumption by other libraries
 
-RESP is the communications protocol used by [Redis](https://redis.io/docs/latest/develop/reference/protocol-spec/) and Redis-like servers (Garnet, ValKey, etc),
+RESP is the communications protocol used by [Redis](https://redis.io/docs/latest/develop/reference/protocol-spec/) and Redis-like (¿Redish?) servers (Garnet, ValKey, etc),
 although it is not strictly tied to Redis, and can be used
 in a general purpose sense.
 

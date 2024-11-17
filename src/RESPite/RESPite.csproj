@@ -10,6 +10,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="RESPite.Tests" />
+
+    <None Include="../../readme.md" Pack="true" Link="readme.md" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(Configuration)'!='Release'">
