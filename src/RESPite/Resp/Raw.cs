@@ -1,5 +1,11 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+#if NETCOREAPP3_0_OR_GREATER
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
+#endif
 
 namespace RESPite.Resp;
 
@@ -87,4 +93,36 @@ internal static class Raw
     public static uint ArrayPrefix_8_4 = Create32("*8\r\n"u8, 4);
     public static uint ArrayPrefix_9_4 = Create32("*9\r\n"u8, 4);
     public static ulong ArrayPrefix_10_5 = Create64("*10\r\n"u8, 5);
+
+#if NETCOREAPP3_0_OR_GREATER
+    private static uint FirstAndLast(char first, char last)
+    {
+        Debug.Assert(first < 128 && last < 128, "ASCII please");
+        Span<byte> scratch = [(byte)first, 0, 0, (byte)last];
+        // this *will* be aligned; this approach intentionally chosen for how we read
+        return Unsafe.ReadUnaligned<uint>(ref MemoryMarshal.GetReference(scratch));
+    }
+
+    public const int CommonRespIndex_Success = 0;
+    public const int CommonRespIndex_SingleDigitInteger = 1;
+    public const int CommonRespIndex_DoubleDigitInteger = 2;
+    public const int CommonRespIndex_SingleDigitString = 3;
+    public const int CommonRespIndex_DoubleDigitString = 4;
+    public const int CommonRespIndex_SingleDigitArray = 5;
+    public const int CommonRespIndex_DoubleDigitArray = 6;
+    public const int CommonRespIndex_Error = 7;
+
+    public static readonly Vector256<uint> CommonRespPrefixes = Vector256.Create<uint>([
+        FirstAndLast('+', '\r'), // success                 +OK\r\n
+        FirstAndLast(':', '\n'), // single-digit integer    :4\r\n
+        FirstAndLast(':', '\r'), // double-digit integer    :42\r\n
+        FirstAndLast('$', '\n'), // 0-9 char string         $0\r\n\r\n
+        FirstAndLast('$', '\r'), // null/10-99 char string  $-1\r\n or $10\r\nABCDEFGHIJ\r\n
+        FirstAndLast('*', '\n'), // 0-9 length array        *0\r\n
+        FirstAndLast('*', '\r'), // null/10-99 length array *-1\r\n or *10\r\n:0\r\n:0\r\n:0\r\n:0\r\n:0\r\n:0\r\n:0\r\n:0\r\n:0\r\n:0\r\n
+        FirstAndLast('-', 'R'), // common errors            -ERR something bad happened
+        ]);
+
+    public static readonly Vector256<uint> FirstLastMask = Vector256.Create<uint>(0xFF0000FF);
+#endif
 }

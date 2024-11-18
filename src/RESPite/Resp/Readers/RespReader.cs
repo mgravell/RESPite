@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Buffers.Text;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -7,6 +8,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using static RESPite.Constants;
 using static RESPite.Resp.RespConstants;
+
+#if NETCOREAPP3_0_OR_GREATER
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
+#endif
+
 namespace RESPite.Resp.Readers;
 
 /// <summary>
@@ -596,7 +603,131 @@ public ref struct RespReader
     /// <summary>
     /// Attempt to move to the next RESP element.
     /// </summary>
-    public bool TryReadNext()
+    public unsafe bool TryReadNext()
+    {
+#if NETCOREAPP3_0_OR_GREATER
+
+        var skip = TrailingLength;
+        if (_bufferIndex + skip <= _bufferLength)
+        {
+            _bufferIndex += skip; // available in the current buffer
+        }
+        else
+        {
+            AdvanceSlow(skip);
+        }
+        ResetCurrent();
+        var available = _bufferLength - _bufferIndex;
+
+        if (Avx2.IsSupported && Bmi1.IsSupported && available >= sizeof(uint))
+        {
+            // read the first 4 bytes
+            ref byte origin = ref CurrentUnsafe;
+            var comparand = Unsafe.ReadUnaligned<uint>(ref origin);
+
+            // broadcast those 4 bytes into a vector, mask to get just the first and last byte, and apply a SIMD equality test with our known cases
+            var eqs = Avx2.CompareEqual(Avx2.And(Avx2.BroadcastScalarToVector256(&comparand), Raw.FirstLastMask), Raw.CommonRespPrefixes);
+
+            // reinterpret that as floats, and pick out the sign bits (which will be 1 for "equal", 0 for "not equal"); since the
+            // test cases are mutually exclusive, we expect zero or one matches, so: lzcount tells us which matched
+            var index = Bmi1.TrailingZeroCount((uint)Avx.MoveMask(Unsafe.As<Vector256<uint>, Vector256<float>>(ref eqs)));
+            switch (index)
+            {
+                case Raw.CommonRespIndex_Success when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
+                    _prefix = RespPrefix.SimpleString;
+                    _length = 2;
+                    _bufferIndex++;
+                    return true;
+                case Raw.CommonRespIndex_SingleDigitInteger when Unsafe.Add(ref origin, 2) == (byte)'\r':
+                    _prefix = RespPrefix.Integer;
+                    _length = 1;
+                    _bufferIndex++;
+                    return true;
+                case Raw.CommonRespIndex_DoubleDigitInteger when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
+                    _prefix = RespPrefix.Integer;
+                    _length = 2;
+                    _bufferIndex++;
+                    return true;
+                case Raw.CommonRespIndex_SingleDigitString when Unsafe.Add(ref origin, 2) == (byte)'\r':
+                    var len = ParseSingleDigit(ref Unsafe.Add(ref origin, 1));
+                    if (available >= len + 6)
+                    {
+                        AssertCrlfPastPrefixUnsafe(3 + len);
+                        _prefix = RespPrefix.BulkString;
+                        _length = len;
+                        _bufferIndex += 4;
+                        return true;
+                    }
+                    return false;
+                case Raw.CommonRespIndex_DoubleDigitString when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
+                    len = ParseDoubleDigits(ref Unsafe.Add(ref origin, 1));
+                    if (len == -1)
+                    {
+                        _prefix = RespPrefix.BulkString;
+                        _length = -1;
+                        _bufferIndex += 5;
+                        return true;
+                    }
+                    if (available >= len + 7)
+                    {
+                        AssertCrlfPastPrefixUnsafe(4 + len);
+                        _prefix = RespPrefix.BulkString;
+                        _length = len;
+                        _bufferIndex += 5;
+                        return true;
+                    }
+                    return false;
+                case Raw.CommonRespIndex_SingleDigitArray when Unsafe.Add(ref origin, 2) == (byte)'\r':
+                    _prefix = RespPrefix.Array;
+                    _length = ParseSingleDigit(ref Unsafe.Add(ref origin, 1));
+                    _bufferIndex += 4;
+                    return true;
+                case Raw.CommonRespIndex_DoubleDigitArray when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
+                    _prefix = RespPrefix.Array;
+                    _length = ParseDoubleDigits(ref Unsafe.Add(ref origin, 1));
+                    _bufferIndex += 5;
+                    return true;
+                case Raw.CommonRespIndex_Error:
+                    len = PeekPastPrefix().IndexOf(CrlfBytes);
+                    if (len >= 0)
+                    {
+                        _prefix = RespPrefix.SimpleError;
+                        _length = len;
+                        _bufferIndex++;
+                        return true;
+                    }
+                    return false;
+            }
+        }
+
+        if (available == 0 && _fullPayload.IsSingleSegment) return false;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+
+        static int ParseSingleDigit(ref byte value)
+        {
+            return value switch
+            {
+                (byte)'0' or (byte)'1' or (byte)'2' or (byte)'3' or (byte)'4' or (byte)'5' or (byte)'6' or (byte)'7' or (byte)'8' or (byte)'9' => value - (byte)'0',
+                _ => Invalid(value),
+            };
+
+            [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
+            static int Invalid(byte value) => throw new FormatException($"Unable to parse integer: '{(char)value}'");
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int ParseDoubleDigits(ref byte value) => value == (byte)'-' ? -ParseSingleDigit(ref Unsafe.Add(ref value, 1))
+                : (10 * ParseSingleDigit(ref value)) + ParseSingleDigit(ref Unsafe.Add(ref value, 1));
+#endif
+
+        return TryReadNextUnpotimized();
+    }
+
+    /// <summary>
+    /// Attempt to move to the next RESP element.
+    /// </summary>
+    internal bool TryReadNextUnpotimized()
     {
         var skip = TrailingLength;
         if (_bufferIndex + skip <= _bufferLength)
@@ -1082,5 +1213,11 @@ public ref struct RespReader
             Debug.Write(ex.Message);
             throw;
         }
+    }
+
+    internal void DebugReset()
+    {
+        _bufferIndex = 0;
+        ResetCurrent();
     }
 }

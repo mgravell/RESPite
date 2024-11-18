@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Buffers.Text;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -609,13 +610,11 @@ public ref struct RespWriter
                     return;
             }
         }
-        WriteBulkStringFallback(value);
+
+        WriteBulkStringUnoptimized(value);
     }
 
-    /// <summary>
-    /// Write an integer as a bulk string.
-    /// </summary>
-    internal void WriteBulkStringFallback(int value)
+    internal void WriteBulkStringUnoptimized(int value)
     {
         if (Available >= MaxProtocolBytesBulkStringIntegerInt32)
         {
@@ -745,11 +744,7 @@ public ref struct RespWriter
         WritePrefixedInteger(RespPrefix.BulkString, count);
     }
 
-    /// <summary>
-    /// Write an array header.
-    /// </summary>
-    /// <param name="count">The number of elements in the array.</param>
-    internal void WriteArrayFallback(int count) => WritePrefixedInteger(RespPrefix.Array, count);
+    internal void WriteArrayUnpotimized(int count) => WritePrefixedInteger(RespPrefix.Array, count);
 
     private void WriteRawPrechecked(ulong value, int count)
     {

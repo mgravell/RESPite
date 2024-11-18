@@ -1,21 +1,58 @@
 ﻿using System.Reflection;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Columns;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Diagnosers;
+using BenchmarkDotNet.Environments;
+using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Validators;
 using Benchmarks;
+using RESPite.Benchmarks;
 
 #if DEBUG
-var obj = new WriterBench();
-var attrib = obj.GetType().GetProperty(nameof(obj.Value))?.GetCustomAttribute<ParamsAttribute>()!;
+WriterBench writer = new();
+var attrib = writer.GetType().GetProperty(nameof(writer.Value))?.GetCustomAttribute<ParamsAttribute>()!;
 foreach (object? boxed in attrib.Values)
 {
-    if (boxed is not int value) throw new InvalidOperationException("Bad parameter value");
-    Console.WriteLine($"Checking {value}...");
-    obj.Value = value;
-    obj.Setup(); // runs validation tests
+    if (boxed is not int value) throw new InvalidOperationException($"Bad parameter value: {boxed}");
+    Console.WriteLine($"{writer} checking {value}...");
+    writer.Value = value;
+    writer.Setup(); // runs validation tests
 }
+
+ReaderBench reader = new();
+attrib = reader.GetType().GetProperty(nameof(reader.Scenario))?.GetCustomAttribute<ParamsAttribute>()!;
+foreach (object? boxed in attrib.Values)
+{
+    if (boxed is not string value) throw new InvalidOperationException($"Bad parameter value: {boxed}");
+    Console.WriteLine($"{reader} checking {value}...");
+    reader.Scenario = value;
+    reader.ReadOptimized();
+    reader.ReadUnoptimized();
+}
+
 #else
-BenchmarkRunner.Run(Assembly.GetExecutingAssembly(), args: args);
+BenchmarkSwitcher.FromAssembly(Assembly.GetExecutingAssembly()).Run(args: args);
 #endif
+
+internal class CustomConfig : ManualConfig
+{
+    protected virtual Job Configure(Job j)
+        => j.WithGcMode(new GcMode { Force = true })
+            // .With(InProcessToolchain.Instance)
+            ;
+
+    public CustomConfig()
+    {
+        AddDiagnoser(MemoryDiagnoser.Default);
+        AddColumn(StatisticColumn.OperationsPerSecond);
+        AddValidator(JitOptimizationsValidator.FailOnError);
+
+        AddJob(Configure(Job.Default.WithRuntime(ClrRuntime.Net472)));
+        AddJob(Configure(Job.Default.WithRuntime(CoreRuntime.Core90)));
+    }
+}
 
 /*
 using Microsoft.Extensions.DependencyInjection;

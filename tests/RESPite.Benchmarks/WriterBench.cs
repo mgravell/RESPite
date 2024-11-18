@@ -1,11 +1,9 @@
-﻿using System.Runtime.InteropServices;
-using BenchmarkDotNet.Attributes;
-using Microsoft.Diagnostics.Tracing.Parsers.MicrosoftWindowsTCPIP;
+﻿using BenchmarkDotNet.Attributes;
 using RESPite.Resp.Writers;
 
 namespace Benchmarks;
 
-[MemoryDiagnoser, ShortRunJob]
+[Config(typeof(CustomConfig))]
 public class WriterBench
 {
     private const int MaxLengthPerValue = 10;
@@ -22,7 +20,7 @@ public class WriterBench
 
         span.Clear();
         RespWriter writer = new(span);
-        writer.WriteBulkStringFallback(value);
+        writer.WriteBulkStringUnoptimized(value);
         var slowOutput = writer.DebugBuffer();
 
         span.Clear();
@@ -37,7 +35,7 @@ public class WriterBench
 
         span.Clear();
         writer = new(span);
-        writer.WriteArrayFallback(value);
+        writer.WriteArrayUnpotimized(value);
         slowOutput = writer.DebugBuffer();
 
         span.Clear();
@@ -93,7 +91,7 @@ public class WriterBench
         var writer = new RespWriter(_buffer);
         for (int i = 0; i < OperationsPerInvoke; i++)
         {
-            writer.WriteBulkStringFallback(value);
+            writer.WriteBulkStringUnoptimized(value);
         }
     }
 
@@ -115,7 +113,7 @@ public class WriterBench
         var writer = new RespWriter(_buffer);
         for (int i = 0; i < OperationsPerInvoke; i++)
         {
-            writer.WriteArrayFallback(value);
+            writer.WriteArrayUnpotimized(value);
         }
     }
 

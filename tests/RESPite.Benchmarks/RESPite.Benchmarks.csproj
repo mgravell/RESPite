@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,5 +19,4 @@
     <ProjectReference Include="..\RESPite.Resp.Client\RESPite.Resp.Client.csproj" />
     <ProjectReference Include="..\RESPite.Resp\RESPite.Resp.csproj" />
   </ItemGroup>
-
 </Project>
