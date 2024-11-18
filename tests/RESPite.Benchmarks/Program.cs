@@ -32,6 +32,14 @@ foreach (object? boxed in attrib.Values)
     reader.ReadUnoptimized();
 }
 
+using GetBench get = new();
+get.Length = 64;
+get.Setup();
+get.SER_GetSync();
+await get.SER_GetAsync();
+get.RESP_GetSync();
+await get.RESP_GetAsync();
+
 #else
 BenchmarkSwitcher.FromAssembly(Assembly.GetExecutingAssembly()).Run(args: args);
 #endif
