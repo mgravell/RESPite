@@ -3,6 +3,12 @@ using System.Runtime.InteropServices;
 
 namespace RESPite.Resp;
 
+/// <summary>
+/// Pre-computed payload fragments, for high-volume scenarios / common values.
+/// </summary>
+/// <remarks>
+/// CPU-endianness applies here; we can't just use "const" - however, modern JITs treat "static readonly" *almost* the same as "const", so: meh.
+/// </remarks>
 internal static class Raw
 {
     public static ulong Create64(ReadOnlySpan<byte> bytes, int length)
@@ -41,7 +47,6 @@ internal static class Raw
         return Unsafe.ReadUnaligned<uint>(ref MemoryMarshal.GetReference(scratch));
     }
 
-    public static ulong BulkStringNull_5 = Create64("$-1\r\n"u8, 5);
     public static ulong BulkStringEmpty_6 = Create64("$0\r\n\r\n"u8, 6);
 
     public static ulong BulkStringInt32_M1_8 = Create64("$2\r\n-1\r\n"u8, 8);

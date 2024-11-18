@@ -395,56 +395,23 @@ public ref struct RespWriter
         target[0] = (byte)prefix;
     }
 
-    private static ReadOnlySpan<byte> StringPrefixNullToNine(int count)
-    {
-        return count switch
-        {
-            -1 => "$-1\r\n"u8,
-            0 => "$0\r\n"u8,
-            1 => "$1\r\n"u8,
-            2 => "$2\r\n"u8,
-            3 => "$3\r\n"u8,
-            4 => "$4\r\n"u8,
-            5 => "$5\r\n"u8,
-            6 => "$6\r\n"u8,
-            7 => "$7\r\n"u8,
-            8 => "$8\r\n"u8,
-            9 => "$9\r\n"u8,
-            _ => Throw(),
-        };
-        static ReadOnlySpan<byte> Throw() => throw new ArgumentOutOfRangeException(nameof(count));
-    }
-
     /// <summary>
     /// Write a payload as a bulk string.
     /// </summary>
     /// <param name="value">The payload to write.</param>
-    public void WriteBulkString(string? value)
+    public void WriteBulkString(string value)
     {
-        if (value is null)
-        {
-            if (Available >= 5)
-            {
-                WriteRawPrechecked(Raw.BulkStringNull_5, 5);
-            }
-            else
-            {
-                WriteRaw("$-1\r\n"u8);
-            }
-        }
-        else
-        {
-            WriteBulkString(value.AsSpan());
-        }
+        if (value is null) ThrowNull();
+        WriteBulkString(value.AsSpan());
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
+    private static void ThrowNull() => throw new ArgumentNullException("value", "Null values cannot be sent from client to server");
 
     internal void WriteBulkStringUnoptimized(string? value)
     {
-        if (value is null)
-        {
-            WriteBulkStringHeader(-1);
-        }
-        else if (value.Length == 0)
+        if (value is null) ThrowNull();
+        if (value.Length == 0)
         {
             WriteRaw("$0\r\n\r\n"u8);
         }

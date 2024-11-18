@@ -11,7 +11,7 @@ public class WriterBench
     private const int MaxLengthPerValue = 10;
     private const int BufferSize = 2048, OperationsPerInvoke = BufferSize / MaxLengthPerValue;
     private readonly byte[] _buffer = new byte[BufferSize];
-    private string? stringValue;
+    private string stringValue = "";
 
     [GlobalSetup]
     public void Setup()
@@ -50,9 +50,9 @@ public class WriterBench
             throw new InvalidOperationException($"Failure in {nameof(writer.WriteArray)}: '{slowOutput}' vs '{fastOutput}'");
         }
 
-        if (Value < 0)
+        if (Value <= 0)
         {
-            stringValue = null;
+            stringValue = ""; // note can't check null (-1) - not valid client-server
         }
         else
         {
