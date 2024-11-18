@@ -15,9 +15,9 @@
     <None Include="../../readme.md" Pack="true" Link="readme.md" PackagePath="/" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(Configuration)'!='Release'">
-    <!-- in debug, keep all the parts separate so we can prove we don't need any
-    extra knowledge; however, in release: bundle everything -->
+  <ItemGroup Condition="'$(Configuration)'=='Isolation'">
+    <!-- keep all the parts separate so we can prove we don't need any
+    extra knowledge; normally: bundle everything -->
     <Compile Remove="Resp/**/*.cs" />
     <None Include="Resp/**/*.cs" />
   </ItemGroup>

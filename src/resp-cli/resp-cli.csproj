@@ -28,7 +28,7 @@
     <ProjectReference Include="..\RESPite\RESPite.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(Configuration)'!='Release'">
+  <ItemGroup Condition="'$(Configuration)'=='Isolation'">
     <ProjectReference Include="..\..\tests\RESPite.Resp.Client\RESPite.Resp.Client.csproj" />
   </ItemGroup>
 </Project>

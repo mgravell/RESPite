@@ -10,20 +10,14 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(Configuration)'=='Release'">
-    <!-- in debug, keep all the parts separate so we can prove we don't need any
-    extra knowledge; however, in release: bundle everything -->
-    <Compile Remove="**/*.cs" />
-  </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\..\src\RESPite\RESPite.csproj" />
     <InternalsVisibleTo Include="RESPite.Benchmarks" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(Configuration)'!='Release'">
-    <!-- in debug, keep all the parts separate so we can prove we don't need any
-    extra knowledge; however, in release: bundle everything -->
+  <ItemGroup Condition="'$(Configuration)'=='Isolation'">
+    <!-- keep all the parts separate so we can prove we don't need any
+    extra knowledge; normally: bundle everything -->
     <Compile Include="../../src/RESPite/Shims/**/*.cs" Visible="false" />
     <Compile Include="../../src/RESPite/Resp/**/*.cs" Visible="false" />
     <Compile Remove="../../src/RESPite/Resp/Client/**/*.cs" />
