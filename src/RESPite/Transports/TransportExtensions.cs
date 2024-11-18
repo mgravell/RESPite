@@ -1,7 +1,9 @@
 ﻿using System.Buffers;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Text;
 using RESPite.Gateways.Internal;
 using RESPite.Internal.Buffers;
 using RESPite.Messages;
@@ -260,6 +262,7 @@ public static class TransportExtensions
                         break;
                     case OperationStatus.NeedMoreData:
                         transport.Advance(0);
+                        Debug.WriteLineIf(!entireBuffer.IsEmpty, $"need more after {entireBuffer.Length} bytes: {(entireBuffer.Length < 100 ? Constants.UTF8.GetString(entireBuffer) : Constants.UTF8.GetString(entireBuffer.Slice(0, 100)) + "...")}");
                         if (!transport.TryRead(Math.Max(scanInfo.ReadHint, 1))) ThrowEOF();
                         continue;
                     case OperationStatus.Done when scanInfo.BytesRead <= 0:

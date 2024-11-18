@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Buffers.Binary;
+using System.Buffers.Text;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -15,6 +16,35 @@ namespace RESPite.Resp;
 /// </summary>
 public readonly struct SimpleString
 {
+    /// <summary>
+    /// Parses the contents as a <see cref="int"/> value.
+    /// </summary>
+    public static implicit operator int(in SimpleString value)
+    {
+        if (value.TryGetBytes(span: out var bspan))
+        {
+            if (Utf8Parser.TryParse(bspan, out int result, out int len) && len == bspan.Length)
+            {
+                return result;
+            }
+            ThrowFormat();
+        }
+
+#if NETCOREAPP3_0_OR_GREATER
+        if (value.TryGetChars(span: out var cspan))
+        {
+            if (int.TryParse(cspan, out int result))
+            {
+                return result;
+            }
+            ThrowFormat();
+        }
+#endif
+        return ThrowIncomplete();
+        static void ThrowFormat() => throw new FormatException();
+        static int ThrowIncomplete() => throw new NotImplementedException("More to do here - parsing/formatting");
+    }
+
     /// <inheritdoc />
     [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
     public override bool Equals(object? obj) => throw new NotSupportedException();

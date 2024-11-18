@@ -14,6 +14,11 @@ public static class Strings
     public static readonly RespCommand<SimpleString, long> STRLEN = new(Default);
 
     /// <summary>
+    /// Increments the number stored at key by one. If the key does not exist, it is set to 0 before performing the operation. An error is returned if the key contains a value of the wrong type or contains a string that can not be represented as integer. This operation is limited to 64 bit signed integers.
+    /// </summary>
+    public static readonly RespCommand<SimpleString, long> INCR = new(Default);
+
+    /// <summary>
     /// Set key to hold the string value and set key to timeout after a given number of seconds.
     /// </summary>
     public static readonly RespCommand<(SimpleString Key, int Seconds, SimpleString Value), Empty> SETEX = new(Default);

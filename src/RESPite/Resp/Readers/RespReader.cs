@@ -658,7 +658,7 @@ public ref struct RespReader
                         _bufferIndex += 4;
                         return true;
                     }
-                    return false;
+                    break;
                 case Raw.CommonRespIndex_DoubleDigitString when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
                     len = ParseDoubleDigits(ref Unsafe.Add(ref origin, 1));
                     if (len == -1)
@@ -676,7 +676,7 @@ public ref struct RespReader
                         _bufferIndex += 5;
                         return true;
                     }
-                    return false;
+                    break;
                 case Raw.CommonRespIndex_SingleDigitArray when Unsafe.Add(ref origin, 2) == (byte)'\r':
                     _prefix = RespPrefix.Array;
                     _length = ParseSingleDigit(ref Unsafe.Add(ref origin, 1));
@@ -696,7 +696,7 @@ public ref struct RespReader
                         _bufferIndex++;
                         return true;
                     }
-                    return false;
+                    break;
             }
         }
 
@@ -1060,6 +1060,18 @@ public ref struct RespReader
         }
         return IsSlow(value);
     }
+
+    /// <summary>Performs a byte-wise equality check on the payload.</summary>
+    public readonly bool Is(byte value)
+    {
+        if (!(IsScalar && 1 == _length)) return false;
+        if (TryGetValueSpan(out var span))
+        {
+            return span[0] == value;
+        }
+        return IsSlow([value]);
+    }
+
     private readonly bool IsSlow(ReadOnlySpan<byte> value) => value.Length == ScalarLength && new SlowReader(in this).StartsWith(value);
 
     internal readonly bool IsOK() // go mad with this, because it is used so often

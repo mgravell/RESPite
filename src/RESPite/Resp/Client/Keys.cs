@@ -9,9 +9,14 @@ namespace RESPite.Resp.Client;
 public static class Keys
 {
     /// <summary>
-    /// Iterates keys in a database.
+    /// Return the number of keys in the currently-selected database.
     /// </summary>
     public static readonly RespCommand<Empty, long> DBSIZE = new(Default);
+
+    /// <summary>
+    /// Removes the specified keys. A key is ignored if it does not exist.
+    /// </summary>
+    public static readonly RespCommand<SimpleString, bool> DEL = new(Default);
 
     /// <summary>
     /// Iterates keys in a database.

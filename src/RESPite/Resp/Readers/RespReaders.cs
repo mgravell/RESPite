@@ -74,7 +74,8 @@ internal static class RespReaders
         IRespReader<Empty, long>,
         IRespReader<Empty, long?>,
         IRespReader<Empty, LeasedStrings>,
-        IRespReader<Empty, LeasedString>
+        IRespReader<Empty, LeasedString>,
+        IRespReader<Empty, bool>
     {
         private static readonly uint OK_HiNibble = UnsafeCpuUInt32("+OK\r"u8);
         Empty IReader<Empty, Empty>.Read(in Empty request, in ReadOnlySequence<byte> content)
@@ -181,6 +182,29 @@ internal static class RespReaders
         {
             reader.ReadNextScalar();
             return reader.ReadLeasedString();
+        }
+
+        bool IReader<Empty, bool>.Read(in Empty request, in ReadOnlySequence<byte> content)
+        {
+            var reader = new RespReader(in content);
+            reader.ReadNextScalar();
+            return reader.ScalarLength switch
+            {
+                1 => reader.Is((byte)'1'),
+                2 => reader.IsOK(),
+                _ => false,
+            };
+        }
+
+        bool IRespReader<Empty, bool>.Read(in Empty request, ref RespReader reader)
+        {
+            reader.ReadNextScalar();
+            return reader.ScalarLength switch
+            {
+                1 => reader.Is((byte)'1'),
+                2 => reader.IsOK(),
+                _ => false,
+            };
         }
 
         private static bool TryReadFastInt32(ReadOnlySpan<byte> span, out int value)
