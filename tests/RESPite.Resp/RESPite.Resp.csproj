@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\RESPite\RESPite.csproj" />
+    <InternalsVisibleTo Include="RESPite.Benchmarks" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(Configuration)'!='Release'">

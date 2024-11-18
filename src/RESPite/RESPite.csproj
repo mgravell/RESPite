@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="RESPite.Tests" />
+    <InternalsVisibleTo Include="RESPite.Benchmarks" />
 
     <None Include="../../readme.md" Pack="true" Link="readme.md" PackagePath="/" />
   </ItemGroup>

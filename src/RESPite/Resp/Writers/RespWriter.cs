@@ -193,12 +193,6 @@ public ref struct RespWriter
     }
 
     /// <summary>
-    /// Write an array header.
-    /// </summary>
-    /// <param name="count">The number of elements in the array.</param>
-    public void WriteArray(int count) => WritePrefixedInteger(RespPrefix.Array, count);
-
-    /// <summary>
     /// Write a command header.
     /// </summary>
     /// <param name="command">The command name to write.</param>
@@ -220,22 +214,30 @@ public ref struct RespWriter
     {
         if (value.IsEmpty)
         {
-            WriteRaw("$0\r\n\r\n"u8);
-        }
-        else if (value.Length < 10 && Available >= value.Length + 6) // in-place write "$N\r\nX...X\r\n" for 1-9 X
-        {
-            StringPrefixNullToNine(value.Length).CopyTo(Tail);
-            _index += 4;
-            value.CopyTo(Tail);
-            _index += value.Length;
-            WriteCrLfUnsafe();
+            if (Available >= 6)
+            {
+                WriteRawPrechecked(Raw.BulkStringEmpty_6, 6);
+            }
+            else
+            {
+                WriteRaw("$0\r\n\r\n"u8);
+            }
         }
         else
         {
-            // slow path
-            WritePrefixedInteger(RespPrefix.BulkString, value.Length);
-            WriteRaw(value);
-            WriteCrLf();
+            WriteBulkStringHeader(value.Length);
+            if (Available >= value.Length + 2)
+            {
+                value.CopyTo(Tail);
+                _index += value.Length;
+                WriteCrLfUnsafe();
+            }
+            else
+            {
+                // slow path
+                WriteRaw(value);
+                WriteCrLf();
+            }
         }
     }
 
@@ -276,74 +278,7 @@ public ref struct RespWriter
     /// <summary>
     /// Write an integer as a bulk string.
     /// </summary>
-    public void WriteBulkString(bool value)
-        => WriteRaw(value ? "$1\r\n1\r\n"u8 : "$1\r\n0\r\n"u8);
-
-    /// <summary>
-    /// Write an integer as a bulk string.
-    /// </summary>
-    public void WriteBulkString(int value)
-    {
-        if (value >= -1 & value <= 20)
-        {
-            WriteRaw(value switch
-            {
-                -1 => "$2\r\n-1\r\n"u8,
-                0 => "$1\r\n0\r\n"u8,
-                1 => "$1\r\n1\r\n"u8,
-                2 => "$1\r\n2\r\n"u8,
-                3 => "$1\r\n3\r\n"u8,
-                4 => "$1\r\n4\r\n"u8,
-                5 => "$1\r\n5\r\n"u8,
-                6 => "$1\r\n6\r\n"u8,
-                7 => "$1\r\n7\r\n"u8,
-                8 => "$1\r\n8\r\n"u8,
-                9 => "$1\r\n9\r\n"u8,
-                10 => "$2\r\n10\r\n"u8,
-                11 => "$2\r\n11\r\n"u8,
-                12 => "$2\r\n12\r\n"u8,
-                13 => "$2\r\n13\r\n"u8,
-                14 => "$2\r\n14\r\n"u8,
-                15 => "$2\r\n15\r\n"u8,
-                16 => "$2\r\n16\r\n"u8,
-                17 => "$2\r\n17\r\n"u8,
-                18 => "$2\r\n18\r\n"u8,
-                19 => "$2\r\n19\r\n"u8,
-                20 => "$2\r\n20\r\n"u8,
-                _ => Throw(),
-            });
-
-            static ReadOnlySpan<byte> Throw() => throw new ArgumentOutOfRangeException(nameof(value));
-        }
-        else if (Available >= MaxProtocolBytesBulkStringIntegerInt32)
-        {
-            var singleDigit = value >= -99_999_999 && value <= 999_999_999;
-            WriteRawUnsafe((byte)RespPrefix.BulkString);
-
-            var target = Tail.Slice(singleDigit ? 3 : 4); // N\r\n or NN\r\n
-            if (!Utf8Formatter.TryFormat(value, target, out var valueBytes))
-                ThrowFormatException();
-
-            Debug.Assert(valueBytes > 0 && singleDigit ? valueBytes < 10 : valueBytes is 10 or 11);
-            if (!Utf8Formatter.TryFormat(valueBytes, Tail, out var prefixBytes))
-                ThrowFormatException();
-            Debug.Assert(prefixBytes == (singleDigit ? 1 : 2));
-            _index += prefixBytes;
-            WriteCrLfUnsafe();
-            _index += valueBytes;
-            WriteCrLfUnsafe();
-        }
-        else
-        {
-            Debug.Assert(MaxRawBytesInt32 <= 16);
-            Span<byte> scratch = stackalloc byte[16];
-            if (!Utf8Formatter.TryFormat(value, scratch, out int bytes))
-                ThrowFormatException();
-            WritePrefixedInteger(RespPrefix.BulkString, bytes);
-            WriteRaw(scratch.Slice(0, bytes));
-            WriteCrLf();
-        }
-    }
+    public void WriteBulkString(bool value) => WriteBulkString(value ? 1 : 0);
 
     /// <summary>
     /// Write an integer as a bulk string.
@@ -446,7 +381,7 @@ public ref struct RespWriter
                 buffer[1] = (byte)(length + '0');
                 payloadLength = 1;
             }
-            else if (!Utf8Formatter.TryFormat(length, buffer.Slice(3), out payloadLength))
+            else if (!Utf8Formatter.TryFormat(length, buffer.Slice(1), out payloadLength))
             {
                 ThrowFormatException();
             }
@@ -487,7 +422,14 @@ public ref struct RespWriter
     {
         if (value is null)
         {
-            WriteRaw("$-1\r\n"u8);
+            if (Available >= 5)
+            {
+                WriteRawPrechecked(Raw.BulkStringNull_5, 5);
+            }
+            else
+            {
+                WriteRaw("$-1\r\n"u8);
+            }
         }
         else
         {
@@ -504,12 +446,19 @@ public ref struct RespWriter
         const int MAX_HINT = 64 * 1024;
         if (value.Length == 0)
         {
-            WriteRaw("$0\r\n\r\n"u8);
+            if (Available >= 6)
+            {
+                WriteRawPrechecked(Raw.BulkStringEmpty_6, 6);
+            }
+            else
+            {
+                WriteRaw("$0\r\n\r\n"u8);
+            }
         }
         else
         {
             var byteCount = UTF8.GetByteCount(value);
-            WritePrefixedInteger(RespPrefix.BulkString, byteCount);
+            WriteBulkStringHeader(byteCount);
             if (Available >= 2 + byteCount)
             {
                 var actual = UTF8.GetBytes(value, Tail);
@@ -520,18 +469,19 @@ public ref struct RespWriter
             else
             {
                 FlushAndGetBuffer(Math.Min(byteCount, MAX_HINT));
-                if (Available >= byteCount)
+                if (Available >= byteCount + 2)
                 {
                     // that'll work
                     var actual = UTF8.GetBytes(value, Tail);
                     Debug.Assert(actual == byteCount);
                     _index += actual;
+                    WriteCrLfUnsafe();
                 }
                 else
                 {
                     WriteUtf8Slow(ref this, value, byteCount);
+                    WriteCrLf();
                 }
-                WriteCrLf();
             }
         }
 
@@ -613,6 +563,211 @@ public ref struct RespWriter
             WriteBulkString(new ReadOnlySpan<char>(buffer, 0, len));
             ArrayPool<char>.Shared.Return(buffer);
         }
+    }
+
+    /// <summary>
+    /// Experimental.
+    /// </summary>
+    public void WriteBulkString(int value)
+    {
+        if (Available >= sizeof(ulong))
+        {
+            switch (value)
+            {
+                case -1:
+                    WriteRawPrechecked(Raw.BulkStringInt32_M1_8, 8);
+                    return;
+                case 0:
+                    WriteRawPrechecked(Raw.BulkStringInt32_0_7, 7);
+                    return;
+                case 1:
+                    WriteRawPrechecked(Raw.BulkStringInt32_1_7, 7);
+                    return;
+                case 2:
+                    WriteRawPrechecked(Raw.BulkStringInt32_2_7, 7);
+                    return;
+                case 3:
+                    WriteRawPrechecked(Raw.BulkStringInt32_3_7, 7);
+                    return;
+                case 4:
+                    WriteRawPrechecked(Raw.BulkStringInt32_4_7, 7);
+                    return;
+                case 5:
+                    WriteRawPrechecked(Raw.BulkStringInt32_5_7, 7);
+                    return;
+                case 6:
+                    WriteRawPrechecked(Raw.BulkStringInt32_6_7, 7);
+                    return;
+                case 7:
+                    WriteRawPrechecked(Raw.BulkStringInt32_7_7, 7);
+                    return;
+                case 8:
+                    WriteRawPrechecked(Raw.BulkStringInt32_8_7, 7);
+                    return;
+                case 9:
+                    WriteRawPrechecked(Raw.BulkStringInt32_9_7, 7);
+                    return;
+                case 10:
+                    WriteRawPrechecked(Raw.BulkStringInt32_10_8, 8);
+                    return;
+            }
+        }
+        WriteBulkStringFallback(value);
+    }
+
+    /// <summary>
+    /// Write an integer as a bulk string.
+    /// </summary>
+    internal void WriteBulkStringFallback(int value)
+    {
+        if (Available >= MaxProtocolBytesBulkStringIntegerInt32)
+        {
+            var singleDigit = value >= -99_999_999 && value <= 999_999_999;
+            WriteRawUnsafe((byte)RespPrefix.BulkString);
+
+            var target = Tail.Slice(singleDigit ? 3 : 4); // N\r\n or NN\r\n
+            if (!Utf8Formatter.TryFormat(value, target, out var valueBytes))
+                ThrowFormatException();
+
+            Debug.Assert(valueBytes > 0 && singleDigit ? valueBytes < 10 : valueBytes is 10 or 11);
+            if (!Utf8Formatter.TryFormat(valueBytes, Tail, out var prefixBytes))
+                ThrowFormatException();
+            Debug.Assert(prefixBytes == (singleDigit ? 1 : 2));
+            _index += prefixBytes;
+            WriteCrLfUnsafe();
+            _index += valueBytes;
+            WriteCrLfUnsafe();
+        }
+        else
+        {
+            Debug.Assert(MaxRawBytesInt32 <= 16);
+            Span<byte> scratch = stackalloc byte[16];
+            if (!Utf8Formatter.TryFormat(value, scratch, out int bytes))
+                ThrowFormatException();
+            WritePrefixedInteger(RespPrefix.BulkString, bytes);
+            WriteRaw(scratch.Slice(0, bytes));
+            WriteCrLf();
+        }
+    }
+
+    /// <summary>
+    /// Write an array header.
+    /// </summary>
+    /// <param name="count">The number of elements in the array.</param>
+    public void WriteArray(int count)
+    {
+        if (Available >= sizeof(uint))
+        {
+            switch (count)
+            {
+                case 0:
+                    WriteRawPrechecked(Raw.ArrayPrefix_0_4, 4);
+                    return;
+                case 1:
+                    WriteRawPrechecked(Raw.ArrayPrefix_1_4, 4);
+                    return;
+                case 2:
+                    WriteRawPrechecked(Raw.ArrayPrefix_2_4, 4);
+                    return;
+                case 3:
+                    WriteRawPrechecked(Raw.ArrayPrefix_3_4, 4);
+                    return;
+                case 4:
+                    WriteRawPrechecked(Raw.ArrayPrefix_4_4, 4);
+                    return;
+                case 5:
+                    WriteRawPrechecked(Raw.ArrayPrefix_5_4, 4);
+                    return;
+                case 6:
+                    WriteRawPrechecked(Raw.ArrayPrefix_6_4, 4);
+                    return;
+                case 7:
+                    WriteRawPrechecked(Raw.ArrayPrefix_7_4, 4);
+                    return;
+                case 8:
+                    WriteRawPrechecked(Raw.ArrayPrefix_8_4, 4);
+                    return;
+                case 9:
+                    WriteRawPrechecked(Raw.ArrayPrefix_9_4, 4);
+                    return;
+                case 10 when Available >= sizeof(ulong):
+                    WriteRawPrechecked(Raw.ArrayPrefix_10_5, 5);
+                    return;
+                case -1:
+                    WriteRawPrechecked(Raw.ArrayPrefix_M1_5, 5);
+                    return;
+            }
+        }
+        WritePrefixedInteger(RespPrefix.Array, count);
+    }
+
+    private void WriteBulkStringHeader(int count)
+    {
+        if (Available >= sizeof(uint))
+        {
+            switch (count)
+            {
+                case 0:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_0_4, 4);
+                    return;
+                case 1:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_1_4, 4);
+                    return;
+                case 2:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_2_4, 4);
+                    return;
+                case 3:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_3_4, 4);
+                    return;
+                case 4:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_4_4, 4);
+                    return;
+                case 5:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_5_4, 4);
+                    return;
+                case 6:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_6_4, 4);
+                    return;
+                case 7:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_7_4, 4);
+                    return;
+                case 8:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_8_4, 4);
+                    return;
+                case 9:
+                    WriteRawPrechecked(Raw.BulkStringPrefix_9_4, 4);
+                    return;
+                case 10 when Available >= sizeof(ulong):
+                    WriteRawPrechecked(Raw.BulkStringPrefix_10_5, 5);
+                    return;
+                case -1 when Available >= sizeof(ulong):
+                    WriteRawPrechecked(Raw.BulkStringPrefix_M1_5, 5);
+                    return;
+            }
+        }
+        WritePrefixedInteger(RespPrefix.BulkString, count);
+    }
+
+    /// <summary>
+    /// Write an array header.
+    /// </summary>
+    /// <param name="count">The number of elements in the array.</param>
+    internal void WriteArrayFallback(int count) => WritePrefixedInteger(RespPrefix.Array, count);
+
+    private void WriteRawPrechecked(ulong value, int count)
+    {
+        Debug.Assert(Available >= sizeof(ulong));
+        Debug.Assert(count >= 0 && count <= sizeof(long));
+        Unsafe.WriteUnaligned<ulong>(ref WriteHead, value);
+        _index += count;
+    }
+
+    private void WriteRawPrechecked(uint value, int count)
+    {
+        Debug.Assert(Available >= sizeof(uint));
+        Debug.Assert(count >= 0 && count <= sizeof(uint));
+        Unsafe.WriteUnaligned<uint>(ref WriteHead, value);
+        _index += count;
     }
 
     [ThreadStatic]

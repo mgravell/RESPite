@@ -1,4 +1,21 @@
-﻿Console.WriteLine("todo");
+﻿using System.Reflection;
+using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Running;
+using Benchmarks;
+
+#if DEBUG
+var obj = new WriterBench();
+var attrib = obj.GetType().GetProperty(nameof(obj.Value))?.GetCustomAttribute<ParamsAttribute>()!;
+foreach (object? boxed in attrib.Values)
+{
+    if (boxed is not int value) throw new InvalidOperationException("Bad parameter value");
+    Console.WriteLine($"Checking {value}...");
+    obj.Value = value;
+    obj.Setup(); // runs validation tests
+}
+#else
+BenchmarkRunner.Run(Assembly.GetExecutingAssembly(), args: args);
+#endif
 
 /*
 using Microsoft.Extensions.DependencyInjection;
