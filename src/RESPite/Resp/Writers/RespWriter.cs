@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 
 using static RESPite.Constants;
@@ -418,7 +419,7 @@ public ref struct RespWriter
     /// Write a payload as a bulk string.
     /// </summary>
     /// <param name="value">The payload to write.</param>
-    public void WriteBulkString(string value)
+    public void WriteBulkString(string? value)
     {
         if (value is null)
         {
@@ -437,13 +438,40 @@ public ref struct RespWriter
         }
     }
 
+    internal void WriteBulkStringUnoptimized(string? value)
+    {
+        if (value is null)
+        {
+            WriteBulkStringHeader(-1);
+        }
+        else if (value.Length == 0)
+        {
+            WriteRaw("$0\r\n\r\n"u8);
+        }
+        else
+        {
+            var byteCount = UTF8.GetByteCount(value);
+            WritePrefixedInteger(RespPrefix.BulkString, byteCount);
+            if (Available >= byteCount)
+            {
+                var actual = UTF8.GetBytes(value.AsSpan(), Tail);
+                Debug.Assert(actual == byteCount);
+                _index += actual;
+            }
+            else
+            {
+                WriteUtf8Slow(value.AsSpan(), byteCount);
+            }
+            WriteCrLf();
+        }
+    }
+
     /// <summary>
     /// Write a payload as a bulk string.
     /// </summary>
     /// <param name="value">The payload to write.</param>
     public void WriteBulkString(scoped ReadOnlySpan<char> value)
     {
-        const int MAX_HINT = 64 * 1024;
         if (value.Length == 0)
         {
             if (Available >= 6)
@@ -468,7 +496,7 @@ public ref struct RespWriter
             }
             else
             {
-                FlushAndGetBuffer(Math.Min(byteCount, MAX_HINT));
+                FlushAndGetBuffer(Math.Min(byteCount, MAX_BUFFER_HINT));
                 if (Available >= byteCount + 2)
                 {
                     // that'll work
@@ -479,48 +507,50 @@ public ref struct RespWriter
                 }
                 else
                 {
-                    WriteUtf8Slow(ref this, value, byteCount);
+                    WriteUtf8Slow(value, byteCount);
                     WriteCrLf();
                 }
             }
         }
+    }
 
-        static void WriteUtf8Slow(ref RespWriter writer, scoped ReadOnlySpan<char> value, int remaining)
+    private const int MAX_BUFFER_HINT = 64 * 1024;
+
+    private void WriteUtf8Slow(scoped ReadOnlySpan<char> value, int remaining)
+    {
+        var enc = __PerThreadEncoder;
+        if (enc is null)
         {
-            var enc = __PerThreadEncoder;
-            if (enc is null)
-            {
-                enc = __PerThreadEncoder = UTF8.GetEncoder();
-            }
-            else
-            {
-                enc.Reset();
-            }
-
-            bool completed;
-            int charsUsed, bytesUsed;
-            do
-            {
-                enc.Convert(value, writer.Tail, false, out charsUsed, out bytesUsed, out completed);
-                value = value.Slice(charsUsed);
-                writer._index += bytesUsed;
-                remaining -= bytesUsed;
-                writer.FlushAndGetBuffer(Math.Min(remaining, MAX_HINT));
-            }
-            while (!completed);
-
-            if (remaining != 0)
-            {
-                // any trailing data?
-                writer.FlushAndGetBuffer(Math.Min(remaining, MAX_HINT));
-                enc.Convert(value, writer.Tail, true, out charsUsed, out bytesUsed, out completed);
-                Debug.Assert(charsUsed == 0);
-                writer._index += bytesUsed;
-                remaining -= bytesUsed;
-            }
-            enc.Reset();
-            Debug.Assert(remaining == 0);
+            enc = __PerThreadEncoder = UTF8.GetEncoder();
         }
+        else
+        {
+            enc.Reset();
+        }
+
+        bool completed;
+        int charsUsed, bytesUsed;
+        do
+        {
+            enc.Convert(value, Tail, false, out charsUsed, out bytesUsed, out completed);
+            value = value.Slice(charsUsed);
+            _index += bytesUsed;
+            remaining -= bytesUsed;
+            FlushAndGetBuffer(Math.Min(remaining, MAX_BUFFER_HINT));
+        }
+        while (!completed);
+
+        if (remaining != 0)
+        {
+            // any trailing data?
+            FlushAndGetBuffer(Math.Min(remaining, MAX_BUFFER_HINT));
+            enc.Convert(value, Tail, true, out charsUsed, out bytesUsed, out completed);
+            Debug.Assert(charsUsed == 0);
+            _index += bytesUsed;
+            remaining -= bytesUsed;
+        }
+        enc.Reset();
+        Debug.Assert(remaining == 0);
     }
 
     internal void WriteBulkString(in ReadOnlySequence<byte> value)
@@ -769,6 +799,8 @@ public ref struct RespWriter
         Unsafe.WriteUnaligned<uint>(ref WriteHead, value);
         _index += count;
     }
+
+    internal void DebugResetIndex() => _index = 0;
 
     [ThreadStatic]
     private static Encoder? __PerThreadEncoder;

@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Diagnostics.Tracing.Parsers.MicrosoftWindowsTCPIP;
 using RESPite.Resp.Writers;
 
 namespace Benchmarks;
@@ -10,13 +11,14 @@ public class WriterBench
     private const int MaxLengthPerValue = 10;
     private const int BufferSize = 2048, OperationsPerInvoke = BufferSize / MaxLengthPerValue;
     private readonly byte[] _buffer = new byte[BufferSize];
+    private string? stringValue;
 
     [GlobalSetup]
     public void Setup()
     {
         // correctness check (it doesn't matter how quickly we can do the wrong thing)
         int value = Value;
-        Span<byte> span = new(_buffer, 0, MaxLengthPerValue);
+        Span<byte> span = new(_buffer, 0, MaxLengthPerValue + Value);
 
         span.Clear();
         RespWriter writer = new(span);
@@ -46,6 +48,38 @@ public class WriterBench
         if (!slowOutput.SequenceEqual(fastOutput))
         {
             throw new InvalidOperationException($"Failure in {nameof(writer.WriteArray)}: '{slowOutput}' vs '{fastOutput}'");
+        }
+
+        if (Value < 0)
+        {
+            stringValue = null;
+        }
+        else
+        {
+            Span<char> charBuffer = stackalloc char[Value];
+
+            const string Alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+            var rand = new Random(Value);
+            for (int i = 0; i < Value; i++)
+            {
+                charBuffer[i] = Alphabet[rand.Next(0, Alphabet.Length)];
+            }
+            stringValue = charBuffer.ToString();
+        }
+
+        span.Clear();
+        writer = new(span);
+        writer.WriteBulkStringUnoptimized(stringValue);
+        slowOutput = writer.DebugBuffer();
+
+        span.Clear();
+        writer = new(span);
+        writer.WriteBulkString(stringValue);
+        fastOutput = writer.DebugBuffer();
+
+        if (!slowOutput.SequenceEqual(fastOutput))
+        {
+            throw new InvalidOperationException($"Failure in {nameof(writer.WriteBulkString)}: '{slowOutput}' vs '{fastOutput}'");
         }
     }
 
@@ -93,6 +127,30 @@ public class WriterBench
         for (int i = 0; i < OperationsPerInvoke; i++)
         {
             writer.WriteArray(value);
+        }
+    }
+
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public void WriteStringRaw()
+    {
+        var value = Value;
+        var writer = new RespWriter(_buffer);
+        for (int i = 0; i < OperationsPerInvoke; i++)
+        {
+            writer.DebugResetIndex();
+            writer.WriteBulkString(stringValue);
+        }
+    }
+
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public void WriteStringFallback()
+    {
+        var value = Value;
+        var writer = new RespWriter(_buffer);
+        for (int i = 0; i < OperationsPerInvoke; i++)
+        {
+            writer.DebugResetIndex();
+            writer.WriteBulkStringUnoptimized(stringValue);
         }
     }
 }
