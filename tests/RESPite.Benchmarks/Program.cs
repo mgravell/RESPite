@@ -61,7 +61,7 @@ get.RESP_GetSync();
 await get.RESP_GetAsync();
 */
 
-using var incr = new IncrBenchReqResp(); // { Threads = 8 };
+using var incr = new IncrBenchMultiplexed { Threads = 1 };
 incr.SER_IncrSync();
 await incr.SER_IncrAsync();
 incr.RESP_IncrSync();

@@ -9,7 +9,7 @@ using StackExchange.Redis;
 
 namespace RESPite.Benchmarks;
 
-[MemoryDiagnoser, /* ShortRunJob(RuntimeMoniker.Net472), */ ShortRunJob(RuntimeMoniker.Net90)]
+[MemoryDiagnoser, ShortRunJob(RuntimeMoniker.Net472), ShortRunJob(RuntimeMoniker.Net90)]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory), CategoriesColumn]
 public abstract class IntegrationBase : IDisposable
 {
@@ -105,6 +105,7 @@ public abstract class IntegrationBase : IDisposable
                     }));
 
                     start += opsThisTask;
+                    operations -= opsThisTask;
                 }
                 return Task.WhenAll(tasks);
             }
