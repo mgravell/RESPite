@@ -368,32 +368,32 @@ public static class TransportExtensions
     }
 
     /// <summary>
-    /// Builds a connection intended for pipelined operation, with a backlog
+    /// Builds a connection intended for multiplexed operation, with a backlog
     /// of work.
     /// </summary>
-    public static IPipelinedTransport Pipeline(this IByteTransport gateway)
-        => throw new NotImplementedException();
+    public static IMultiplexedTransport Multiplexed<TState>(this IByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug, CancellationToken token = default)
+        => new MultiplexedTransport<TState>(gateway, frameScanner, validateOutbound, token);
 
     /// <summary>
-    /// Create a RESP transport over a duplex stream.
+    /// Create a transport over a duplex stream.
     /// </summary>
     public static IByteTransport CreateTransport(this Stream duplex, bool closeStream = true)
         => new StreamTransport(duplex, closeStream);
 
     /// <summary>
-    /// Create a RESP transport over a pair of streams.
+    /// Create a transport over a pair of streams.
     /// </summary>
     public static IByteTransport CreateTransport(this Stream source, Stream target, bool closeStreams = true)
         => new StreamTransport(source, target, closeStreams);
 
     /// <summary>
-    /// Create a RESP transport over a socket.
+    /// Create a transport over a socket.
     /// </summary>
     public static IByteTransport CreateTransport(this Socket socket, bool closeStreams = true)
         => new StreamTransport(new NetworkStream(socket), closeStreams);
 
     /// <summary>
-    /// Create a RESP transport over a socket.
+    /// Create a  transport over a socket.
     /// </summary>
     public static IByteTransport CreateTransport(this EndPoint remoteEndpoint, bool closeStreams = true)
     {
