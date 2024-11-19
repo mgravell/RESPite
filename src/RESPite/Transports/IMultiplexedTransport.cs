@@ -3,7 +3,7 @@
 /// <summary>
 /// Marker interface for multiplexed connections supporting synchronous and asynchronous access.
 /// </summary>
-public interface IMultiplexedTransport : IAsyncMultiplexedTransport, ISyncMultiplexedTransport { } // diamond
+public interface IMultiplexedTransport : IAsyncMultiplexedTransport, ISyncMultiplexedTransport, IMessageTransport { } // diamond
 
 /// <summary>
 /// Marker interface for asynchronous multiplexed connections.

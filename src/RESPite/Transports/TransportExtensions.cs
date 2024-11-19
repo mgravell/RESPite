@@ -116,10 +116,12 @@ public static class TransportExtensions
         return buffer.DetachAndRecycle();
     }
 
-    private static void ThrowEmptyFrame() => throw new InvalidOperationException("Frames must have positive length");
-    private static void ThrowInvalidData() => throw new InvalidOperationException("Invalid data while processing frame");
-    private static void ThrowEOF() => throw new EndOfStreamException();
-    private static void ThrowInvalidOperationStatus(OperationStatus status) => throw new InvalidOperationException("Invalid operation status: " + status);
+    internal static void ThrowEmptyFrame() => throw new InvalidOperationException("Frames must have positive length");
+    internal static void ThrowInvalidData() => throw new InvalidOperationException("Invalid data while processing frame");
+    internal static void ThrowEOF() => throw new EndOfStreamException();
+    internal static void ThrowInvalidOperationStatus(OperationStatus status) => throw new InvalidOperationException("Invalid operation status: " + status);
+
+    internal static void ThrowNotExpected() => throw new InvalidOperationException("A response was received but no corresponding request was pending");
 
     internal static IEnumerable<RefCountedBuffer<byte>> ReadAll<TState>(
         this ISyncByteTransport transport,
@@ -373,6 +375,18 @@ public static class TransportExtensions
     /// </summary>
     public static IMultiplexedTransport Multiplexed<TState>(this IByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug, CancellationToken token = default)
         => new MultiplexedTransport<TState>(gateway, frameScanner, validateOutbound, token);
+
+    /// <summary>
+    /// Apply an outbound buffer over an existing transport.
+    /// </summary>
+    public static IByteTransport WithOutboundBuffer(this IByteTransport transport)
+        => transport is OutboundPipeBufferTransport buffered ? buffered : new OutboundPipeBufferTransport(transport);
+
+    /// <summary>
+    /// Apply an outbound buffer over an existing transport.
+    /// </summary>
+    public static IAsyncByteTransport WithOutboundBuffer(this IAsyncByteTransport transport)
+        => transport is OutboundPipeBufferTransport buffered ? buffered : new OutboundPipeBufferTransport(transport);
 
     /// <summary>
     /// Create a transport over a duplex stream.

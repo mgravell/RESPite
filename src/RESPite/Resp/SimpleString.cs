@@ -16,6 +16,9 @@ namespace RESPite.Resp;
 /// </summary>
 public readonly struct SimpleString
 {
+    /// <inheritdoc cref="ToString()"/>
+    public static explicit operator string?(in SimpleString value) => value.ToString();
+
     /// <summary>
     /// Parses the contents as a <see cref="int"/> value.
     /// </summary>
