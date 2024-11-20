@@ -17,11 +17,16 @@ using RESPite.Transports;
 
 #if DEBUG
 
-var obj = new VarintBench { Scenario = "9696969601" };
-obj.Setup();
-Console.WriteLine(obj.Existing());
-Console.WriteLine(obj.Proposed());
-Console.WriteLine(obj.Proposed2());
+var obj = new VarintBench();
+var attrib = obj.GetType().GetProperty(nameof(obj.Scenario))?.GetCustomAttribute<ParamsAttribute>()!;
+foreach (var scenario in attrib.Values.OfType<string>())
+{
+    obj.Scenario = scenario;
+    obj.Setup();
+    Console.WriteLine(obj.Existing());
+    Console.WriteLine(obj.Proposed());
+}
+
 /*
 using Socket socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
 {
@@ -64,14 +69,14 @@ get.SER_GetSync();
 await get.SER_GetAsync();
 get.RESP_GetSync();
 await get.RESP_GetAsync();
-*/
+
 
 using var incr = new IncrBenchMultiplexed { Threads = 1 };
 incr.SER_IncrSync();
 await incr.SER_IncrAsync();
 incr.RESP_IncrSync();
 await incr.RESP_IncrAsync();
-
+*/
 #else
 BenchmarkSwitcher.FromAssembly(Assembly.GetExecutingAssembly()).Run(args: args);
 #endif
