@@ -21,6 +21,7 @@ var obj = new VarintBench { Scenario = "9696969601" };
 obj.Setup();
 Console.WriteLine(obj.Existing());
 Console.WriteLine(obj.Proposed());
+Console.WriteLine(obj.Proposed2());
 /*
 using Socket socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
 {
