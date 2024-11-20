@@ -89,14 +89,14 @@ public class VarintBench
             int byteCount = BitOperations.TrailingZeroCount(~maxMask) + 1;
 
             // extract data from retained bytes
-            ulong valueBits = Bmi2.X64.ParallelBitExtract(encoded, 0x7F_7F_7F_7F_7FU >> ((5 - byteCount) << 3));
             if (byteCount == 5)
             {
+                ulong valueBits = Bmi2.X64.ParallelBitExtract(encoded, 0x7F_7F_7F_7F_7FU >> ((5 - byteCount) << 3));
                 value = checked((uint)valueBits);
             }
             else
             {
-                value = (uint)valueBits;
+                value = (uint)Bmi2.X64.ParallelBitExtract(encoded, 0x7F_7F_7F_7FU >> ((4 - byteCount) << 3));
             }
             return byteCount;
         }
