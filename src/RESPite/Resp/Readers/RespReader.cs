@@ -1232,4 +1232,25 @@ public ref struct RespReader
         _bufferIndex = 0;
         ResetCurrent();
     }
+
+    /// <summary>Performs a byte-wise equality check on the payload.</summary>
+    public bool Is(in SimpleString request)
+    {
+        if (request.TryGetBytes(span: out var span))
+        {
+            return Is(span);
+        }
+        else
+        {
+            if (!IsScalar) return false;
+            var len = request.GetByteCount();
+            if (len != ScalarLength) return false;
+            var arr = ArrayPool<byte>.Shared.Rent(len);
+            var actual = request.CopyTo(arr);
+            Debug.Assert(len == actual, "length check failure");
+            var result = Is(new ReadOnlySpan<byte>(arr, 0, len));
+            ArrayPool<byte>.Shared.Return(arr);
+            return result;
+        }
+    }
 }

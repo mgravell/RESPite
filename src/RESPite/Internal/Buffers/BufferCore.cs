@@ -182,17 +182,6 @@ internal struct BufferCore<T> :
     /*
 
     /// <summary>
-    /// Detaches the entire committed chain to the caller without leaving things in a resumable state
-    /// </summary>
-    public ReadOnlySequence<T> Detach()
-    {
-        var all = GetBuffer();
-        _head = _tail = null!;
-        _headOffset = _tailOffset = _tailSize = 0;
-        return all;
-    }
-
-    /// <summary>
     /// Detaches the head portion of the committed chain, retaining the rest of the buffered data
     /// for additional use
     /// </summary>
@@ -246,14 +235,29 @@ internal struct BufferCore<T> :
     /// <summary>
     /// Gets the committed bytes and detach them from the payload.
     /// </summary>
-    public RefCountedBuffer<T> Detach()
+    public RefCountedBuffer<T> Detach(bool reset = false)
     {
         var leased = RefCountedBuffer<T>.CreateValidated(GetBuffer());
-        _head = _tail = null!;
-        _headOffset = _tailOffset = _tailSize = 0;
+        if (reset || (_tailSize - _tailOffset) < 16) // note if tiny, reset anyway
+        {
+            // hand the entire retained chain to the caller, and nuke everything
+            _head = _tail = null!;
+            _headOffset = _tailOffset = _tailSize = 0;
+        }
+        else
+        {
+            // retain the remainder of the tail page; semantically, we're adding
+            // a ref to all pages (for the receiver), and removing a ref from
+            // all but the last page (since we let go); however, we can achieve
+            // the same by simply adding a ref on the tail page *only*, and switching
+            // to that as our current position
+            _tail?.AddRef();
+            _head = _tail!;
+            _headOffset = _tailOffset;
+        }
         return leased;
     }
 
     /// <inheritdoc/>
-    public void Dispose() => Detach().Release();
+    public void Dispose() => Detach(reset: true).Release();
 }

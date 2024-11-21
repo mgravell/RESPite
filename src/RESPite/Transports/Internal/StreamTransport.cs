@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using RESPite.Internal;
 using RESPite.Internal.Buffers;
 using RESPite.Transports;
@@ -84,6 +85,9 @@ internal sealed class StreamTransport : IByteTransport
         }
         return default;
 
+#if NET6_0_OR_GREATER
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
         static async ValueTask<bool> Awaited(StreamTransport @this, ValueTask<int> pending)
         {
             var bytes = await pending.ConfigureAwait(false);

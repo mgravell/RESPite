@@ -95,6 +95,9 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
         leased.Release();
         return new(response);
 
+#if NET6_0_OR_GREATER
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
         static async ValueTask<TResponse> AwaitedWrite(RequestResponseBase<TState> @this, ValueTask pendingWrite, RefCountedBuffer<byte> leased, TRequest request, IReader<TRequest, TResponse> reader, CancellationToken token)
         {
             await pendingWrite.ConfigureAwait(false);
@@ -106,6 +109,9 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
             return response;
         }
 
+#if NET6_0_OR_GREATER
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
         static async ValueTask<TResponse> AwaitedRead(ValueTask<RefCountedBuffer<byte>> pendingRead, TRequest request, IReader<TRequest, TResponse> reader)
         {
             var leased = await pendingRead.ConfigureAwait(false);
@@ -158,6 +164,9 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
         leased.Release();
         return new(response);
 
+#if NET6_0_OR_GREATER
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
         static async ValueTask<TResponse> AwaitedWrite(RequestResponseBase<TState> @this, ValueTask pendingWrite, RefCountedBuffer<byte> leased, IReader<Empty, TResponse> reader, CancellationToken token)
         {
             await pendingWrite.ConfigureAwait(false);
@@ -169,6 +178,9 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
             return response;
         }
 
+#if NET6_0_OR_GREATER
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
         static async ValueTask<TResponse> AwaitedRead(ValueTask<RefCountedBuffer<byte>> pendingRead, IReader<Empty, TResponse> reader)
         {
             var leased = await pendingRead.ConfigureAwait(false);

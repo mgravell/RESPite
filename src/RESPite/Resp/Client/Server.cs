@@ -1,4 +1,8 @@
-﻿using RESPite.Resp.Commands;
+﻿using System.Buffers;
+using System.Runtime.CompilerServices;
+using RESPite.Messages;
+using RESPite.Resp.Commands;
+using RESPite.Resp.Readers;
 using RESPite.Resp.Writers;
 using static RESPite.Resp.Client.CommandFactory;
 
@@ -9,6 +13,57 @@ namespace RESPite.Resp.Client;
 /// </summary>
 public static class Server
 {
+    /// <summary>
+    /// Sends a message to the server and validates that the server responds successfully.
+    /// </summary>
+    public static readonly RespCommand<Empty, Empty> PING = new(Default, reader: PongEchoReader.Instance);
+
+    /// <summary>
+    /// Sends a message to the server and validates that the same message is received as a response.
+    /// </summary>
+    public static readonly RespCommand<SimpleString, Empty> ECHO = new(Default, reader: PongEchoReader.Instance);
+
+    /// <summary>
+    /// Reads PONG responses.
+    /// </summary>
+    private sealed class PongEchoReader : IRespReader<Empty, Empty>, IRespReader<SimpleString, Empty>
+    {
+        internal static readonly PongEchoReader Instance = new();
+        private PongEchoReader() { }
+
+        Empty IReader<Empty, Empty>.Read(in Empty request, in ReadOnlySequence<byte> content)
+        {
+            var reader = new RespReader(content, throwOnErrorResponse: true);
+            return Read(in request, ref reader);
+        }
+
+        Empty IReader<SimpleString, Empty>.Read(in SimpleString request, in ReadOnlySequence<byte> content)
+        {
+            var reader = new RespReader(content, throwOnErrorResponse: true);
+            return Read(in request, ref reader);
+        }
+
+        public Empty Read(in Empty request, ref RespReader reader)
+        {
+            reader.ReadNextScalar();
+            reader.Demand(RespPrefix.SimpleString);
+            if (!reader.Is("PONG"u8)) ThrowMissingExpected("PONG");
+            return default;
+        }
+
+        public Empty Read(in SimpleString request, ref RespReader reader)
+        {
+            reader.ReadNextScalar();
+            reader.Demand(RespPrefix.BulkString);
+
+            if (!reader.Is(request)!) ThrowMissingExpected(request);
+            return Empty.Value;
+        }
+
+        internal static void ThrowMissingExpected(in SimpleString expected, [CallerMemberName] string caller = "")
+            => throw new InvalidOperationException($"Did not receive expected response: '{expected}'");
+    }
+
     /// <summary>
     /// This is a container command for client connection commands.
     /// </summary>

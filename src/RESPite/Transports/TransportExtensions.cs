@@ -85,18 +85,18 @@ public static class TransportExtensions
     public static IAsyncRequestResponseTransport WithSemaphoreSlimSynchronization(this IAsyncRequestResponseTransport transport, TimeSpan timeout)
         => new SemaphoreSlimTransportDecorator(transport, timeout);
 
-    private class Scratch : IBufferWriter<byte>
+    private sealed class Scratch : IBufferWriter<byte>
     {
         [ThreadStatic]
         private static Scratch? perThread;
         public static Scratch Create()
         {
-            var obj = perThread ?? new();
-            perThread = null;
-            obj.buffer = new(SlabManager<byte>.Ambient);
+            var obj = perThread ?? new(SlabManager<byte>.Ambient);
+            perThread = null; // we don't expect nested, but it also isn't re-entrant: so, guard
             return obj;
         }
-        private Scratch() { }
+        private Scratch(SlabManager<byte> slabManager) => buffer = new(slabManager);
+
         private BufferCore<byte> buffer;
         public void Advance(int count) => buffer.Commit(count);
         public Memory<byte> GetMemory(int sizeHint = 0) => buffer.GetWritableTail();
@@ -104,7 +104,6 @@ public static class TransportExtensions
         public RefCountedBuffer<byte> DetachAndRecycle()
         {
             var result = buffer.Detach();
-            buffer = default;
             perThread = this;
             return result;
         }
@@ -297,6 +296,9 @@ public static class TransportExtensions
         }
     }
 
+#if NET6_0_OR_GREATER
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
     internal static async ValueTask<RefCountedBuffer<byte>> ReadOneAsync<TState>(
         this IAsyncByteTransport transport,
         IFrameScanner<TState> scanner,
@@ -405,6 +407,20 @@ public static class TransportExtensions
     /// </summary>
     public static IByteTransport CreateTransport(this Socket socket, bool closeStreams = true)
         => new StreamTransport(new NetworkStream(socket), closeStreams);
+
+    /// <summary>
+    /// Create a transport over a socket.
+    /// </summary>
+    public static IByteTransport CreateTransport(this EndPoint endpoint)
+    {
+        Socket socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+        {
+            NoDelay = true,
+        };
+        socket.Connect(endpoint);
+        var conn = new NetworkStream(socket, ownsSocket: true);
+        return conn.CreateTransport(closeStream: true);
+    }
 
     /// <summary>
     /// Create a  transport over a socket.

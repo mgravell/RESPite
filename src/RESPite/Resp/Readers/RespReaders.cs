@@ -53,16 +53,6 @@ internal static class RespReaders
     /// </summary>
     public static IRespReader<Empty, LeasedStrings> LeasedStrings => Common;
 
-    /// <summary>
-    /// Reads PONG responses.
-    /// </summary>
-    public static IRespReader<Empty, Empty> Pong => PongReader.Instance;
-
-    /// <summary>
-    /// Reads PONG responses.
-    /// </summary>
-    public static IRespReader<string, Empty> Echo => PongReader.Instance;
-
     internal static void ThrowMissingExpected(string expected, [CallerMemberName] string caller = "")
         => throw new InvalidOperationException($"Did not receive expected response: '{expected}'");
 
@@ -349,44 +339,6 @@ internal static class RespReaders
         {
             reader.ReadNextScalar();
             return reader.IsNull ? null : reader.ReadEnum<T>(default);
-        }
-    }
-
-    /// <summary>
-    /// Reads PONG responses.
-    /// </summary>
-    private sealed class PongReader : IRespReader<Empty, Empty>, IRespReader<string, Empty>
-    {
-        internal static readonly PongReader Instance = new();
-        private PongReader() { }
-
-        Empty IReader<Empty, Empty>.Read(in Empty request, in ReadOnlySequence<byte> content)
-        {
-            var reader = new RespReader(content, throwOnErrorResponse: true);
-            return Read(in request, ref reader);
-        }
-
-        Empty IReader<string, Empty>.Read(in string request, in ReadOnlySequence<byte> content)
-        {
-            var reader = new RespReader(content, throwOnErrorResponse: true);
-            return Read(in request, ref reader);
-        }
-
-        public Empty Read(in Empty request, ref RespReader reader)
-        {
-            reader.ReadNextScalar();
-            reader.Demand(RespPrefix.SimpleString);
-            if (!reader.Is("PONG"u8)) ThrowMissingExpected("PONG");
-            return default;
-        }
-
-        public Empty Read(in string request, ref RespReader reader)
-        {
-            reader.ReadNextScalar();
-            reader.Demand(RespPrefix.BulkString);
-            var value = reader.ReadString()!;
-            if (value != request) ThrowMissingExpected(request);
-            return Empty.Value;
         }
     }
 
