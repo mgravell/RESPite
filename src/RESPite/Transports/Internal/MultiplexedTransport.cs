@@ -334,7 +334,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
     public ValueTask<TResponse> SendAsync<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader, CancellationToken token = default)
         => SendAsyncCore<TRequest, TResponse>(request, writer, reader, token);
-    private async ValueTask<TResponse> SendAsyncCore<TRequest, TResponse>(TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader, CancellationToken token)
+    private ValueTask<TResponse> SendAsyncCore<TRequest, TResponse>(TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader, CancellationToken token)
     {
         ThrowIfCompleted();
         var transport = AsAsync();
@@ -347,21 +347,27 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (!_mutex.Wait(0))
         {
-            await _mutex.WaitAsync(token).ConfigureAwait(false);
+            return SendAsyncCore_TakeMutexAndWriteAsync(payloadToken, leased, token);
         }
+
         try
         {
-            ThrowIfCompleted();
             _pendingItems.Enqueue(payloadToken);
-            await transport.WriteAsync(in content, _lifetime).ConfigureAwait(false);
-        }
-        finally
-        {
+            var pending = transport.WriteAsync(in content, _lifetime);
+            if (!pending.IsCompleted) return SendAsyncCore_AwaitWriteAsync(pending, payloadToken, leased, token);
+
+            pending.GetAwaiter().GetResult(); // check for exception
             _mutex.Release();
         }
+        catch // note: *not* finally; AwaitWriteAsync still owns mutex
+        {
+            _mutex.Release();
+            throw;
+        }
+
         leased.Release();
 
-        return await payloadToken.ResultAsync(token).ConfigureAwait(false);
+        return payloadToken.ResultAsync(token);
     }
 
     private void Validate(in ReadOnlySequence<byte> content)
@@ -387,9 +393,9 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
     public ValueTask<TResponse> SendAsync<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader, CancellationToken token = default)
         => SendAsyncCore<TRequest, TResponse>(request, writer, reader, token);
 
-    private async ValueTask<TResponse> SendAsyncCore<TRequest, TResponse>(TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader, CancellationToken token)
+    private ValueTask<TResponse> SendAsyncCore<TRequest, TResponse>(TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader, CancellationToken token)
     {
-        _lifetime.ThrowIfCancellationRequested();
+        ThrowIfCompleted();
         var transport = AsAsync();
         var leased = writer.Serialize(in request);
         var content = leased.Content;
@@ -400,21 +406,64 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (!_mutex.Wait(0))
         {
-            await _mutex.WaitAsync(token).ConfigureAwait(false);
+            return SendAsyncCore_TakeMutexAndWriteAsync(payloadToken, leased, token);
         }
+
         try
         {
             _pendingItems.Enqueue(payloadToken);
-            await transport.WriteAsync(in content, _lifetime).ConfigureAwait(false);
+            var pending = transport.WriteAsync(in content, _lifetime);
+            if (!pending.IsCompleted) return SendAsyncCore_AwaitWriteAsync(pending, payloadToken, leased, token);
+
+            pending.GetAwaiter().GetResult(); // check for exception
+            _mutex.Release();
+        }
+        catch // note: *not* finally; AwaitWriteAsync still owns mutex
+        {
+            _mutex.Release();
+            throw;
+        }
+
+        leased.Release();
+
+        return payloadToken.ResultAsync(token);
+    }
+
+    private async ValueTask<TResponse> SendAsyncCore_TakeMutexAndWriteAsync<TRequest, TResponse>(MultiplexedPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
+    {
+        await _mutex.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            ThrowIfCompleted();
+            _pendingItems.Enqueue(payloadToken);
+            await AsAsyncPrechecked().WriteAsync(leased.Content, _lifetime).ConfigureAwait(false);
         }
         finally
         {
             _mutex.Release();
         }
+
         leased.Release();
 
         return await payloadToken.ResultAsync(token).ConfigureAwait(false);
     }
+
+    private async ValueTask<TResponse> SendAsyncCore_AwaitWriteAsync<TRequest, TResponse>(ValueTask pending, MultiplexedPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
+    {
+        try
+        {
+            await pending.ConfigureAwait(false);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+
+        leased.Release();
+
+        return await payloadToken.ResultAsync(token).ConfigureAwait(false);
+    }
+
     public TResponse Send<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader)
     {
         var transport = AsSync();
