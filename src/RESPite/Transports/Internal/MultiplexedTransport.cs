@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -21,111 +20,6 @@ internal sealed class AsyncMultiplexedTransportTransport<TState>(IAsyncByteTrans
     : MultiplexedTransportBase<TState>(transport, scanner, validateOutbound, lifetime), IAsyncMultiplexedTransport
 { }
 
-internal abstract partial class MultiplexedPayload
-{
-#if NET6_0_OR_GREATER
-    private static readonly Action<object?, CancellationToken> CancelationCallback = static (state, token) => Unsafe.As<MultiplexedPayload>(state!).Cancel(token);
-    public CancellationTokenRegistration WithCancel(CancellationToken token) => token.Register(CancelationCallback, this);
-#else
-    private static readonly Action<object?> CancelationCallback = static state => Unsafe.As<MultiplexedPayload>(state!).Cancel(CancellationToken.None);
-    public CancellationTokenRegistration WithCancel(CancellationToken token) => token.Register(CancelationCallback, this);
-#endif
-    public abstract void Cancel(CancellationToken token);
-
-    private RefCountedBuffer<byte> _payload;
-
-    protected abstract bool IsCompleted { get; }
-
-    private void SetResultWorkerCallback()
-    {
-        var payload = _payload;
-        _payload = default;
-        SetResult(payload.Content);
-        payload.Release();
-    }
-
-    protected abstract void SetResult(in ReadOnlySequence<byte> payload);
-
-    public void SetResultAndProcessByWorker(in ReadOnlySequence<byte> payload)
-    {
-        if (!IsCompleted)
-        {
-            _payload = payload.Retain();
-            OnActivateWorker();
-        }
-    }
-
-    private partial void OnActivateWorker();
-}
-
-#if NETCOREAPP3_0_OR_GREATER
-internal partial class MultiplexedPayload : IThreadPoolWorkItem
-{
-    private partial void OnActivateWorker() => ThreadPool.UnsafeQueueUserWorkItem(this, false);
-    void IThreadPoolWorkItem.Execute() => SetResultWorkerCallback();
-}
-#else
-internal partial class MultiplexedPayload
-{
-    private static readonly WaitCallback ActivateWorker = static state => Unsafe.As<MultiplexedPayload>(state!).SetResultWorkerCallback();
-    private partial void OnActivateWorker() => ThreadPool.UnsafeQueueUserWorkItem(ActivateWorker, this);
-}
-#endif
-
-internal abstract partial class MultiplexedPayloadBase<TRequest, TResponse>(IReader<TRequest, TResponse> reader) : MultiplexedPayload
-{
-    private readonly TaskCompletionSource<TResponse> _tcs = new();
-
-    protected override bool IsCompleted => _tcs.Task.IsCompleted;
-
-    protected IReader<TRequest, TResponse> Reader { get; } = reader;
-    protected abstract TResponse Read(in ReadOnlySequence<byte> payload);
-
-    public override void Cancel(CancellationToken token) => _tcs.TrySetCanceled(token);
-
-    protected override void SetResult(in ReadOnlySequence<byte> payload)
-    {
-        try
-        {
-            var result = Read(in payload);
-            _tcs.TrySetResult(result);
-        }
-        catch (Exception ex)
-        {
-            _tcs.TrySetException(ex);
-        }
-    }
-
-    public TResponse Result() => _tcs.Task.GetAwaiter().GetResult();
-
-    public ValueTask<TResponse> ResultAsync(CancellationToken token)
-    {
-        if (token.CanBeCanceled)
-        {
-            token.ThrowIfCancellationRequested();
-            return ResultWithCancellationAsync(token);
-        }
-        return new(_tcs.Task);
-    }
-
-    private async ValueTask<TResponse> ResultWithCancellationAsync(CancellationToken token)
-    {
-        using var reg = WithCancel(token);
-        return await _tcs.Task.ConfigureAwait(false);
-    }
-}
-
-internal sealed class MultiplexedPayload<TRequest, TResponse>(IReader<TRequest, TResponse> reader, in TRequest request) : MultiplexedPayloadBase<TRequest, TResponse>(reader)
-{
-    private readonly TRequest _request = request;
-    protected override TResponse Read(in ReadOnlySequence<byte> payload) => Reader.Read(in _request, in payload);
-}
-
-internal sealed class MultiplexedPayload<TResponse>(IReader<Empty, TResponse> reader) : MultiplexedPayloadBase<Empty, TResponse>(reader)
-{
-    protected override TResponse Read(in ReadOnlySequence<byte> payload) => Reader.Read(in Empty.Value, in payload);
-}
-
 internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 {
     private readonly CancellationToken _lifetime;
@@ -143,11 +37,11 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         while (TryGetPending(out var next))
         {
-            next.Cancel(blame);
+            next.OnCanceled(blame);
         }
     }
 
-    private bool TryGetPending([NotNullWhen(true)] out MultiplexedPayload? payload)
+    private bool TryGetPending([NotNullWhen(true)] out IMultiplexedPayload? payload)
     {
         _mutex.Wait();
         try
@@ -173,7 +67,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
     private readonly int _flags;
     private const int SUPPORT_SYNC = 1 << 0, SUPPORT_ASYNC = 1 << 1, /* SUPPORT_LIFETIME = 1 << 2, */ SCAN_OUTBOUND = 1 << 3;
 
-    private readonly Queue<MultiplexedPayload> _pendingItems = new();
+    private readonly Queue<IMultiplexedPayload> _pendingItems = new();
 
     private readonly SemaphoreSlim _mutex = new(1, 1);
 
@@ -343,7 +237,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = new MultiplexedPayload<TRequest, TResponse>(reader, in request);
+        var payloadToken = new MultiplexedAsyncPayload<TRequest, TResponse>(reader, in request);
 
         if (!_mutex.Wait(0))
         {
@@ -402,7 +296,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = new MultiplexedPayload<TResponse>(reader);
+        var payloadToken = new MultiplexedAsyncPayload<TResponse>(reader);
 
         if (!_mutex.Wait(0))
         {
@@ -429,7 +323,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
         return payloadToken.ResultAsync(token);
     }
 
-    private async ValueTask<TResponse> SendAsyncCore_TakeMutexAndWriteAsync<TRequest, TResponse>(MultiplexedPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
+    private async ValueTask<TResponse> SendAsyncCore_TakeMutexAndWriteAsync<TRequest, TResponse>(MultiplexedAsyncPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
     {
         await _mutex.WaitAsync(token).ConfigureAwait(false);
         try
@@ -448,7 +342,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
         return await payloadToken.ResultAsync(token).ConfigureAwait(false);
     }
 
-    private async ValueTask<TResponse> SendAsyncCore_AwaitWriteAsync<TRequest, TResponse>(ValueTask pending, MultiplexedPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
+    private async ValueTask<TResponse> SendAsyncCore_AwaitWriteAsync<TRequest, TResponse>(ValueTask pending, MultiplexedAsyncPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
     {
         try
         {
@@ -472,21 +366,23 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = new MultiplexedPayload<TRequest, TResponse>(reader, in request);
-
-        _mutex.Wait();
-        try
+        var payloadToken = new MultiplexedSyncPayload<TRequest, TResponse>(reader, in request);
+        lock (payloadToken.SyncLock)
         {
-            _pendingItems.Enqueue(payloadToken);
-            transport.Write(in content);
-        }
-        finally
-        {
-            _mutex.Release();
-        }
-        leased.Release();
+            _mutex.Wait();
+            try
+            {
+                _pendingItems.Enqueue(payloadToken);
+                transport.Write(in content);
+            }
+            finally
+            {
+                _mutex.Release();
+            }
+            leased.Release();
 
-        return payloadToken.Result();
+            return payloadToken.WaitForResponseHoldingSyncLock();
+        }
     }
     public TResponse Send<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader)
     {
@@ -497,21 +393,23 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = new MultiplexedPayload<TResponse>(reader);
-
-        _mutex.Wait();
-        try
+        var payloadToken = new MultiplexedSyncPayload<TResponse>(reader);
+        lock (payloadToken.SyncLock)
         {
-            _pendingItems.Enqueue(payloadToken);
-            transport.Write(in content);
-        }
-        finally
-        {
-            _mutex.Release();
-        }
-        leased.Release();
+            _mutex.Wait();
+            try
+            {
+                _pendingItems.Enqueue(payloadToken);
+                transport.Write(in content);
+            }
+            finally
+            {
+                _mutex.Release();
+            }
+            leased.Release();
 
-        return payloadToken.Result();
+            return payloadToken.WaitForResponseHoldingSyncLock();
+        }
     }
 
     public event MessageCallback? OutOfBandData;
