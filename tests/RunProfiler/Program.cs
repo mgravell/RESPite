@@ -2,51 +2,68 @@
 
 using System.Diagnostics;
 using System.Net;
+using System.Text;
 using RESPite.Resp;
 using RESPite.Resp.Client;
 using RESPite.Transports;
 using StackExchange.Redis;
 
+const int DefaultTargetOps = 100_000;
+
 var ep = new IPEndPoint(IPAddress.Loopback, 6379);
 // using var respite = ep.CreateTransport().RequestResponse(RespFrameScanner.Default);
 using var respite = ep.CreateTransport().WithOutboundBuffer().Multiplexed(RespFrameScanner.Default);
 using var muxer = ConnectionMultiplexer.Connect(new ConfigurationOptions { EndPoints = { ep } });
-var seredis = muxer.GetServers().First();
+var seredis = muxer.GetDatabase();
 
-RunRESPite(40, 250_000);
-/*
-for (int i = 0; i < 5; i++)
+var stringKey = Encoding.ASCII.GetBytes(Guid.NewGuid().ToString());
+var listKey = Encoding.ASCII.GetBytes(Guid.NewGuid().ToString());
+var payload512 = new byte[512];
+var rand = new Random();
+rand.NextBytes(payload512);
+
+int expirySeconds = 10 * 60;
+TimeSpan expiryTime = TimeSpan.FromSeconds(expirySeconds);
+
+seredis.StringSet(stringKey, payload512, expiryTime); // in case get-only
+var payload50 = new byte[50];
+for (int i = 0; i < 15; i++)
 {
-    RunRESPite(40, 250_000);
-    // RunSERedis(40, 250_000);
+    rand.NextBytes(payload50);
+    seredis.ListLeftPush(listKey, payload50);
 }
-*/
+seredis.KeyExpire(listKey, expiryTime);
 
-/*
+Mode[] modes = [Mode.Ping, Mode.Set, Mode.Get, Mode.List];
 int[] workerCounts = [1, 5, 10, 20, 40];
-foreach (int workerCount in workerCounts)
-{
-    RunRESPite(workerCount);
-}
-Console.WriteLine();
-foreach (int workerCount in workerCounts)
-{
-    await RunRESPiteAsync(workerCount);
-}
-Console.WriteLine();
-foreach (int workerCount in workerCounts)
-{
-    RunSERedis(workerCount);
-}
-Console.WriteLine();
-foreach (int workerCount in workerCounts)
-{
-    await RunSERedisAsync(workerCount);
-}
-Console.WriteLine();
-*/
 
-async Task RunRESPiteAsync(int workerCount, int targetOps = 100_000)
+foreach (var mode in modes)
+{
+    Console.WriteLine($"# MODE: {mode}");
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
+    {
+        RunRESPite(workerCount, mode);
+    }
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
+    {
+        await RunRESPiteAsync(workerCount, mode);
+    }
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
+    {
+        RunSERedis(workerCount, mode);
+    }
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
+    {
+        await RunSERedisAsync(workerCount, mode);
+    }
+    Console.WriteLine();
+}
+
+async Task RunRESPiteAsync(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
 {
     int remaining = workerCount;
     int totalOps = 0;
@@ -69,15 +86,39 @@ async Task RunRESPiteAsync(int workerCount, int targetOps = 100_000)
     async Task RunAsync(int label)
     {
         int OPS_THIS_RUN = targetOps / workerCount;
-        for (int i = 0; i < OPS_THIS_RUN; i++)
+
+        switch (mode)
         {
-            await Server.PING.SendAsync(respite).ConfigureAwait(false);
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await Server.PING.SendAsync(respite).ConfigureAwait(false);
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    (await Strings.GET.SendAsync(respite, stringKey).ConfigureAwait(false)).Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await Strings.SET.SendAsync(respite, (stringKey, payload512)).ConfigureAwait(false);
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    (await Lists.LRANGE.SendAsync(respite, (listKey, 0, 10))).Dispose();
+                }
+                break;
         }
         Interlocked.Add(ref totalOps, OPS_THIS_RUN);
     }
 }
 
-void RunRESPite(int workerCount, int targetOps = 100_000)
+void RunRESPite(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
 {
     object gate = new object();
     int remaining = workerCount;
@@ -113,15 +154,39 @@ void RunRESPite(int workerCount, int targetOps = 100_000)
             }
         }
         int OPS_THIS_RUN = targetOps / workerCount;
-        for (int i = 0; i < OPS_THIS_RUN; i++)
+
+        switch (mode)
         {
-            Server.PING.Send(respite);
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Server.PING.Send(respite);
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Strings.GET.Send(respite, stringKey).Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Strings.SET.Send(respite, (stringKey, payload512));
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Lists.LRANGE.Send(respite, (listKey, 0, 10)).Dispose();
+                }
+                break;
         }
         Interlocked.Add(ref totalOps, OPS_THIS_RUN);
     }
 }
 
-async Task RunSERedisAsync(int workerCount, int targetOps = 100_000)
+async Task RunSERedisAsync(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
 {
     int remaining = workerCount;
     int totalOps = 0;
@@ -144,15 +209,38 @@ async Task RunSERedisAsync(int workerCount, int targetOps = 100_000)
     async Task RunAsync(int label)
     {
         int OPS_THIS_RUN = targetOps / workerCount;
-        for (int i = 0; i < OPS_THIS_RUN; i++)
+        switch (mode)
         {
-            await seredis.PingAsync().ConfigureAwait(false);
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await seredis.PingAsync().ConfigureAwait(false);
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    (await seredis.StringGetLeaseAsync(stringKey).ConfigureAwait(false))?.Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await seredis.StringSetAsync(stringKey, payload512, expiryTime).ConfigureAwait(false);
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await seredis.ListRangeAsync(listKey, 0, 10).ConfigureAwait(false);
+                }
+                break;
         }
         Interlocked.Add(ref totalOps, OPS_THIS_RUN);
     }
 }
 
-void RunSERedis(int workerCount, int targetOps = 100_000)
+void RunSERedis(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
 {
     object gate = new object();
     int remaining = workerCount;
@@ -188,10 +276,41 @@ void RunSERedis(int workerCount, int targetOps = 100_000)
             }
         }
         int OPS_THIS_RUN = targetOps / workerCount;
-        for (int i = 0; i < OPS_THIS_RUN; i++)
+        switch (mode)
         {
-            seredis.Ping();
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.Ping();
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.StringGetLease(stringKey)?.Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.StringSet(stringKey, payload512, expiryTime);
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.ListRange(listKey, 0, 10);
+                }
+                break;
         }
         Interlocked.Add(ref totalOps, OPS_THIS_RUN);
     }
+}
+
+internal enum Mode
+{
+    Ping,
+    Get,
+    Set,
+    List,
 }

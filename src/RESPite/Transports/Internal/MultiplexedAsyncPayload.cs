@@ -1,27 +1,29 @@
 ﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 using RESPite.Internal.Buffers;
 using RESPite.Messages;
 
 namespace RESPite.Transports.Internal;
 
-internal sealed class MultiplexedAsyncPayload<TRequest, TResponse>(IReader<TRequest, TResponse> reader, in TRequest request) : MultiplexedAsyncPayloadBase<TRequest, TResponse>(reader)
+internal sealed class MultiplexedAsyncPayload<TRequest, TResponse>(IReader<TRequest, TResponse> reader, in TRequest request, CancellationToken token) : MultiplexedAsyncPayloadBase<TRequest, TResponse>(reader, token)
 {
     private readonly TRequest _request = request;
     protected override TResponse Read(in ReadOnlySequence<byte> payload) => Reader.Read(in _request, in payload);
 }
 
-internal sealed class MultiplexedAsyncPayload<TResponse>(IReader<Empty, TResponse> reader) : MultiplexedAsyncPayloadBase<Empty, TResponse>(reader)
+internal sealed class MultiplexedAsyncPayload<TResponse>(IReader<Empty, TResponse> reader, CancellationToken token) : MultiplexedAsyncPayloadBase<Empty, TResponse>(reader, token)
 {
     protected override TResponse Read(in ReadOnlySequence<byte> payload) => Reader.Read(in Empty.Value, in payload);
 }
 
-internal abstract partial class MultiplexedAsyncPayloadBase<TRequest, TResponse>(IReader<TRequest, TResponse> reader) : IMultiplexedPayload
+internal abstract partial class MultiplexedAsyncPayloadBase<TRequest, TResponse>(IReader<TRequest, TResponse> reader, CancellationToken token2) : IMultiplexedPayload
 {
+    private readonly CancellationToken _token = token2;
     public partial bool IsTaskCompleted { get; }
 
     private partial void OnComplete(TResponse value);
-    private partial void OnFaulted(Exception exception);
-    public partial void OnCanceled(CancellationToken token);
+    public partial void OnFaulted(Exception exception);
+    public partial void OnCanceled();
     private partial Task<TResponse> GetTask();
 
 #if NETCOREAPP3_0_OR_GREATER
@@ -58,19 +60,12 @@ internal abstract partial class MultiplexedAsyncPayloadBase<TRequest, TResponse>
         }
     }
 
-    public ValueTask<TResponse> ResultAsync(CancellationToken token)
-    {
-        if (token.CanBeCanceled)
-        {
-            token.ThrowIfCancellationRequested();
-            return ResultWithCancellationAsync(token);
-        }
-        return new(GetTask());
-    }
+    public ValueTask<TResponse> ResultAsync() => _token.CanBeCanceled ? ResultWithCancellationAsync() : new(GetTask());
 
-    private async ValueTask<TResponse> ResultWithCancellationAsync(CancellationToken token)
+    private async ValueTask<TResponse> ResultWithCancellationAsync()
     {
-        using var reg = this.WithCancel(token);
+        _token.ThrowIfCancellationRequested();
+        using var reg = _token.Register(MultiplexedPayloadExtensions.CancelationCallback, this);
         return await GetTask().ConfigureAwait(false);
     }
 
@@ -110,7 +105,7 @@ internal abstract partial class MultiplexedAsyncPayloadBase<TRequest, TResponse>
     private partial Task<TResponse> GetTask() => _task;
 
     private partial void OnComplete(TResponse value) => BypassTaskCompletionSource<TResponse>.TrySetResult(_task, value);
-    private partial void OnFaulted(Exception exception) => BypassTaskCompletionSource.TrySetException(_task, exception);
+    public partial void OnFaulted(Exception exception) => BypassTaskCompletionSource.TrySetException(_task, exception);
     public partial void OnCanceled(CancellationToken token) => BypassTaskCompletionSource.TrySetCanceled(_task, token);
 }
 #else
@@ -126,7 +121,7 @@ internal abstract partial class MultiplexedAsyncPayloadBase<TRequest, TResponse>
     private partial Task<TResponse> GetTask() => Task;
 
     private partial void OnComplete(TResponse value) => TrySetResult(value);
-    private partial void OnFaulted(Exception exception) => TrySetException(exception);
-    public partial void OnCanceled(CancellationToken token) => TrySetCanceled(token);
+    public partial void OnFaulted(Exception exception) => TrySetException(exception);
+    public partial void OnCanceled() => TrySetCanceled(_token);
 }
 #endif

@@ -30,7 +30,7 @@ internal sealed class MultiplexedSyncPayload<TRequest, TResponse> : MultiplexedS
         return obj;
     }
 
-    public void Recycle()
+    public override void Recycle()
     {
         Reset();
         _spare = this;
@@ -60,7 +60,7 @@ internal sealed class MultiplexedSyncPayload<TResponse> : MultiplexedSyncPayload
         return obj;
     }
 
-    public void Recycle()
+    public override void Recycle()
     {
         Reset();
         _spare = this;
@@ -82,6 +82,8 @@ internal abstract partial class MultiplexedSyncPayloadBase<TRequest, TResponse> 
         _state = STATE_PENDING;
         _fault = null;
     }
+
+    public abstract void Recycle();
 
     public void Initialize(IReader<TRequest, TResponse> reader) => _reader = reader;
 
@@ -170,5 +172,11 @@ internal abstract partial class MultiplexedSyncPayloadBase<TRequest, TResponse> 
         }
     }
 
-    void IMultiplexedPayload.OnCanceled(CancellationToken token) => SignalCompletionIfPending(STATE_CANCELED);
+    void IMultiplexedPayload.OnCanceled() => SignalCompletionIfPending(STATE_CANCELED);
+
+    void IMultiplexedPayload.OnFaulted(Exception fault)
+    {
+        _fault = fault;
+        SignalCompletionIfPending(STATE_FAULTED);
+    }
 }

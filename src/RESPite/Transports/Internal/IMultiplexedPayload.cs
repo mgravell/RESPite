@@ -28,19 +28,14 @@ internal interface IMultiplexedPayload
 #endif
 {
     void SetResultAndProcessByWorker(in ReadOnlySequence<byte> payload);
-    void OnCanceled(CancellationToken token);
+    void OnCanceled();
     void SetResultWorkerCallback();
+    void OnFaulted(Exception fault);
 }
 
 internal static class MultiplexedPayloadExtensions
 {
-#if NET6_0_OR_GREATER
-    private static readonly Action<object?, CancellationToken> CancelationCallback = static (state, token) => Unsafe.As<IMultiplexedPayload>(state!).OnCanceled(token);
-    internal static CancellationTokenRegistration WithCancel(this IMultiplexedPayload obj, CancellationToken token) => token.Register(CancelationCallback, obj);
-#else
-    private static readonly Action<object?> CancelationCallback = static state => Unsafe.As<IMultiplexedPayload>(state!).OnCanceled(CancellationToken.None);
-    internal static CancellationTokenRegistration WithCancel(this IMultiplexedPayload obj, CancellationToken token) => token.Register(CancelationCallback, obj);
-#endif
+    internal static readonly Action<object?> CancelationCallback = static state => Unsafe.As<IMultiplexedPayload>(state!).OnCanceled();
 
 #if NETCOREAPP3_0_OR_GREATER
     internal static void OnActivateWorker(this IMultiplexedPayload obj) => ThreadPool.UnsafeQueueUserWorkItem(obj, false);

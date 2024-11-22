@@ -1,7 +1,9 @@
 ﻿using System.Buffers;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using RESPite.Internal.Buffers;
 using RESPite.Messages;
@@ -20,7 +22,7 @@ internal sealed class AsyncMultiplexedTransportTransport<TState>(IAsyncByteTrans
     : MultiplexedTransportBase<TState>(transport, scanner, validateOutbound, lifetime), IAsyncMultiplexedTransport
 { }
 
-internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
+internal abstract partial class MultiplexedTransportBase<TState> : IRequestResponseBase
 {
     private readonly CancellationToken _lifetime;
     private readonly IByteTransportBase _transport;
@@ -31,43 +33,16 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
     {
         _completed = true;
 
-        // blame the overall lifetime if triggered, otherwise: no fault
-        var blame = _lifetime;
-        if (!blame.IsCancellationRequested) blame = CancellationToken.None;
-
-        while (TryGetPending(out var next))
+        while (_awaitingResponse.TryDequeue(out var next))
         {
-            next.OnCanceled(blame);
-        }
-    }
-
-    private bool TryGetPending([NotNullWhen(true)] out IMultiplexedPayload? payload)
-    {
-        _mutex.Wait();
-        try
-        {
-#if NETCOREAPP2_0_OR_GREATER
-            return _pendingItems.TryDequeue(out payload);
-#else
-            if (_pendingItems.Count == 0)
-            {
-                payload = null;
-                return false;
-            }
-            payload = _pendingItems.Dequeue();
-            return true;
-#endif
-        }
-        finally
-        {
-            _mutex.Release();
+            next.OnCanceled();
         }
     }
 
     private readonly int _flags;
     private const int SUPPORT_SYNC = 1 << 0, SUPPORT_ASYNC = 1 << 1, /* SUPPORT_LIFETIME = 1 << 2, */ SCAN_OUTBOUND = 1 << 3;
 
-    private readonly Queue<IMultiplexedPayload> _pendingItems = new();
+    private readonly ConcurrentQueue<IMultiplexedPayload> _awaitingResponse = new();
 
     private readonly SemaphoreSlim _mutex = new(1, 1);
 
@@ -143,7 +118,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
                             {
                                 OutOfBandData?.Invoke(workingBuffer);
                             }
-                            else if (TryGetPending(out var next))
+                            else if (_awaitingResponse.TryDequeue(out var next))
                             {
                                 next.SetResultAndProcessByWorker(in workingBuffer);
                             }
@@ -227,41 +202,90 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
     private bool ScanOutbound => (_flags & SCAN_OUTBOUND) != 0;
 
     public ValueTask<TResponse> SendAsync<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader, CancellationToken token = default)
-        => SendAsyncCore<TRequest, TResponse>(request, writer, reader, token);
-    private ValueTask<TResponse> SendAsyncCore<TRequest, TResponse>(TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader, CancellationToken token)
+    {
+        var leased = writer.Serialize(in request);
+        var payloadToken = new MultiplexedAsyncPayload<TRequest, TResponse>(reader, in request, token);
+        return SendAsyncCore(payloadToken, leased);
+    }
+
+    public ValueTask<TResponse> SendAsync<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader, CancellationToken token = default)
+    {
+        var leased = writer.Serialize(in request);
+        var payloadToken = new MultiplexedAsyncPayload<TResponse>(reader, token);
+        return SendAsyncCore(payloadToken, leased);
+    }
+
+    private ValueTask<TResponse> SendAsyncCore<TRequest, TResponse>(MultiplexedAsyncPayloadBase<TRequest, TResponse> payloadToken, in RefCountedBuffer<byte> leased)
     {
         ThrowIfCompleted();
-        var transport = AsAsync();
-        var leased = writer.Serialize(in request);
         var content = leased.Content;
-
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = new MultiplexedAsyncPayload<TRequest, TResponse>(reader, in request);
+        var transport = AsAsync();
 
-        if (!_mutex.Wait(0))
-        {
-            return SendAsyncCore_TakeMutexAndWriteAsync(payloadToken, leased, token);
-        }
-
+        bool haveBacklogLock = false;
+        bool haveWriteLock = false;
+        bool startWorker = false;
         try
         {
-            _pendingItems.Enqueue(payloadToken);
-            var pending = transport.WriteAsync(in content, _lifetime);
-            if (!pending.IsCompleted) return SendAsyncCore_AwaitWriteAsync(pending, payloadToken, leased, token);
+            // get the queue lock; no IO inside this lock, so fine for sync+async
+            Monitor.Enter(_notYetWritten, ref haveBacklogLock);
+            if (_notYetWritten.Count == 0)
+            {
+                // we're at the head of the queue; try to exchange the queue lock
+                // for the write lock
+                haveWriteLock = _mutex.Wait(0);
+                startWorker = !haveWriteLock;
+            }
 
-            pending.GetAwaiter().GetResult(); // check for exception
-            _mutex.Release();
+            if (!haveWriteLock)
+            {
+                // join the queue
+                _notYetWritten.Enqueue((payloadToken, leased));
+            }
+            Monitor.Exit(_notYetWritten);
+            haveBacklogLock = false;
+
+            if (haveWriteLock)
+            {
+                _awaitingResponse.Enqueue(payloadToken);
+                var pending = transport.WriteAsync(in content);
+                if (!pending.IsCompleted)
+                {
+                    haveWriteLock = false; // transferring to helper method
+                    return SendAsyncCoreAwaitedWrite(pending, payloadToken, leased);
+                }
+
+                _mutex.Release();
+                haveWriteLock = false;
+                leased.Release();
+            }
+            else if (startWorker)
+            {
+                StartBacklogWorker();
+            }
         }
-        catch // note: *not* finally; AwaitWriteAsync still owns mutex
+        finally
+        {
+            if (haveBacklogLock) Monitor.Exit(_notYetWritten);
+            if (haveWriteLock) _mutex.Release();
+        }
+
+        return payloadToken.ResultAsync();
+    }
+
+    private async ValueTask<TResponse> SendAsyncCoreAwaitedWrite<TRequest, TResponse>(ValueTask writeAsync, MultiplexedAsyncPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased)
+    {
+        try
+        {
+            await writeAsync.ConfigureAwait(false);
+        }
+        finally
         {
             _mutex.Release();
-            throw;
         }
-
         leased.Release();
-
-        return payloadToken.ResultAsync(token);
+        return await payloadToken.ResultAsync().ConfigureAwait(false);
     }
 
     private void Validate(in ReadOnlySequence<byte> content)
@@ -284,137 +308,143 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
         }
     }
 
-    public ValueTask<TResponse> SendAsync<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader, CancellationToken token = default)
-        => SendAsyncCore<TRequest, TResponse>(request, writer, reader, token);
-
-    private ValueTask<TResponse> SendAsyncCore<TRequest, TResponse>(TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader, CancellationToken token)
+    private readonly Queue<(IMultiplexedPayload Payload, RefCountedBuffer<byte> Buffer)> _notYetWritten = new();
+    private void StartBacklogWorker()
     {
-        ThrowIfCompleted();
-        var transport = AsAsync();
-        var leased = writer.Serialize(in request);
-        var content = leased.Content;
-
-        if (ScanOutbound) Validate(in content);
-
-        var payloadToken = new MultiplexedAsyncPayload<TResponse>(reader);
-
-        if (!_mutex.Wait(0))
-        {
-            return SendAsyncCore_TakeMutexAndWriteAsync(payloadToken, leased, token);
-        }
-
-        try
-        {
-            _pendingItems.Enqueue(payloadToken);
-            var pending = transport.WriteAsync(in content, _lifetime);
-            if (!pending.IsCompleted) return SendAsyncCore_AwaitWriteAsync(pending, payloadToken, leased, token);
-
-            pending.GetAwaiter().GetResult(); // check for exception
-            _mutex.Release();
-        }
-        catch // note: *not* finally; AwaitWriteAsync still owns mutex
-        {
-            _mutex.Release();
-            throw;
-        }
-
-        leased.Release();
-
-        return payloadToken.ResultAsync(token);
+#if NETCOREAPP3_0_OR_GREATER
+        ThreadPool.UnsafeQueueUserWorkItem(this, false);
+#else
+        ThreadPool.UnsafeQueueUserWorkItem(StartBacklogWorkerCallback, this);
+#endif
     }
 
-    private async ValueTask<TResponse> SendAsyncCore_TakeMutexAndWriteAsync<TRequest, TResponse>(MultiplexedAsyncPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
+    private void ExecuteBacklogWorker()
     {
-        await _mutex.WaitAsync(token).ConfigureAwait(false);
+        var transport = AsSync();
+
+        _mutex.Wait();
         try
         {
-            ThrowIfCompleted();
-            _pendingItems.Enqueue(payloadToken);
-            await AsAsyncPrechecked().WriteAsync(leased.Content, _lifetime).ConfigureAwait(false);
+            while (true)
+            {
+                (IMultiplexedPayload Payload, RefCountedBuffer<byte> Buffer) pair;
+                lock (_notYetWritten)
+                {
+#if NETCOREAPP2_0_OR_GREATER
+                    if (!_notYetWritten.TryDequeue(out pair)) break;
+#else
+                    if (_notYetWritten.Count == 0) break;
+                    pair = _notYetWritten.Dequeue();
+#endif
+                }
+                try
+                {
+                    _awaitingResponse.Enqueue(pair.Payload);
+                    transport.Write(pair.Buffer.Content);
+                    pair.Buffer.Release();
+                }
+                catch (Exception ex)
+                {
+                    pair.Payload.OnFaulted(ex);
+                }
+            }
         }
         finally
         {
             _mutex.Release();
         }
-
-        leased.Release();
-
-        return await payloadToken.ResultAsync(token).ConfigureAwait(false);
-    }
-
-    private async ValueTask<TResponse> SendAsyncCore_AwaitWriteAsync<TRequest, TResponse>(ValueTask pending, MultiplexedAsyncPayloadBase<TRequest, TResponse> payloadToken, RefCountedBuffer<byte> leased, CancellationToken token)
-    {
-        try
-        {
-            await pending.ConfigureAwait(false);
-        }
-        finally
-        {
-            _mutex.Release();
-        }
-
-        leased.Release();
-
-        return await payloadToken.ResultAsync(token).ConfigureAwait(false);
     }
 
     public TResponse Send<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader)
     {
-        var transport = AsSync();
         var leased = writer.Serialize(in request);
-        var content = leased.Content;
-
-        if (ScanOutbound) Validate(in content);
-
         var payloadToken = MultiplexedSyncPayload<TRequest, TResponse>.Get(reader, in request);
-        lock (payloadToken.SyncLock)
-        {
-            _mutex.Wait();
-            try
-            {
-                _pendingItems.Enqueue(payloadToken);
-                transport.Write(in content);
-            }
-            finally
-            {
-                _mutex.Release();
-            }
-            leased.Release();
-
-            var result = payloadToken.WaitForResponseHoldingSyncLock();
-            payloadToken.Recycle();
-            return result;
-        }
+        return SendCore(payloadToken, leased);
     }
+
     public TResponse Send<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader)
     {
-        _lifetime.ThrowIfCancellationRequested();
-        var transport = AsSync();
         var leased = writer.Serialize(in request);
-        var content = leased.Content;
+        var payloadToken = MultiplexedSyncPayload<TResponse>.Get(reader);
+        return SendCore(payloadToken, leased);
+    }
 
+    private TResponse SendCore<TRequest, TResponse>(MultiplexedSyncPayloadBase<TRequest, TResponse> payloadToken, in RefCountedBuffer<byte> leased)
+    {
+        ThrowIfCompleted();
+        var content = leased.Content;
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = MultiplexedSyncPayload<TResponse>.Get(reader);
-        lock (payloadToken.SyncLock)
-        {
-            _mutex.Wait();
-            try
-            {
-                _pendingItems.Enqueue(payloadToken);
-                transport.Write(in content);
-            }
-            finally
-            {
-                _mutex.Release();
-            }
-            leased.Release();
+        var transport = AsSync();
 
-            var result = payloadToken.WaitForResponseHoldingSyncLock();
-            payloadToken.Recycle();
-            return result;
+        bool haveBacklogLock = false;
+        bool havePayloadLock = false;
+        bool haveWriteLock = false;
+        bool startWorker = false;
+        TResponse result;
+        try
+        {
+            // get the payload lock; this should be uncontested
+            Monitor.TryEnter(payloadToken.SyncLock, 0, ref havePayloadLock);
+            if (!havePayloadLock) ThrowUnableToAcquirePayloadLock();
+
+            // get the queue lock; no IO inside this lock, so fine for sync+async
+            Monitor.Enter(_notYetWritten, ref haveBacklogLock);
+            if (_notYetWritten.Count == 0)
+            {
+                // we're at the head of the queue; try to exchange the queue lock
+                // for the write lock
+                haveWriteLock = _mutex.Wait(0);
+                startWorker = !haveWriteLock;
+            }
+
+            if (!haveWriteLock)
+            {
+                // join the queue
+                _notYetWritten.Enqueue((payloadToken, leased));
+            }
+            Monitor.Exit(_notYetWritten);
+            haveBacklogLock = false;
+
+            if (haveWriteLock)
+            {
+                _awaitingResponse.Enqueue(payloadToken);
+                transport.Write(in content);
+
+                _mutex.Release();
+                haveWriteLock = false;
+                leased.Release();
+            }
+            else if (startWorker)
+            {
+                StartBacklogWorker();
+            }
+
+            result = payloadToken.WaitForResponseHoldingSyncLock();
         }
+        finally
+        {
+            if (haveBacklogLock) Monitor.Exit(_notYetWritten);
+            if (haveWriteLock) _mutex.Release();
+            if (havePayloadLock) Monitor.Exit(payloadToken.SyncLock);
+        }
+        payloadToken.Recycle(); // only recycle in the success case, after we've released it
+        return result;
     }
+
+    private static void ThrowUnableToAcquirePayloadLock() => throw new InvalidOperationException("The payload lock was not immediately available! This is unexpected and very wrong.");
 
     public event MessageCallback? OutOfBandData;
 }
+
+#if NETCOREAPP3_0_OR_GREATER
+internal partial class MultiplexedTransportBase<TState> : IThreadPoolWorkItem
+{
+    void IThreadPoolWorkItem.Execute() => ExecuteBacklogWorker();
+}
+#else
+internal abstract partial class MultiplexedTransportBase<TState>
+{
+    private static readonly WaitCallback StartBacklogWorkerCallback = state => Unsafe.As<MultiplexedTransportBase<TState>>(state!).ExecuteBacklogWorker();
+}
+#endif
