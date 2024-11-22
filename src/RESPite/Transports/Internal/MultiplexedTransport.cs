@@ -156,6 +156,7 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
         _lifetime = lifetime;
         _transport = transport;
         _scanner = scanner;
+        _backlogAsyncWorker = ExecuteBacklogAsyncWorker;
         if (transport is ISyncByteTransport) _flags |= SUPPORT_SYNC;
         if (transport is IAsyncByteTransport) _flags |= SUPPORT_ASYNC;
         /* if (scanner is IFrameScannerLifetime<TState>) _flags |= SUPPORT_LIFETIME; */
@@ -262,7 +263,7 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
             }
             else if (startWorker)
             {
-                StartBacklogWorker();
+                StartBacklogAsyncWorker();
             }
         }
         finally
@@ -309,16 +310,19 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
     }
 
     private readonly Queue<(IMultiplexedPayload Payload, RefCountedBuffer<byte> Buffer)> _notYetWritten = new();
-    private void StartBacklogWorker()
+    private void StartBacklogSyncWorker()
     {
 #if NETCOREAPP3_0_OR_GREATER
         ThreadPool.UnsafeQueueUserWorkItem(this, false);
 #else
-        ThreadPool.UnsafeQueueUserWorkItem(StartBacklogWorkerCallback, this);
+        ThreadPool.UnsafeQueueUserWorkItem(StartBacklogSyncWorkerCallback, this);
 #endif
     }
 
-    private void ExecuteBacklogWorker()
+    private Func<Task> _backlogAsyncWorker;
+    private void StartBacklogAsyncWorker() => Task.Run(_backlogAsyncWorker);
+
+    private void ExecuteBacklogSyncWorker()
     {
         var transport = AsSync();
 
@@ -341,6 +345,43 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
                 {
                     _awaitingResponse.Enqueue(pair.Payload);
                     transport.Write(pair.Buffer.Content);
+                    pair.Buffer.Release();
+                }
+                catch (Exception ex)
+                {
+                    pair.Payload.OnFaulted(ex);
+                }
+            }
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    private async Task ExecuteBacklogAsyncWorker()
+    {
+        var transport = AsAsync();
+
+        await _mutex.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            while (true)
+            {
+                (IMultiplexedPayload Payload, RefCountedBuffer<byte> Buffer) pair;
+                lock (_notYetWritten)
+                {
+#if NETCOREAPP2_0_OR_GREATER
+                    if (!_notYetWritten.TryDequeue(out pair)) break;
+#else
+                    if (_notYetWritten.Count == 0) break;
+                    pair = _notYetWritten.Dequeue();
+#endif
+                }
+                try
+                {
+                    _awaitingResponse.Enqueue(pair.Payload);
+                    await transport.WriteAsync(pair.Buffer.Content).ConfigureAwait(false);
                     pair.Buffer.Release();
                 }
                 catch (Exception ex)
@@ -417,7 +458,7 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
             }
             else if (startWorker)
             {
-                StartBacklogWorker();
+                StartBacklogSyncWorker();
             }
 
             result = payloadToken.WaitForResponseHoldingSyncLock();
@@ -440,11 +481,11 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
 #if NETCOREAPP3_0_OR_GREATER
 internal partial class MultiplexedTransportBase<TState> : IThreadPoolWorkItem
 {
-    void IThreadPoolWorkItem.Execute() => ExecuteBacklogWorker();
+    void IThreadPoolWorkItem.Execute() => ExecuteBacklogSyncWorker();
 }
 #else
 internal abstract partial class MultiplexedTransportBase<TState>
 {
-    private static readonly WaitCallback StartBacklogWorkerCallback = state => Unsafe.As<MultiplexedTransportBase<TState>>(state!).ExecuteBacklogWorker();
+    private static readonly WaitCallback StartBacklogSyncWorkerCallback = state => Unsafe.As<MultiplexedTransportBase<TState>>(state!).ExecuteBacklogSyncWorker();
 }
 #endif
