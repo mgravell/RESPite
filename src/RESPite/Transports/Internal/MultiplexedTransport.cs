@@ -366,7 +366,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = new MultiplexedSyncPayload<TRequest, TResponse>(reader, in request);
+        var payloadToken = MultiplexedSyncPayload<TRequest, TResponse>.Get(reader, in request);
         lock (payloadToken.SyncLock)
         {
             _mutex.Wait();
@@ -381,7 +381,9 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
             }
             leased.Release();
 
-            return payloadToken.WaitForResponseHoldingSyncLock();
+            var result = payloadToken.WaitForResponseHoldingSyncLock();
+            payloadToken.Recycle();
+            return result;
         }
     }
     public TResponse Send<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader)
@@ -393,7 +395,7 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
-        var payloadToken = new MultiplexedSyncPayload<TResponse>(reader);
+        var payloadToken = MultiplexedSyncPayload<TResponse>.Get(reader);
         lock (payloadToken.SyncLock)
         {
             _mutex.Wait();
@@ -408,7 +410,9 @@ internal abstract class MultiplexedTransportBase<TState> : IRequestResponseBase
             }
             leased.Release();
 
-            return payloadToken.WaitForResponseHoldingSyncLock();
+            var result = payloadToken.WaitForResponseHoldingSyncLock();
+            payloadToken.Recycle();
+            return result;
         }
     }
 

@@ -7,29 +7,89 @@ using RESPite.Messages;
 
 namespace RESPite.Transports.Internal;
 
-internal sealed class MultiplexedSyncPayload<TRequest, TResponse>(IReader<TRequest, TResponse> reader, in TRequest request) : MultiplexedSyncPayloadBase<TRequest, TResponse>(reader)
+internal sealed class MultiplexedSyncPayload<TRequest, TResponse> : MultiplexedSyncPayloadBase<TRequest, TResponse>
 {
-    private readonly TRequest _request = request;
+    [ThreadStatic]
+    private static MultiplexedSyncPayload<TRequest, TResponse>? _spare;
+
+    private MultiplexedSyncPayload()
+    {
+        Unsafe.SkipInit(out _request);
+    }
+
+    private TRequest _request;
+
     protected override TResponse Read(in ReadOnlySequence<byte> payload) => Reader.Read(in _request, in payload);
+
+    public static MultiplexedSyncPayload<TRequest, TResponse> Get(IReader<TRequest, TResponse> reader, in TRequest request)
+    {
+        var obj = _spare ?? new();
+        _spare = null;
+        obj.Initialize(reader);
+        obj._request = request;
+        return obj;
+    }
+
+    public void Recycle()
+    {
+        Reset();
+        _spare = this;
+    }
+
+    protected override void Reset()
+    {
+        _request = default!;
+        base.Reset();
+    }
 }
 
-internal sealed class MultiplexedSyncPayload<TResponse>(IReader<Empty, TResponse> reader) : MultiplexedSyncPayloadBase<Empty, TResponse>(reader)
+internal sealed class MultiplexedSyncPayload<TResponse> : MultiplexedSyncPayloadBase<Empty, TResponse>
 {
+    [ThreadStatic]
+    private static MultiplexedSyncPayload<TResponse>? _spare;
+
+    private MultiplexedSyncPayload() { }
+
     protected override TResponse Read(in ReadOnlySequence<byte> payload) => Reader.Read(in Empty.Value, in payload);
+
+    public static MultiplexedSyncPayload<TResponse> Get(IReader<Empty, TResponse> reader)
+    {
+        var obj = _spare ?? new();
+        _spare = null;
+        obj.Initialize(reader);
+        return obj;
+    }
+
+    public void Recycle()
+    {
+        Reset();
+        _spare = this;
+    }
 }
 
 internal abstract partial class MultiplexedSyncPayloadBase<TRequest, TResponse> : IMultiplexedPayload
 {
-    public MultiplexedSyncPayloadBase(IReader<TRequest, TResponse> reader)
+    protected MultiplexedSyncPayloadBase()
     {
-        Reader = reader;
+        Unsafe.SkipInit(out _reader);
         Unsafe.SkipInit(out _result);
     }
 
-    protected IReader<TRequest, TResponse> Reader { get; }
+    protected virtual void Reset()
+    {
+        _result = default!;
+        _payload = default;
+        _state = STATE_PENDING;
+        _fault = null;
+    }
+
+    public void Initialize(IReader<TRequest, TResponse> reader) => _reader = reader;
+
+    protected IReader<TRequest, TResponse> Reader => _reader;
 
     protected abstract TResponse Read(in ReadOnlySequence<byte> payload);
 
+    private IReader<TRequest, TResponse> _reader;
     private TResponse _result;
     private RefCountedBuffer<byte> _payload;
     private int _state; // implicit = STATE_PENDING
