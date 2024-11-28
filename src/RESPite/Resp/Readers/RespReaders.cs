@@ -87,28 +87,30 @@ internal static class RespReaders
 
             static Empty Slower(scoped in ReadOnlySequence<byte> content)
             {
-                var reader = new RespReader(content, throwOnErrorResponse: true);
-                if (!(reader.TryReadNext(RespPrefix.SimpleString) && reader.IsOK())) ThrowMissingExpected("OK");
+                var reader = new RespReader(content);
+                reader.MoveNext(RespPrefix.SimpleString);
+                if (!reader.IsOK()) ThrowMissingExpected("OK");
                 return default;
             }
         }
 
         Empty IRespReader<Empty, Empty>.Read(in Empty request, ref RespReader reader)
         {
-            if (!(reader.TryReadNext(RespPrefix.SimpleString) && reader.IsOK())) ThrowMissingExpected("OK");
+            reader.MoveNext(RespPrefix.SimpleString);
+            if (!reader.IsOK()) ThrowMissingExpected("OK");
             return default;
         }
 
         string? IRespReader<Empty, string?>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.ReadString();
         }
 
         string? IReader<Empty, string?>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
-            var reader = new RespReader(in content, throwOnErrorResponse: true);
-            reader.ReadNextScalar();
+            var reader = new RespReader(in content);
+            reader.MoveNextScalar();
             return reader.ReadString();
         }
 
@@ -118,8 +120,8 @@ internal static class RespReaders
             {
                 return ((IReader<Empty, int>)this).Read(request, content);
             }
-            var reader = new RespReader(in content, throwOnErrorResponse: true);
-            reader.ReadNextScalar();
+            var reader = new RespReader(in content);
+            reader.MoveNextScalar();
             reader.DemandNotNull();
             return reader.ReadInt64();
         }
@@ -130,54 +132,54 @@ internal static class RespReaders
             {
                 return ((IReader<Empty, int?>)this).Read(request, content);
             }
-            var reader = new RespReader(in content, throwOnErrorResponse: true);
-            reader.ReadNextScalar();
+            var reader = new RespReader(in content);
+            reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadInt64();
         }
 
         long IRespReader<Empty, long>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             reader.DemandNotNull();
             return reader.ReadInt64();
         }
 
         long? IRespReader<Empty, long?>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadInt64();
         }
 
         int IRespReader<Empty, int>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             reader.DemandNotNull();
             return reader.ReadInt32();
         }
 
         int? IRespReader<Empty, int?>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadInt32();
         }
 
         LeasedString IReader<Empty, LeasedString>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
             var reader = new RespReader(in content);
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.ReadLeasedString();
         }
 
         LeasedString IRespReader<Empty, LeasedString>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.ReadLeasedString();
         }
 
         bool IReader<Empty, bool>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
             var reader = new RespReader(in content);
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.ScalarLength switch
             {
                 1 => reader.Is((byte)'1'),
@@ -188,7 +190,7 @@ internal static class RespReaders
 
         bool IRespReader<Empty, bool>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.ScalarLength switch
             {
                 1 => reader.Is((byte)'1'),
@@ -257,8 +259,8 @@ internal static class RespReaders
 #endif
                 if (TryReadFastInt32(span, out int i)) return i;
             }
-            var reader = new RespReader(in content, throwOnErrorResponse: true);
-            reader.ReadNextScalar();
+            var reader = new RespReader(in content);
+            reader.MoveNextScalar();
             reader.DemandNotNull();
             return reader.ReadInt32();
         }
@@ -275,20 +277,20 @@ internal static class RespReaders
                 if (TryReadFastInt32(span, out int i)) return i;
             }
             var reader = new RespReader(in content, throwOnErrorResponse: true);
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadInt32();
         }
 
         LeasedStrings IReader<Empty, LeasedStrings>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
             var reader = new RespReader(in content, throwOnErrorResponse: true);
-            reader.ReadNextAggregate();
+            reader.MoveNextAggregate();
             return reader.ReadLeasedStrings();
         }
 
         LeasedStrings IRespReader<Empty, LeasedStrings>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextAggregate();
+            reader.MoveNextAggregate();
             return reader.ReadLeasedStrings();
         }
 
@@ -316,7 +318,7 @@ internal static class RespReaders
         T IReader<Empty, T>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
             RespReader reader = new(content, throwOnErrorResponse: true);
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             reader.DemandNotNull();
             return reader.ReadEnum<T>(default);
         }
@@ -324,20 +326,20 @@ internal static class RespReaders
         T? IReader<Empty, T?>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
             RespReader reader = new(content, throwOnErrorResponse: true);
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadEnum<T>(default);
         }
 
         T IRespReader<Empty, T>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             reader.DemandNotNull();
             return reader.ReadEnum<T>(default);
         }
 
         T? IRespReader<Empty, T?>.Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
+            reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadEnum<T>(default);
         }
     }

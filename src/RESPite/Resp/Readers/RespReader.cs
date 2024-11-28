@@ -1,37 +1,61 @@
 ﻿using System.Buffers;
-using System.Buffers.Text;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Text;
-using static RESPite.Constants;
-using static RESPite.Resp.RespConstants;
 
 #if NETCOREAPP3_0_OR_GREATER
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
+using System.Text;
 #endif
 
 namespace RESPite.Resp.Readers;
 
 /// <summary>
-/// Low-level RESP reading API.
+/// Provides low level RESP parsing functionality.
 /// </summary>
-[DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
-public ref struct RespReader
+#pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
+public ref partial struct RespReader
+#pragma warning restore CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 {
-    internal readonly string GetDebuggerDisplay() => IsAggregate ? $"{Prefix}:{ChildCount}" : IsScalar ? $"{Prefix}:{ReadString()}" : Prefix.ToString();
+    [Flags]
+    private enum RespFlags : byte
+    {
+        None = 0,
+        IsScalar = 1 << 0, // simple strings, bulk strings, etc
+        IsAggregate = 1 << 1, // arrays, maps, sets, etc
+        IsNull = 1 << 2, // explicit null RESP types, or bulk-strings/aggregates with length -1
+        IsInlineScalar = 1 << 3, // a non-null scalar, i.e. with payload+CrLf
+        IsAttribute = 1 << 4, // is metadata for following elements
+        IsStreaming = 1 << 5, // unknown length
+        IsError = 1 << 6, // an explicit error reported inside the protocol
+    }
 
-    private readonly ReadOnlySequence<byte> _fullPayload;
-    private SequencePosition _segPos;
-    private long _positionBase;
-    private int _bufferIndex; // after TryRead, this should be positioned immediately before the actual data
-    private int _bufferLength;
-    private int _length; // for null: -1; for scalars: the length of the payload; for aggregates: the child count
-    [SuppressMessage("Style", "IDE0032:Use auto property", Justification = "Clarity")]
+    // relates to the element we're currently reading
+    private RespFlags _flags;
     private RespPrefix _prefix;
+
+    private int _length; // for null: 0; for scalars: the length of the payload; for aggregates: the child count
+
+    // the current buffer that we're observing
+    private int _bufferIndex; // after TryRead, this should be positioned immediately before the actual data
+
+    // the position in a multi-segment payload
+    private long _positionBase; // total data we've already moved past in *previous* buffers
+    private ReadOnlySequenceSegment<byte>? _tail; // the next tail node
+    private long _remainingTailLength; // how much more can we consume from the tail?
+
+    private readonly int CurrentAvailable => CurrentLength - _bufferIndex;
+
+    private readonly long TotalAvailable => CurrentAvailable + _remainingTailLength;
+
+    private readonly partial ref byte UnsafeCurrent { get; }
+    private readonly partial int CurrentLength { get; }
+    private partial void SetCurrent(ReadOnlySpan<byte> value);
+    private RespPrefix UnsafePeekPrefix() => (RespPrefix)UnsafeCurrent;
+    private readonly partial ReadOnlySpan<byte> UnsafePastPrefix();
+    private readonly partial ReadOnlySpan<byte> UnsafeSlice(int length);
+    private readonly partial ReadOnlySpan<byte> CurrentSpan();
 
     /// <summary>
     /// Returns the position after the end of the current element.
@@ -39,576 +63,222 @@ public ref struct RespReader
     public readonly long BytesConsumed => _positionBase + _bufferIndex + TrailingLength;
 
     /// <summary>
-    /// Indicates the payload kind of the current element.
+    /// Body length of scalar values, plus any terminating sentinels.
     /// </summary>
-    public readonly RespPrefix Prefix
+    private readonly int TrailingLength => (_flags & RespFlags.IsInlineScalar) == 0 ? 0 : (_length + 2);
+
+    /// <summary>
+    /// Gets the RESP kind of the current element.
+    /// </summary>
+    public readonly RespPrefix Prefix => _prefix;
+
+    /// <summary>
+    /// The payload length of this element, as a scalar.
+    /// </summary>
+    /// <remarks>Zero for aggregates, nulls, and for the head element of streaming strings.</remarks>
+    public readonly int ScalarLength => (_flags & RespFlags.IsInlineScalar) == 0 ? 0 : _length;
+
+    /// <summary>
+    /// The number of child elements associated with an aggregate.
+    /// </summary>
+    /// <remarks>Zero for scalars, nulls, and for the head element of streaming aggregates. For <see cref="RespPrefix.Map"/>
+    /// and <see cref="RespPrefix.Attribute"/> aggregates, this is <b>twice</b> the value reported in the RESP protocol,
+    /// i.e. a map of the form <c>%2\r\n...</c> will report <c>4</c> as the <see cref="AggregateLength"/>.</remarks>
+    public readonly int AggregateLength => (_flags & RespFlags.IsAggregate) == 0 ? 0 : _length;
+
+    /// <summary>
+    /// Indicates whether this is a scalar value, i.e. with a potential payload body.
+    /// </summary>
+    public readonly bool IsScalar => (_flags & RespFlags.IsScalar) != 0;
+
+    internal readonly bool IsInlineScalar => (_flags & RespFlags.IsInlineScalar) != 0;
+
+    /// <summary>
+    /// Indicates whether this is an aggregate value, i.e. represents a collection of sub-values.
+    /// </summary>
+    public readonly bool IsAggregate => (_flags & RespFlags.IsAggregate) != 0;
+
+    /// <summary>
+    /// Indicates whether this is a null value; this could be an explicit <see cref="RespPrefix.Null"/>,
+    /// or a scalar or aggregate a negative reported length.
+    /// </summary>
+    public readonly bool IsNull => (_flags & RespFlags.IsNull) != 0;
+
+    /// <summary>
+    /// Indicates whether this is an attribute value, i.e. metadata relating to later element data.
+    /// </summary>
+    public readonly bool IsAttribute => (_flags & RespFlags.IsAttribute) != 0;
+
+    /// <summary>
+    /// Indicates whether this represents streaming content, where the <see cref="ScalarLength"/> or <see cref="AggregateLength"/> is not known in advance.
+    /// </summary>
+    public readonly bool IsStreaming => (_flags & RespFlags.IsStreaming) != 0;
+
+    /// <summary>
+    /// Equivalent to both <see cref="IsStreaming"/> and <see cref="IsAggregate"/>.
+    /// </summary>
+    public readonly bool IsStreamingAggregate => (_flags & (RespFlags.IsAggregate | RespFlags.IsStreaming)) == (RespFlags.IsAggregate | RespFlags.IsStreaming);
+
+    /// <summary>
+    /// Equivalent to both <see cref="IsStreaming"/> and <see cref="IsScalar"/>.
+    /// </summary>
+    public readonly bool IsStreamingScalar => (_flags & (RespFlags.IsScalar | RespFlags.IsStreaming)) == (RespFlags.IsScalar | RespFlags.IsStreaming);
+
+    /// <summary>
+    /// Indicates errors reported inside the protocol.
+    /// </summary>
+    public readonly bool IsError => (_flags & RespFlags.IsError) != 0;
+
+    /// <summary>
+    /// Gets the effective change (in terms of how many RESP nodes we expect to see) from consuming this element.
+    /// For simple scalars, this is <c>-1</c> because we have one less node to read; for simple aggregates, this is
+    /// <c>AggregateLength-1</c> because we will have consumed one element, but now need to read the additional
+    /// <see cref="AggregateLength" /> child elements. Attributes report <c>0</c>, since they supplement data
+    /// we still need to consume. The final terminator for streaming data reports a delta of <c>-1</c>, otherwise: <c>0</c>.
+    /// </summary>
+    /// <remarks>This does not account for being nested inside a streaming aggregate; the caller must deal with that manually.</remarks>
+    internal int Delta() => (_flags & (RespFlags.IsScalar | RespFlags.IsAggregate | RespFlags.IsStreaming | RespFlags.IsAttribute)) switch
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _prefix;
+        RespFlags.IsScalar => -1,
+        RespFlags.IsAggregate => _length - 1,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// Move to the next content element; this skips attribute metadata, checking for RESP error messages by default.
+    /// </summary>
+    /// <exception cref="EndOfStreamException">If the data is exhausted before content is found.</exception>
+    /// <exception cref="RespException">If the data contains an explicit error element and <paramref name="throwIfError"/> is <c>True</c>.</exception>
+    public void MoveNext(bool throwIfError = true)
+    {
+        while (TryReadNext())
+        {
+            if (IsAttribute)
+            {
+                SkipChildren();
+            }
+            else
+            {
+                if (throwIfError && IsError) ThrowError();
+                return;
+            }
+        }
+        ThrowEOF();
     }
 
     /// <summary>
-    /// Returns as much data as possible into the buffer, ignoring
-    /// any data that cannot fit into <paramref name="target"/>, and
-    /// returning the amount of copied data.
+    /// Move to the next content element (<see cref="MoveNext(bool)"/>) and assert that it is a scalar (<see cref="DemandScalar"/>).
     /// </summary>
-    public readonly int CopyTo(Span<byte> target)
+    public void MoveNextScalar()
     {
-        if (!IsScalar) return default; // only possible for scalars
-        if (TryGetValueSpan(out var source))
-        {
-            if (source.Length > target.Length)
-            {
-                source = source.Slice(0, target.Length);
-            }
-            else if (source.Length < target.Length)
-            {
-                target = target.Slice(0, source.Length);
-            }
-            source.CopyTo(target);
-            return target.Length;
-        }
-        return CopyToSlow(target);
-    }
-
-    private readonly int CopyToSlow(Span<byte> target)
-    {
-        var reader = new SlowReader(in this);
-        return reader.Fill(target);
-    }
-
-    /// <summary>
-    /// Copy a scalar value to the provided <paramref name="writer"/>.
-    /// </summary>
-    public readonly int CopyTo(IBufferWriter<byte> writer)
-    {
-        if (TryGetValueSpan(out var source)) // only true for contiguous scalar values
-        {
-            Span<byte> target = writer.GetSpan(source.Length);
-            if (target.Length >= source.Length)
-            {
-                source.CopyTo(target);
-                return source.Length;
-            }
-        }
-        return CopyToSlow(ref writer);
-    }
-
-    /// <summary>
-    /// Copy a scalar value to the provided <paramref name="writer"/>.
-    /// </summary>
-    public readonly int CopyTo<TWriter>(ref TWriter writer) where TWriter : IBufferWriter<byte>
-    {
-        if (TryGetValueSpan(out var source)) // only true for contiguous scalar values
-        {
-            Span<byte> target = writer.GetSpan(source.Length);
-            Debug.Assert(source.Length == ScalarLength, "expected to get full scalar chunk");
-            if (target.Length >= source.Length)
-            {
-                source.CopyTo(target);
-                writer.Advance(source.Length);
-                return source.Length;
-            }
-        }
-        return CopyToSlow(ref writer);
-    }
-
-    private readonly int CopyToSlow<TWriter>(ref TWriter writer) where TWriter : IBufferWriter<byte>
-    {
+        MoveNext();
         DemandScalar();
-        var reader = new SlowReader(in this);
-        int remaining = ScalarLength;
-        while (remaining > 0)
-        {
-            var target = writer.GetSpan(remaining);
-            if (target.Length > remaining)
-            {
-                target = target.Slice(remaining);
-            }
-            int written = reader.Fill(target);
-            if (written == 0) break; // not making progress
-            writer.Advance(written);
-            remaining -= written;
-        }
-        if (remaining == 0) ThrowEOF();
-        return ScalarLength;
     }
 
     /// <summary>
-    /// Returns true if the value is a valid scalar value <em>that is available as a single contiguous chunk</em>;
-    /// a value could be a valid scalar but if it spans segments, this will report <c>false</c>; alternative APIs
-    /// are available to inspect the value.
+    /// Move to the next content element (<see cref="MoveNextScalar"/>) and assert that it is an aggregate (<see cref="DemandAggregate"/>).
     /// </summary>
-    internal readonly bool TryGetValueSpan(out ReadOnlySpan<byte> span)
+    public void MoveNextAggregate()
     {
-        if (!IsScalar | _length < 0)
-        {
-            span = default;
-            return false; // only possible for scalars
-        }
-        if (_length == 0)
-        {
-            span = default;
-            return true;
-        }
-
-        if (_bufferIndex + _length <= _bufferLength)
-        {
-#if NET7_0_OR_GREATER
-            span = MemoryMarshal.CreateReadOnlySpan(ref Unsafe.Add(ref _bufferRoot, _bufferIndex), _length);
-#else
-            span = _bufferSpan.Slice(_bufferIndex, _length);
-#endif
-            return true;
-        }
-
-        // not available as a convenient contiguous chunk
-        span = default;
-        return false;
-    }
-
-    /// <summary>
-    /// Read a scalar integer value.
-    /// </summary>
-    public readonly int ReadInt32()
-    {
+        MoveNext();
         DemandScalar();
-        if (TryGetValueSpan(out var span))
+    }
+
+    /// <summary>
+    /// Move to the next content element (<see cref="MoveNextScalar"/>) and assert that it of type specified
+    /// in <paramref name="prefix"/>.
+    /// </summary>
+    public void MoveNext(RespPrefix prefix)
+    {
+        MoveNext();
+        if (Prefix != prefix) Throw(prefix, Prefix);
+        static void Throw(RespPrefix expected, RespPrefix actual) => throw new InvalidOperationException($"Expected {expected} element, but found {actual}.");
+    }
+
+    private void ThrowError() => throw new RespException(ReadString()!);
+
+    /// <summary>
+    /// Skip all child elements of the current node.
+    /// </summary>
+    public void SkipChildren()
+    {
+        Debug.Assert(IsAggregate);
+
+        if (IsStreamingAggregate)
         {
-            if (!(Utf8Parser.TryParse(span, out int value, out int bytes) & bytes == span.Length))
+            while (true)
             {
-                ThrowFormatException();
+                MoveNext(throwIfError: false);
+                if (Prefix == RespPrefix.StreamTerminator)
+                {
+                    break;
+                }
+                else if (IsAggregate)
+                {
+                    SkipChildren();
+                }
             }
-            return value;
-        }
-        return ReadInt32Slow();
-    }
-
-    /// <summary>
-    /// Read a scalar integer value.
-    /// </summary>
-    public readonly long ReadInt64()
-    {
-        DemandScalar();
-        if (TryGetValueSpan(out var span))
-        {
-            if (!(Utf8Parser.TryParse(span, out long value, out int bytes) & bytes == span.Length))
-            {
-                ThrowFormatException();
-            }
-            return value;
-        }
-        return ReadInt64Slow();
-    }
-
-    private readonly int ReadInt32Slow()
-    {
-        if (_length > MaxRawBytesInt32) ThrowFormatException();
-        Span<byte> buffer = stackalloc byte[_length];
-        if (new SlowReader(in this).Fill(buffer) != _length) ThrowEOF();
-        if (!(Utf8Parser.TryParse(buffer.Slice(0, _length), out int value, out int bytes) & bytes == _length))
-        {
-            ThrowFormatException();
-        }
-        return value;
-    }
-
-    private readonly long ReadInt64Slow()
-    {
-        if (_length > MaxRawBytesInt64) ThrowFormatException();
-        Span<byte> buffer = stackalloc byte[_length];
-        if (new SlowReader(in this).Fill(buffer) != _length) ThrowEOF();
-        if (!(Utf8Parser.TryParse(buffer.Slice(0, _length), out long value, out int bytes) & bytes == _length))
-        {
-            ThrowFormatException();
-        }
-        return value;
-    }
-
-    private static void ThrowFormatException() => throw new FormatException();
-
-    private readonly void DemandScalar()
-    {
-        if (!IsScalar) Throw(Prefix);
-        static void Throw(RespPrefix prefix) => throw new InvalidOperationException($"Scalar value expected; got {prefix}");
-    }
-
-    private readonly void DemandAggregate()
-    {
-        if (!IsAggregate) Throw(Prefix);
-        static void Throw(RespPrefix prefix) => throw new InvalidOperationException($"Aggregate value expected; got {prefix}");
-    }
-
-    /// <summary>
-    /// The a scalar string value.
-    /// </summary>
-    public readonly string? ReadString()
-    {
-        DemandScalar();
-        if (_length < 0) return null;
-        if (_length == 0) return "";
-        if (TryGetValueSpan(out var span))
-        {
-            return UTF8.GetString(span);
-        }
-        return SlowReadString();
-    }
-    private readonly string SlowReadString()
-    {
-        // simple cases and pre-conditions already checked
-        byte[]? lease = null;
-        Span<byte> buffer = _length <= 128 ? stackalloc byte[128] : new(lease = ArrayPool<byte>.Shared.Rent(_length), 0, _length);
-        var reader = new SlowReader(in this);
-        var len = reader.Fill(buffer);
-        Debug.Assert(len == _length);
-        var s = UTF8.GetString(buffer);
-        if (lease is not null) ArrayPool<byte>.Shared.Return(lease);
-        return s;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void AssertClLfUnsafe(scoped ref byte source, int offset)
-    {
-        if (Unsafe.ReadUnaligned<ushort>(ref Unsafe.Add(ref source, offset)) != CrLfUInt16)
-        {
-            ThrowProtocolFailure("Expected CR/LF");
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void AssertClLfUnsafe(scoped ref readonly byte source)
-    {
-        if (Unsafe.ReadUnaligned<ushort>(ref Unsafe.AsRef(in source)) != CrLfUInt16)
-        {
-            ThrowProtocolFailure("Expected CR/LF");
-        }
-    }
-
-#if NET7_0_OR_GREATER
-    private ref byte _bufferRoot;
-    private readonly ref byte CurrentUnsafe => ref Unsafe.Add(ref _bufferRoot, _bufferIndex);
-    private readonly RespPrefix PeekPrefix() => (RespPrefix)Unsafe.Add(ref _bufferRoot, _bufferIndex);
-    private readonly ReadOnlySpan<byte> PeekPastPrefix() => MemoryMarshal.CreateReadOnlySpan(
-        ref Unsafe.Add(ref _bufferRoot, _bufferIndex + 1), _bufferLength - (_bufferIndex + 1));
-    private readonly ReadOnlySpan<byte> PeekCurrent() => MemoryMarshal.CreateReadOnlySpan(
-        ref Unsafe.Add(ref _bufferRoot, _bufferIndex), _bufferLength - _bufferIndex);
-    private readonly void AssertCrlfPastPrefixUnsafe(int offset) => AssertClLfUnsafe(ref _bufferRoot, _bufferIndex + offset + 1);
-    private void SetCurrent(ReadOnlySpan<byte> current)
-    {
-        _positionBase += _bufferLength; // accumulate previous length
-        _bufferIndex = 0;
-        _bufferLength = current.Length;
-        _bufferRoot = ref MemoryMarshal.GetReference(current);
-    }
-#else
-    private ReadOnlySpan<byte> _bufferSpan;
-    private readonly ref byte CurrentUnsafe => ref Unsafe.AsRef(in _bufferSpan[_bufferIndex]);
-    private readonly RespPrefix PeekPrefix() => (RespPrefix)_bufferSpan[_bufferIndex];
-    private readonly ReadOnlySpan<byte> PeekCurrent() => _bufferSpan.Slice(_bufferIndex);
-    private readonly ReadOnlySpan<byte> PeekPastPrefix() => _bufferSpan.Slice(_bufferIndex + 1);
-    private readonly void AssertCrlfPastPrefixUnsafe(int offset)
-        => AssertClLfUnsafe(in _bufferSpan[_bufferIndex + offset + 1]);
-    private void SetCurrent(ReadOnlySpan<byte> current)
-    {
-        _positionBase += _bufferLength; // accumulate previous length
-        _bufferIndex = 0;
-        _bufferLength = current.Length;
-        _bufferSpan = current;
-    }
-#endif
-
-    /// <summary>
-    /// Read a RESP fragment.
-    /// </summary>
-    public RespReader(byte[] value, int start = 0, int length = -1)
-        : this(new ReadOnlySpan<byte>(value, start, length < 0 ? value.Length - start : length))
-    { }
-
-    /// <summary>
-    /// Read a RESP fragment.
-    /// </summary>
-    public RespReader(ReadOnlyMemory<byte> value) : this(value.Span)
-    { }
-
-    /// <summary>
-    /// Read a RESP fragment.
-    /// </summary>
-    public RespReader(ReadOnlySpan<byte> value)
-    {
-        _fullPayload = default;
-        _positionBase = _bufferIndex = _bufferLength = 0;
-        _length = -1;
-        _prefix = RespPrefix.None;
-#if NET7_0_OR_GREATER
-        _bufferRoot = ref Unsafe.NullRef<byte>();
-#else
-        _bufferSpan = default;
-#endif
-        _segPos = default;
-        SetCurrent(value);
-    }
-
-    /// <summary>
-    /// Read a RESP fragment.
-    /// </summary>
-    public RespReader(scoped in ReadOnlySequence<byte> value, bool throwOnErrorResponse = true)
-    {
-        _fullPayload = value;
-        _positionBase = _bufferIndex = _bufferLength = 0;
-        _length = -1;
-        _prefix = RespPrefix.None;
-#if NET7_0_OR_GREATER
-        _bufferRoot = ref Unsafe.NullRef<byte>();
-#else
-        _bufferSpan = default;
-#endif
-        if (value.IsSingleSegment)
-        {
-            _segPos = default;
-#if NETCOREAPP3_1_OR_GREATER
-            SetCurrent(value.FirstSpan);
-#else
-            SetCurrent(value.First.Span);
-#endif
         }
         else
         {
-            _segPos = value.Start;
-            if (value.TryGet(ref _segPos, out var current))
+            var count = AggregateLength;
+            while (count-- > 0)
             {
-                SetCurrent(current.Span);
-            }
-        }
-        if (throwOnErrorResponse && _bufferLength != 0)
-        {
-            var peek = (RespPrefix)CurrentUnsafe;
-            switch (peek)
-            {
-                case RespPrefix.SimpleError:
-                case RespPrefix.BulkError:
-                    if (TryReadNext(peek))
-                    {
-                        Debug.Assert(IsError, "expecting an error!");
-                        ThrowRespError();
-                    }
-                    break;
+                MoveNext(throwIfError: false);
+                if (IsAggregate) SkipChildren();
             }
         }
     }
 
     /// <summary>
-    /// Indicates the length of the current scalar element.
+    /// Reads the current element as a string value.
     /// </summary>
-    public readonly int ScalarLength
+    public string? ReadString()
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => Prefix switch
-        {
-            RespPrefix.SimpleString or RespPrefix.SimpleError or RespPrefix.Integer
-            or RespPrefix.Boolean or RespPrefix.Double or RespPrefix.BigNumber
-            or RespPrefix.BulkError or RespPrefix.BulkString or RespPrefix.VerbatimString when _length > 0 => _length,
-            _ => 0,
-        };
-    }
-
-    /// <summary>
-    /// Indicates the number of child elements of the current aggregate element.
-    /// </summary>
-    public readonly int ChildCount
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => Prefix switch
-        {
-            RespPrefix.Array or RespPrefix.Set or RespPrefix.Push when _length > 0 => _length,
-            RespPrefix.Map when _length > 0 => 2 * _length,
-            _ => 0,
-        };
-    }
-
-    /// <summary>
-    /// Indicates a type with a discreet value - string, integer, etc - <see cref="TryGetValueSpan(out ReadOnlySpan{byte})"/>,
-    /// <see cref="Is(ReadOnlySpan{byte})"/>, <see cref="CopyTo(Span{byte})"/> etc are meaningful.
-    /// </summary>
-    public readonly bool IsScalar
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => Prefix switch
-        {
-            RespPrefix.SimpleString or RespPrefix.SimpleError or RespPrefix.Integer
-            or RespPrefix.Boolean or RespPrefix.Double or RespPrefix.BigNumber
-            or RespPrefix.BulkError or RespPrefix.BulkString or RespPrefix.VerbatimString => true,
-            _ => false,
-        };
-    }
-
-    /// <summary>
-    /// Indicates if the payload represents a RESP error.
-    /// </summary>
-    public readonly bool IsError
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => Prefix is RespPrefix.BulkError or RespPrefix.SimpleError;
-    }
-
-    /// <summary>
-    /// Asserts that the reader does not reprent a RESP error message.
-    /// </summary>
-    public readonly void ThrowIfError()
-    {
-        if (IsError) ThrowRespError();
-    }
-
-    [DoesNotReturn, MethodImpl(MethodImplOptions.NoInlining)]
-    private readonly void ThrowRespError()
-    {
-        var message = ReadString();
-        if (string.IsNullOrWhiteSpace(message)) message = "unknown RESP error";
-        throw new RespException(message!);
-    }
-
-    /// <summary>
-    /// Indicates a collection type - array, set, etc - <see cref="ChildCount"/>, <see cref="SkipChildren()"/> are are meaningful.
-    /// </summary>
-    public readonly bool IsAggregate
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => Prefix switch
-        {
-            RespPrefix.Array or RespPrefix.Set or RespPrefix.Map or RespPrefix.Push => true,
-            _ => false,
-        };
-    }
-
-    private static bool TryReadIntegerCrLf(ReadOnlySpan<byte> bytes, out int value, out int byteCount)
-    {
-        var end = bytes.IndexOf(CrlfBytes);
-        if (end < 0)
-        {
-            byteCount = value = 0;
-            if (bytes.Length >= MaxRawBytesInt32 + 2)
-            {
-                ThrowProtocolFailure("Unterminated or over-length integer"); // should have failed; report failure to prevent infinite loop
-            }
-            return false;
-        }
-        if (!(Utf8Parser.TryParse(bytes, out value, out byteCount) && byteCount == end))
-            ThrowProtocolFailure("Unable to parse integer");
-        byteCount += 2; // include the CrLf
-        return true;
-    }
-
-    private static void ThrowProtocolFailure(string message)
-        => throw new InvalidOperationException("RESP protocol failure: " + message); // protocol exception?
-
-    /// <summary>
-    /// Indicates whether the current element is a null value.
-    /// </summary>
-    public readonly bool IsNull
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _length < 0;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void ResetCurrent()
-    {
-        _prefix = RespPrefix.None;
-        _length = -1;
-    }
-
-    private void AdvanceSlow(long bytes)
-    {
-        while (bytes > 0)
-        {
-            var available = _bufferLength - _bufferIndex;
-            if (bytes <= available)
-            {
-                _bufferIndex += (int)bytes;
-                return;
-            }
-            bytes -= available;
-            if (_fullPayload.IsSingleSegment || !_fullPayload.TryGet(ref _segPos, out var next))
-            {
-                throw new EndOfStreamException();
-            }
-            SetCurrent(next.Span);
-        }
-    }
-
-    /// <summary>
-    /// Body length of scalar values, plus any terminating sentinels.
-    /// </summary>
-    private readonly int TrailingLength
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => IsScalar && _length >= 0 ? _length + 2 : 0;
-    }
-
-    /// <summary>
-    /// Attempt to move to the next RESP element, and assert that the prefix matches.
-    /// </summary>
-    public bool TryReadNext(RespPrefix demand)
-    {
-        if (TryReadNext())
-        {
-            if (Prefix != demand) ThrowPrefix(demand, Prefix);
-            return true;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Assert that the <see cref="Prefix"/> matches <paramref name="prefix"/>.
-    /// </summary>
-    public readonly void Demand(RespPrefix prefix)
-    {
-        if (Prefix != prefix) ThrowPrefix(prefix, Prefix);
-    }
-
-    private static void ThrowPrefix(RespPrefix expected, RespPrefix actual)
-        => throw new InvalidOperationException($"Expected {expected}, got {actual}");
-
-    /// <summary>
-    /// Move to the next RESP element, asserting that it is a scalar and returning the <see cref="ScalarLength"/>.
-    /// </summary>
-    public int ReadNextScalar()
-    {
-        if (!TryReadNext()) ThrowEOF();
-        if (IsError) ThrowRespError();
         DemandScalar();
-        return ScalarLength;
+        if (IsStreaming) return ReadStringSlow();
+        string? result;
+        if (_length == 0)
+        {
+            result = IsNull ? null : "";
+        }
+        else
+        {
+            result = CurrentAvailable >= _length
+                ? RespConstants.UTF8.GetString(UnsafeSlice(_length))
+                : ReadStringSlow();
+        }
+        MovePastCurrent();
+        return result;
+    }
+
+    private string ReadStringSlow()
+    {
+        var oversized = CollateScalarLeased(out int length);
+        var s = RespConstants.UTF8.GetString(oversized, 0, length);
+        ArrayPool<byte>.Shared.Return(oversized);
+        return s;
     }
 
     /// <summary>
-    /// Assert that the data is complete.
+    /// Initializes a new instance of the <see cref="RespReader"/> struct.
     /// </summary>
-    public void ReadEnd()
+    public RespReader(ReadOnlySpan<byte> value)
     {
-        if (TryReadNext()) Throw(Prefix);
+        _length = 0;
+        _flags = RespFlags.None;
+        _prefix = RespPrefix.None;
+        SetCurrent(value);
 
-        static void Throw(RespPrefix prefix) => throw new InvalidOperationException($"Unexpected additional data was encountered: {prefix}");
+        _remainingTailLength = _positionBase = 0;
+        _tail = null;
     }
 
-    /// <summary>
-    /// Move to the next RESP element, asserting that it is an aggregate and returning the <see cref="ChildCount"/>.
-    /// </summary>
-    public int ReadNextAggregate()
+    private void MovePastCurrent()
     {
-        if (!TryReadNext()) ThrowEOF();
-        if (IsError) ThrowRespError();
-        DemandAggregate();
-        return ChildCount;
-    }
-
-    /// <summary>
-    /// Attempt to move to the next RESP element.
-    /// </summary>
-    public unsafe bool TryReadNext()
-    {
-#if NETCOREAPP3_0_OR_GREATER
-
+        // skip past the trailing portion of a value, if any
         var skip = TrailingLength;
-        if (_bufferIndex + skip <= _bufferLength)
+        if (_bufferIndex + skip <= CurrentLength)
         {
             _bufferIndex += skip; // available in the current buffer
         }
@@ -616,13 +286,48 @@ public ref struct RespReader
         {
             AdvanceSlow(skip);
         }
-        ResetCurrent();
+
+        // reset the current state
+        _length = 0;
+        _flags = 0;
+        _prefix = RespPrefix.None;
+    }
+
+    /// <inheritdoc cref="RespReader.RespReader(ReadOnlySpan{byte})"/>
+    public RespReader(in ReadOnlySequence<byte> value)
+#if NETCOREAPP3_0_OR_GREATER
+        : this(value.FirstSpan)
+#else
+        : this(value.First.Span)
+#endif
+    {
+        if (!value.IsSingleSegment)
+        {
+            _remainingTailLength = value.Length - CurrentLength;
+            _tail = (value.Start.GetObject() as ReadOnlySequenceSegment<byte>)?.Next ?? MissingNext();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
+        static ReadOnlySequenceSegment<byte> MissingNext() => throw new ArgumentException("Unable to extract tail segment", nameof(value));
+    }
+
+    /// <summary>
+    /// Attempt to move to the next RESP element.
+    /// </summary>
+    public unsafe bool TryReadNext()
+    {
+        MovePastCurrent();
+
+#if NETCOREAPP3_0_OR_GREATER
+        // check what we have available; don't worry about zero/fetching the next segment; this is only
+        // for SIMD lookup, and zero would only apply when data ends exactly on segment boundaries, which
+        // is incredible niche
         var available = _bufferLength - _bufferIndex;
 
         if (Avx2.IsSupported && Bmi1.IsSupported && available >= sizeof(uint))
         {
             // read the first 4 bytes
-            ref byte origin = ref CurrentUnsafe;
+            ref byte origin = ref UnsafeCurrent;
             var comparand = Unsafe.ReadUnaligned<uint>(ref origin);
 
             // broadcast those 4 bytes into a vector, mask to get just the first and last byte, and apply a SIMD equality test with our known cases
@@ -631,80 +336,108 @@ public ref struct RespReader
             // reinterpret that as floats, and pick out the sign bits (which will be 1 for "equal", 0 for "not equal"); since the
             // test cases are mutually exclusive, we expect zero or one matches, so: lzcount tells us which matched
             var index = Bmi1.TrailingZeroCount((uint)Avx.MoveMask(Unsafe.As<Vector256<uint>, Vector256<float>>(ref eqs)));
+            int len;
+#if DEBUG
+            if (VectorizeDisabled) index = uint.MaxValue; // just to break the switch
+#endif
             switch (index)
             {
                 case Raw.CommonRespIndex_Success when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
                     _prefix = RespPrefix.SimpleString;
                     _length = 2;
                     _bufferIndex++;
+                    _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
                     return true;
                 case Raw.CommonRespIndex_SingleDigitInteger when Unsafe.Add(ref origin, 2) == (byte)'\r':
                     _prefix = RespPrefix.Integer;
                     _length = 1;
                     _bufferIndex++;
+                    _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
                     return true;
                 case Raw.CommonRespIndex_DoubleDigitInteger when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
                     _prefix = RespPrefix.Integer;
                     _length = 2;
                     _bufferIndex++;
+                    _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
                     return true;
                 case Raw.CommonRespIndex_SingleDigitString when Unsafe.Add(ref origin, 2) == (byte)'\r':
-                    var len = ParseSingleDigit(ref Unsafe.Add(ref origin, 1));
-                    if (available >= len + 6)
+                    if (comparand == RespConstants.BulkStringStreaming)
                     {
-                        AssertCrlfPastPrefixUnsafe(3 + len);
-                        _prefix = RespPrefix.BulkString;
-                        _length = len;
-                        _bufferIndex += 4;
-                        return true;
+                        _flags = RespFlags.IsScalar | RespFlags.IsStreaming;
                     }
-                    break;
+                    else
+                    {
+                        len = ParseSingleDigit(Unsafe.Add(ref origin, 1));
+                        if (available < len + 6) break; // need more data
+
+                        UnsafeAssertClLf(4 + len);
+                        _length = len;
+                        _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
+                    }
+                    _prefix = RespPrefix.BulkString;
+                    _bufferIndex += 4;
+                    return true;
                 case Raw.CommonRespIndex_DoubleDigitString when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
-                    len = ParseDoubleDigits(ref Unsafe.Add(ref origin, 1));
-                    if (len == -1)
+                    if (comparand == RespConstants.BulkStringNull)
                     {
-                        _prefix = RespPrefix.BulkString;
-                        _length = -1;
+                        _length = 0;
                         _bufferIndex += 5;
+                        _flags = RespFlags.IsScalar | RespFlags.IsNull;
                         return true;
                     }
-                    if (available >= len + 7)
+                    else
                     {
-                        AssertCrlfPastPrefixUnsafe(4 + len);
-                        _prefix = RespPrefix.BulkString;
+                        len = ParseDoubleDigitsNonNegative(ref Unsafe.Add(ref origin, 1));
+                        if (available < len + 7) break; // need more data
+
+                        UnsafeAssertClLf(5 + len);
                         _length = len;
-                        _bufferIndex += 5;
-                        return true;
+                        _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
                     }
-                    break;
+                    _prefix = RespPrefix.BulkString;
+                    _bufferIndex += 5;
+                    return true;
                 case Raw.CommonRespIndex_SingleDigitArray when Unsafe.Add(ref origin, 2) == (byte)'\r':
+                    if (comparand == RespConstants.ArrayStreaming)
+                    {
+                        _flags = RespFlags.IsAggregate | RespFlags.IsStreaming;
+                    }
+                    else
+                    {
+                        _flags = RespFlags.IsAggregate;
+                        _length = ParseSingleDigit(Unsafe.Add(ref origin, 1));
+                    }
                     _prefix = RespPrefix.Array;
-                    _length = ParseSingleDigit(ref Unsafe.Add(ref origin, 1));
                     _bufferIndex += 4;
                     return true;
                 case Raw.CommonRespIndex_DoubleDigitArray when available >= 5 && Unsafe.Add(ref origin, 4) == (byte)'\n':
+                    if (comparand == RespConstants.ArrayNull)
+                    {
+                        _flags = RespFlags.IsAggregate | RespFlags.IsNull;
+                    }
+                    else
+                    {
+                        _length = ParseDoubleDigitsNonNegative(ref Unsafe.Add(ref origin, 1));
+                        _flags = RespFlags.IsAggregate;
+                    }
                     _prefix = RespPrefix.Array;
-                    _length = ParseDoubleDigits(ref Unsafe.Add(ref origin, 1));
                     _bufferIndex += 5;
                     return true;
                 case Raw.CommonRespIndex_Error:
-                    len = PeekPastPrefix().IndexOf(CrlfBytes);
-                    if (len >= 0)
-                    {
-                        _prefix = RespPrefix.SimpleError;
-                        _length = len;
-                        _bufferIndex++;
-                        return true;
-                    }
-                    break;
+                    len = UnsafePastPrefix().IndexOf(RespConstants.CrlfBytes);
+                    if (len < 0) break; // need more data
+
+                    _prefix = RespPrefix.SimpleError;
+                    _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar | RespFlags.IsError;
+                    _length = len;
+                    _bufferIndex++;
+                    return true;
             }
         }
 
-        if (available == 0 && _fullPayload.IsSingleSegment) return false;
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
 
-        static int ParseSingleDigit(ref byte value)
+        static int ParseSingleDigit(byte value)
         {
             return value switch
             {
@@ -717,32 +450,14 @@ public ref struct RespReader
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int ParseDoubleDigits(ref byte value) => value == (byte)'-' ? -ParseSingleDigit(ref Unsafe.Add(ref value, 1))
-                : (10 * ParseSingleDigit(ref value)) + ParseSingleDigit(ref Unsafe.Add(ref value, 1));
+        static int ParseDoubleDigitsNonNegative(ref byte value) => (10 * ParseSingleDigit(value)) + ParseSingleDigit(Unsafe.Add(ref value, 1));
 #endif
 
-        return TryReadNextUnpotimized();
-    }
-
-    /// <summary>
-    /// Attempt to move to the next RESP element.
-    /// </summary>
-    internal bool TryReadNextUnpotimized()
-    {
-        var skip = TrailingLength;
-        if (_bufferIndex + skip <= _bufferLength)
+                // no fancy vectorization, but: we can still try to find the payload the fast way in a single segment
+        if (_bufferIndex + 3 <= CurrentLength) // shortest possible RESP fragment is length 3
         {
-            _bufferIndex += skip; // available in the current buffer
-        }
-        else
-        {
-            AdvanceSlow(skip);
-        }
-        ResetCurrent();
-
-        if (_bufferIndex + 3 <= _bufferLength) // shortest possible RESP fragment is length 3
-        {
-            switch (_prefix = PeekPrefix())
+            var remaining = UnsafePastPrefix();
+            switch (_prefix = UnsafePeekPrefix())
             {
                 case RespPrefix.SimpleString:
                 case RespPrefix.SimpleError:
@@ -751,22 +466,57 @@ public ref struct RespReader
                 case RespPrefix.Double:
                 case RespPrefix.BigNumber:
                     // CRLF-terminated
-                    _length = PeekPastPrefix().IndexOf(CrlfBytes);
+                    _length = remaining.IndexOf(RespConstants.CrlfBytes);
                     if (_length < 0) break; // can't find, need more data
-                    _bufferIndex++; // skip past prefix (payload follows directly)
+                    _bufferIndex++; // payload follows prefix directly
+                    _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
+                    if (_prefix == RespPrefix.SimpleError) _flags |= RespFlags.IsError;
                     return true;
                 case RespPrefix.BulkError:
                 case RespPrefix.BulkString:
                 case RespPrefix.VerbatimString:
-                    // length prefix with value payload
-                    var remaining = PeekPastPrefix();
-                    if (!TryReadIntegerCrLf(remaining, out _length, out int consumed)) break;
-                    if (_length >= 0) // not null (nulls don't have second CRLF)
+                    // length prefix with value payload; first, the length
+                    switch (TryReadLengthPrefix(remaining, out _length, out int consumed))
                     {
-                        // still need to valid terminating CRLF
-                        if (remaining.Length < consumed + _length + 2) break; // need more data
-                        AssertCrlfPastPrefixUnsafe(consumed + _length);
+                        case LengthPrefixResult.Length:
+                            // still need to valid terminating CRLF
+                            if (remaining.Length < consumed + _length + 2) break; // need more data
+                            UnsafeAssertClLf(1 + consumed + _length);
+
+                            _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
+                            break;
+                        case LengthPrefixResult.Null:
+                            _flags = RespFlags.IsScalar | RespFlags.IsNull;
+                            break;
+                        case LengthPrefixResult.Streaming:
+                            _flags = RespFlags.IsScalar | RespFlags.IsStreaming;
+                            break;
                     }
+                    if (_flags == 0) break; // will need more data to know
+                    if (_prefix == RespPrefix.BulkError) _flags |= RespFlags.IsError;
+                    _bufferIndex += 1 + consumed;
+                    return true;
+                case RespPrefix.StreamContinuation:
+                    // length prefix, possibly with value payload; first, the length
+                    switch (TryReadLengthPrefix(remaining, out _length, out consumed))
+                    {
+                        case LengthPrefixResult.Length when _length == 0:
+                            // EOF, no payload
+                            _flags = RespFlags.IsScalar; // don't claim as streaming, we want this to count towards delta-decr
+                            break;
+                        case LengthPrefixResult.Length:
+                            // still need to valid terminating CRLF
+                            if (remaining.Length < consumed + _length + 2) break; // need more data
+                            UnsafeAssertClLf(1 + consumed + _length);
+
+                            _flags = RespFlags.IsScalar | RespFlags.IsInlineScalar | RespFlags.IsStreaming;
+                            break;
+                        case LengthPrefixResult.Null:
+                        case LengthPrefixResult.Streaming:
+                            ThrowProtocolFailure("Invalid streaming scalar length prefix");
+                            break;
+                    }
+                    if (_flags == 0) break; // will need more data to know
                     _bufferIndex += 1 + consumed;
                     return true;
                 case RespPrefix.Array:
@@ -774,14 +524,31 @@ public ref struct RespReader
                 case RespPrefix.Map:
                 case RespPrefix.Push:
                     // length prefix without value payload (child values follow)
-                    if (!TryReadIntegerCrLf(PeekPastPrefix(), out _length, out consumed)) break;
+                    switch (TryReadLengthPrefix(remaining, out _length, out consumed))
+                    {
+                        case LengthPrefixResult.Length:
+                            _flags = RespFlags.IsAggregate;
+                            break;
+                        case LengthPrefixResult.Null:
+                            _flags = RespFlags.IsAggregate | RespFlags.IsNull;
+                            break;
+                        case LengthPrefixResult.Streaming:
+                            _flags = RespFlags.IsAggregate | RespFlags.IsStreaming;
+                            break;
+                    }
+                    if (_flags == 0) break; // will need more data to know
                     _bufferIndex += consumed + 1;
                     return true;
                 case RespPrefix.Null: // null
                     // note we already checked we had 3 bytes
-                    AssertCrlfPastPrefixUnsafe(0);
-                    _length = -1;
+                    UnsafeAssertClLf(1);
+                    _flags = RespFlags.IsScalar | RespFlags.IsNull;
                     _bufferIndex += 3; // skip prefix+terminator
+                    return true;
+                case RespPrefix.StreamTerminator:
+                    // note we already checked we had 3 bytes
+                    UnsafeAssertClLf(1);
+                    _flags = RespFlags.IsAggregate; // don't claim as streaming - this counts towards delta
                     return true;
                 default:
                     ThrowProtocolFailure("Unexpected protocol prefix: " + _prefix);
@@ -789,29 +556,20 @@ public ref struct RespReader
             }
         }
 
-        return TryReadNextSlow();
+        return TryReadNextSlow(ref this);
     }
 
-    /// <inheritdoc/>
-    public override readonly string ToString()
+    private static bool TryReadNextSlow(ref RespReader live)
     {
-        if (IsScalar) return IsNull ? $"@{BytesConsumed} {Prefix}: {nameof(RespPrefix.Null)}" : $"@{BytesConsumed} {Prefix} with {ScalarLength} bytes '{ReadString()}'";
-        if (IsAggregate) return IsNull ? $"@{BytesConsumed} {Prefix}: {nameof(RespPrefix.Null)}" : $"@{BytesConsumed} {Prefix} with {ChildCount} sub-items";
-        return $"@{BytesConsumed} {Prefix}";
-    }
+        // in the case of failure, we don't want to apply any changes,
+        // so we work against an isolated copy until we're happy
+        RespReader isolated = live;
+        isolated.MovePastCurrent();
 
-    private bool NeedMoreData()
-    {
-        ResetCurrent();
-        return false;
-    }
-    private bool TryReadNextSlow()
-    {
-        ResetCurrent();
-        var reader = new SlowReader(in this);
-        int next = reader.TryRead();
-        if (next < 0) return NeedMoreData();
-        switch (_prefix = (RespPrefix)next)
+        int next = isolated.RawTryReadByte();
+        if (next < 0) return false;
+
+        switch (isolated._prefix = (RespPrefix)next)
         {
             case RespPrefix.SimpleString:
             case RespPrefix.SimpleError:
@@ -820,437 +578,220 @@ public ref struct RespReader
             case RespPrefix.Double:
             case RespPrefix.BigNumber:
                 // CRLF-terminated
-                if (!reader.TryFindCrLfWithoutMoving(out _length)) return NeedMoreData();
+                if (!isolated.RawTryFindCrLf(out isolated._length)) return false;
+                isolated._flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
+                if (isolated._prefix == RespPrefix.SimpleError) isolated._flags |= RespFlags.IsError;
                 break;
             case RespPrefix.BulkError:
             case RespPrefix.BulkString:
             case RespPrefix.VerbatimString:
                 // length prefix with value payload
-                if (!reader.TryReadLengthCrLf(out _length)) return NeedMoreData();
-                if (!reader.TryAssertBytesCrLfWithoutMoving(_length)) return NeedMoreData();
+                switch (isolated.RawTryReadLengthPrefix())
+                {
+                    case LengthPrefixResult.Length:
+                        // still need to valid terminating CRLF
+                        if (!isolated.RawTryAssertCrLf()) return false;
+
+                        isolated._flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
+                        break;
+                    case LengthPrefixResult.Null:
+                        isolated._flags = RespFlags.IsScalar | RespFlags.IsNull;
+                        break;
+                    case LengthPrefixResult.Streaming:
+                        isolated._flags = RespFlags.IsScalar | RespFlags.IsStreaming;
+                        break;
+                    case LengthPrefixResult.NeedMoreData:
+                        return false;
+                    default:
+                        ThrowProtocolFailure("Unexpected length prefix");
+                        return false;
+                }
+                if (isolated._prefix == RespPrefix.BulkError) isolated._flags |= RespFlags.IsError;
                 break;
             case RespPrefix.Array:
             case RespPrefix.Set:
             case RespPrefix.Map:
             case RespPrefix.Push:
                 // length prefix without value payload (child values follow)
-                if (!reader.TryReadLengthCrLf(out _length)) return NeedMoreData();
+                switch (isolated.RawTryReadLengthPrefix())
+                {
+                    case LengthPrefixResult.Length:
+                        isolated._flags = RespFlags.IsAggregate;
+                        break;
+                    case LengthPrefixResult.Null:
+                        isolated._flags = RespFlags.IsAggregate | RespFlags.IsNull;
+                        break;
+                    case LengthPrefixResult.Streaming:
+                        isolated._flags = RespFlags.IsAggregate | RespFlags.IsStreaming;
+                        break;
+                    case LengthPrefixResult.NeedMoreData:
+                        return false;
+                    default:
+                        ThrowProtocolFailure("Unexpected length prefix");
+                        return false;
+                }
                 break;
             case RespPrefix.Null: // null
-                if (!reader.TryReadCrLf()) return NeedMoreData();
+                if (!isolated.RawAssertCrLf()) return false;
+                isolated._flags = RespFlags.IsScalar | RespFlags.IsNull;
+                break;
+            case RespPrefix.StreamTerminator:
+                if (!isolated.RawAssertCrLf()) return false;
+                isolated._flags = RespFlags.IsAggregate; // don't claim as streaming - this counts towards delta
+                break;
+            case RespPrefix.StreamContinuation:
+                // length prefix, possibly with value payload; first, the length
+                switch (isolated.RawTryReadLengthPrefix())
+                {
+                    case LengthPrefixResult.Length when isolated._length == 0:
+                        // EOF, no payload
+                        isolated._flags = RespFlags.IsScalar; // don't claim as streaming, we want this to count towards delta-decr
+                        break;
+                    case LengthPrefixResult.Length:
+                        // still need to valid terminating CRLF
+                        if (!isolated.RawTryAssertCrLf()) return false; // need more data
+
+                        isolated._flags = RespFlags.IsScalar | RespFlags.IsInlineScalar | RespFlags.IsStreaming;
+                        break;
+                    case LengthPrefixResult.Null:
+                    case LengthPrefixResult.Streaming:
+                        ThrowProtocolFailure("Invalid streaming scalar length prefix");
+                        break;
+                    case LengthPrefixResult.NeedMoreData:
+                    default:
+                        return false;
+                }
                 break;
             default:
-                ThrowProtocolFailure("Unexpected protocol prefix: " + _prefix);
-                return NeedMoreData();
+                ThrowProtocolFailure("Unexpected protocol prefix: " + isolated._prefix);
+                return false;
         }
-        AdvanceSlow(reader.TotalConsumed);
+        // commit the speculative changes back, and accept
+        live = isolated;
         return true;
     }
 
-    private ref partial struct SlowReader
+    private void AdvanceSlow(long bytes)
     {
-        public SlowReader(in RespReader reader)
+        while (bytes > 0)
         {
-#if NET7_0_OR_GREATER
-            _full = ref reader._fullPayload;
-#else
-            _full = reader._fullPayload;
-#endif
-            _segPos = reader._segPos;
-            _current = reader.PeekCurrent();
-            _totalBase = _index = 0;
-            DebugAssertValid();
-        }
-
-        [Conditional("DEBUG")]
-        readonly partial void DebugAssertValid();
-#if DEBUG
-        readonly partial void DebugAssertValid()
-        {
-            Debug.Assert(_index >= 0 && _index <= _current.Length);
-        }
-#endif
-
-        private bool TryAdvanceToData()
-        {
-            DebugAssertValid();
-            while (CurrentRemainingBytes == 0)
+            var available = CurrentLength - _bufferIndex;
+            if (bytes <= available)
             {
-                if (_full.IsSingleSegment || !_full.TryGet(ref _segPos, out var next))
-                {
-                    return false;
-                }
-                _totalBase += _current.Length; // accumulate prior
-                _current = next.Span;
-                _index = 0;
+                _bufferIndex += (int)bytes;
+                return;
             }
-            DebugAssertValid();
-            return true;
+            bytes -= available;
+
+            if (!TryMoveToNextSegment()) Throw();
         }
 
-        public int TryRead()
-        {
-            if (CurrentRemainingBytes == 0 && !TryAdvanceToData()) return -1;
-            return _current[_index++];
-        }
+        [DoesNotReturn]
+        static void Throw() => throw new EndOfStreamException("Unexpected end of payload; this is unexpected because we already validated that it was available!");
+    }
 
-        private readonly int CurrentRemainingBytes
+    private bool TryMoveToNextSegment()
+    {
+        while (_tail is not null)
         {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _current.Length - _index;
-        }
-        internal bool TryReadCrLf() // assert and advance
-        {
-            DebugAssertValid();
-            if (CurrentRemainingBytes >= 2)
+            var memory = _tail.Memory;
+            _tail = _tail.Next;
+            if (!memory.IsEmpty)
             {
-                AssertClLfUnsafe(in _current[_index]);
-                _index += 2;
+                var span = memory.Span; // check we can get this before mutating anything
+                _positionBase += CurrentLength;
+                _remainingTailLength -= span.Length;
+                SetCurrent(span);
                 return true;
             }
-
-            var x = TryRead();
-            if (x < 0) return false;
-            if (x != '\r') ThrowProtocolFailure("Expected CR/LF");
-            x = TryRead();
-            if (x < 0) return false;
-            if (x != '\n') ThrowProtocolFailure("Expected CR/LF");
-            return true;
         }
-
-        internal bool TryReadLengthCrLf(out int length)
-        {
-            if (CurrentRemainingBytes >= MaxRawBytesInt32 + 2)
-            {
-                if (TryReadIntegerCrLf(_current.Slice(_index), out length, out int consumed))
-                {
-                    _index += consumed;
-                    return true;
-                }
-            }
-            else
-            {
-                Span<byte> buffer = stackalloc byte[MaxRawBytesInt32 + 2];
-                SlowReader snapshot = this; // we might over-advance when filling the buffer
-                length = snapshot.Fill(buffer);
-                if (TryReadIntegerCrLf(buffer.Slice(0, length), out length, out int consumed))
-                {
-                    // we expect this to work - we just aw the bytes!
-                    if (!TryAdvance(consumed)) Throw();
-                    return true;
-
-                    static void Throw() => throw new InvalidOperationException("Unexpected failure to advance in " + nameof(TryReadLengthCrLf));
-                }
-            }
-            return false;
-        }
-
-        internal int Fill(scoped Span<byte> buffer)
-        {
-            DebugAssertValid();
-            int total = 0;
-            while (buffer.Length > 0 && TryAdvanceToData())
-            {
-                int available = CurrentRemainingBytes;
-                if (available >= buffer.Length)
-                {
-                    // we have enough to finish
-                    _current.Slice(_index, buffer.Length).CopyTo(buffer);
-                    _index += buffer.Length;
-                    total += buffer.Length;
-                    break;
-                }
-
-                // not enough; copy what we have
-                var source = _current.Slice(_index);
-                source.CopyTo(buffer);
-                _index += available;
-                total += available;
-                buffer = buffer.Slice(available);
-            }
-            DebugAssertValid();
-            return total;
-        }
-
-        private bool TryAdvance(int bytes)
-        {
-            DebugAssertValid();
-            while (bytes > 0 && TryAdvanceToData())
-            {
-                var available = CurrentRemainingBytes;
-                if (bytes <= available)
-                {
-                    _index += bytes;
-                    return true;
-                }
-                _index += available;
-                bytes -= available;
-            }
-            DebugAssertValid();
-            return bytes == 0;
-        }
-
-        internal readonly bool TryAssertBytesCrLfWithoutMoving(int length)
-        {
-            SlowReader copy = this;
-            return copy.TryAdvance(length) && copy.TryReadCrLf();
-        }
-
-        internal readonly bool TryFindCrLfWithoutMoving(out int length)
-        {
-            DebugAssertValid();
-            SlowReader copy = this; // don't want to advance
-            length = 0;
-            while (copy.TryAdvanceToData())
-            {
-                var index = copy._current.Slice(copy._index).IndexOf((byte)'\r');
-                if (index >= 0)
-                {
-                    length += index;
-                    if (!(copy.TryAdvance(index) && copy.TryReadCrLf())) return false;
-                    return true;
-                }
-                var scanned = copy.CurrentRemainingBytes;
-                length += scanned;
-                copy._index += scanned;
-            }
-            return false;
-        }
-
-#if NET7_0_OR_GREATER
-        private readonly ref readonly ReadOnlySequence<byte> _full;
-#else
-        private readonly ReadOnlySequence<byte> _full;
-#endif
-        private SequencePosition _segPos;
-        private ReadOnlySpan<byte> _current;
-        private int _index;
-        private long _totalBase;
-        public readonly long TotalConsumed => _totalBase + _index;
-
-        internal bool StartsWith(scoped ReadOnlySpan<byte> value)
-        {
-            while (value.Length > 0 && TryAdvanceToData())
-            {
-                int available = CurrentRemainingBytes;
-                if (available >= value.Length)
-                {
-                    // we have enough to finish
-                    return _current.StartsWith(value);
-                }
-
-                // not enough; test what we have
-                var source = _current.Slice(_index);
-                if (!source.SequenceEqual(value.Slice(0, available)))
-                    return false;
-                _index += available;
-                value = value.Slice(available);
-            }
-            return value.IsEmpty;
-        }
+        return false;
     }
 
-    /// <summary>Performs a byte-wise equality check on the payload.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal readonly bool IsOK() // go mad with this, because it is used so often
+    {
+        return (IsInlineScalar && _length == 2 && CurrentAvailable >= 2)
+                ? Unsafe.ReadUnaligned<ushort>(ref UnsafeCurrent) == RespConstants.OKUInt16
+                : IsSlow(RespConstants.OKBytes);
+    }
+
+    /// <summary>
+    /// Indicates whether the current element is a scalar with a value that matches the provided <paramref name="value"/>.
+    /// </summary>
     public readonly bool Is(ReadOnlySpan<byte> value)
     {
-        if (!(IsScalar && value.Length == _length)) return false;
-        if (TryGetValueSpan(out var span))
-        {
-            return span.SequenceEqual(value);
-        }
-        return IsSlow(value);
+        return (IsInlineScalar && _length == value.Length && CurrentAvailable >= value.Length)
+                ? UnsafeSlice(value.Length).SequenceEqual(value)
+                : IsSlow(value);
     }
 
-    /// <summary>Performs a byte-wise equality check on the payload.</summary>
+    /// <summary>
+    /// Indicates whether the current element is a scalar with a value that matches the provided <paramref name="value"/>.
+    /// </summary>
     public readonly bool Is(byte value)
     {
-        if (!(IsScalar && 1 == _length)) return false;
-        if (TryGetValueSpan(out var span))
-        {
-            return span[0] == value;
-        }
-        return IsSlow([value]);
+        return (IsInlineScalar && _length == 1 && CurrentAvailable >= 1)
+                ? UnsafeCurrent == value
+                : IsSlow(stackalloc byte[1] { value });
     }
 
-    private readonly bool IsSlow(ReadOnlySpan<byte> value) => value.Length == ScalarLength && new SlowReader(in this).StartsWith(value);
-
-    internal readonly bool IsOK() // go mad with this, because it is used so often
-        => _length == 2 & _bufferIndex + 2 <= _bufferLength // single-buffer fast path - can we safely read 2 bytes?
-        ? Prefix == RespPrefix.SimpleString & Unsafe.ReadUnaligned<ushort>(ref CurrentUnsafe) == OK
-        : IsOKSlow();
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private readonly bool IsOKSlow() => _length == 2 && Prefix == RespPrefix.SimpleString && IsSlow("OK"u8);
-
-    // note this should be treated as "const" by modern JIT
-    private static readonly ushort OK = UnsafeCpuUInt16("OK"u8);
-
-    /// <summary>
-    /// Skips all child/descendent nodes of this element, returning the number
-    /// of elements skipped.
-    /// </summary>
-    public int SkipChildren()
+    private readonly bool IsSlow(ReadOnlySpan<byte> payload)
     {
-        int remaining = ChildCount, total = 0;
-        while (remaining > 0 && TryReadNext())
+        RespReader clone;
+        if (IsInlineScalar)
         {
-            total++;
-            remaining = remaining - 1 + ChildCount;
-        }
-        if (remaining != 0) ThrowEOF();
-        return total;
-    }
-    [DoesNotReturn]
-    internal static void ThrowEOF() => throw new EndOfStreamException();
+            if (_length != payload.Length) return false;
 
-    /// <summary>
-    /// Parse a scalar value as an enum of type <typeparamref name="T"/>.
-    /// </summary>
-    [SuppressMessage("Style", "IDE0018:Inline variable declaration", Justification = "Not in all # cases")]
-    public readonly T ReadEnum<T>(T unknownValue = default) where T : struct, Enum
-    {
-        const int MAX_STACK = 256;
-        DemandScalar();
-        var len = ScalarLength;
-        int count;
-        T value;
-        if (len <= MAX_STACK && TryGetValueSpan(out var bytes))
-        {
-#if NET6_0_OR_GREATER
-            Span<char> chars = stackalloc char[len];
-            count = Encoding.UTF8.GetChars(bytes, chars);
-            chars = chars.Slice(0, count);
-            if (!Enum.TryParse(chars, true, out value))
+            clone = Clone();
+            do
             {
-                value = unknownValue;
+                var current = clone.CurrentSpan();
+                if (current.Length >= payload.Length)
+                {
+                    // final chunk
+                    return current.StartsWith(payload);
+                }
+                else
+                {
+                    // check what we can
+                    if (payload.StartsWith(current)) return false;
+                    payload = payload.Slice(current.Length);
+                }
             }
-            return value;
-#endif
+            while (clone.TryMoveToNextSegment());
+            ThrowEOF();
+            return false;
         }
-        byte[] bytesArr = ArrayPool<byte>.Shared.Rent(len);
-        CopyTo(bytesArr);
-        char[] charsArr = ArrayPool<char>.Shared.Rent(len);
-
-        count = Encoding.UTF8.GetChars(bytesArr, 0, len, charsArr, 0);
-#if NET6_0_OR_GREATER
-        if (!Enum.TryParse(new ReadOnlySpan<char>(charsArr, 0, count), true, out value))
+        else if (IsStreamingScalar)
         {
-            value = unknownValue;
-        }
-#else
-        if (!Enum.TryParse(new string(charsArr, 0, count), true, out value))
-        {
-            value = unknownValue;
-        }
-#endif
-        ArrayPool<char>.Shared.Return(charsArr);
-        ArrayPool<byte>.Shared.Return(bytesArr);
-        return value;
-    }
-
-    /// <summary>
-    /// Assert that the value is not null.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly void DemandNotNull()
-    {
-        if (IsNull) Throw(Prefix);
-
-        [DoesNotReturn, MethodImpl(MethodImplOptions.NoInlining)]
-        static void Throw(RespPrefix prefix) => throw new InvalidOperationException($"{prefix} value is null");
-    }
-
-    /// <summary>
-    /// Read a scalar string value.
-    /// </summary>
-    public readonly LeasedString ReadLeasedString()
-    {
-        Debug.Assert(IsScalar, "should have already checked for scalar");
-        DemandScalar();
-        if (IsNull) return default;
-        var len = ScalarLength;
-        if (len == 0) return LeasedString.Empty;
-
-        var lease = new LeasedString(len, out var memory);
-        int copied = CopyTo(memory.Span);
-        Debug.Assert(copied == len);
-        return lease;
-    }
-
-    /// <summary>
-    /// Reads an aggregate value as a <see cref="LeasedStrings"/> value.
-    /// </summary>
-    public LeasedStrings ReadLeasedStrings()
-    {
-        Debug.Assert(IsAggregate, "should have already checked for aggregate");
-        DemandAggregate();
-        if (IsNull) return default;
-
-        var childCount = ChildCount;
-        if (childCount == 0) return LeasedStrings.Empty;
-
-        // find the total payload length first, for efficient LeasedStrings usage
-        long totalBytes = 0;
-        {
-            // scope here to make sure we don't access copy again after
-            RespReader copy = this;
-            for (int i = 0; i < childCount; i++)
+            clone = Clone();
+            while (true)
             {
-                copy.ReadNextScalar();
-                copy.Demand(RespPrefix.BulkString);
-                totalBytes += copy.ScalarLength;
+                clone.MoveNext(false);
+                Debug.Assert(clone.IsScalar);
+
+                if (clone.Prefix != RespPrefix.StreamContinuation) ThrowProtocolFailure("Streaming continuation expected");
+
+                if (clone._length == 0) return payload.IsEmpty; // last streaming segment is an empty marker
+
+                if (clone._length > payload.Length) return false; // too much data
+
+                if (!clone.Is(payload.Slice(0, clone._length))) return false; // check fragment
             }
-        }
-
-        // now snag the data
-        var builder = new LeasedStrings.Builder(childCount, checked((int)totalBytes));
-        try
-        {
-            for (int i = 0; i < childCount; i++)
-            {
-                ReadNextScalar();
-                int written = CopyTo(builder.Add(ScalarLength, clear: false));
-                Debug.Assert(written == ScalarLength, "copy mismatch");
-            }
-            Debug.Assert(builder.Count == childCount, "all child elements written?");
-            Debug.Assert(builder.PayloadBytes == totalBytes, "all paylaod data written?");
-
-            var result = builder.Create();
-            Debug.Assert(result.Count == childCount);
-            return result;
-        }
-        catch (Exception ex)
-        {
-            builder.Dispose();
-            Debug.Write(ex.Message);
-            throw;
-        }
-    }
-
-    internal void DebugReset()
-    {
-        _bufferIndex = 0;
-        ResetCurrent();
-    }
-
-    /// <summary>Performs a byte-wise equality check on the payload.</summary>
-    public bool Is(in SimpleString request)
-    {
-        if (request.TryGetBytes(span: out var span))
-        {
-            return Is(span);
         }
         else
         {
-            if (!IsScalar) return false;
-            var len = request.GetByteCount();
-            if (len != ScalarLength) return false;
-            var arr = ArrayPool<byte>.Shared.Rent(len);
-            var actual = request.CopyTo(arr);
-            Debug.Assert(len == actual, "length check failure");
-            var result = Is(new ReadOnlySpan<byte>(arr, 0, len));
-            ArrayPool<byte>.Shared.Return(arr);
-            return result;
+            return false;
         }
+    }
+
+    /// <summary>
+    /// Asserts that the current element is not null.
+    /// </summary>
+    public void DemandNotNull()
+    {
+        if (IsNull) Throw();
+        static void Throw() => throw new InvalidOperationException("A non-null element was expected");
     }
 }

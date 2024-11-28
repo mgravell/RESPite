@@ -138,11 +138,11 @@ public static class Utils
 
     public static string GetCommandText(ref RespReader reader, int sizeHint = int.MaxValue)
     {
-        reader.ReadNextAggregate();
+        reader.MoveNextAggregate();
         reader.Demand(RespPrefix.Array);
 
         var len = reader.ChildCount;
-        reader.ReadNextScalar();
+        reader.MoveNextScalar();
         reader.Demand(RespPrefix.BulkString);
         reader.DemandNotNull();
         string cmd = reader.ReadString()!;
@@ -151,7 +151,7 @@ public static class Utils
             var sb = new StringBuilder(cmd);
             for (int i = 1; i < len; i++)
             {
-                reader.ReadNextScalar();
+                reader.MoveNextScalar();
                 reader.Demand(RespPrefix.BulkString);
                 reader.DemandNotNull();
                 string orig = reader.ReadString()!;

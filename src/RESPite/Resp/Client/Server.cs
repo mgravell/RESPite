@@ -33,28 +33,26 @@ public static class Server
 
         Empty IReader<Empty, Empty>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
-            var reader = new RespReader(content, throwOnErrorResponse: true);
+            var reader = new RespReader(content);
             return Read(in request, ref reader);
         }
 
         Empty IReader<SimpleString, Empty>.Read(in SimpleString request, in ReadOnlySequence<byte> content)
         {
-            var reader = new RespReader(content, throwOnErrorResponse: true);
+            var reader = new RespReader(content);
             return Read(in request, ref reader);
         }
 
         public Empty Read(in Empty request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
-            reader.Demand(RespPrefix.SimpleString);
+            reader.MoveNext(RespPrefix.SimpleString);
             if (!reader.Is("PONG"u8)) ThrowMissingExpected("PONG");
             return default;
         }
 
         public Empty Read(in SimpleString request, ref RespReader reader)
         {
-            reader.ReadNextScalar();
-            reader.Demand(RespPrefix.BulkString);
+            reader.MoveNext(RespPrefix.BulkString);
 
             if (!reader.Is(request)!) ThrowMissingExpected(request);
             return Empty.Value;

@@ -16,9 +16,8 @@ public abstract class ResponseReader<TResponse> : IReader<Empty, TResponse>, IRe
     /// </summary>
     public virtual TResponse Read(scoped in ReadOnlySequence<byte> content)
     {
-        var reader = new RespReader(in content, throwOnErrorResponse: true);
-        if (!reader.TryReadNext()) RespReader.ThrowEOF();
-        reader.ThrowIfError();
+        var reader = new RespReader(in content);
+        reader.MoveNext();
         return Read(ref reader);
     }
 
@@ -42,9 +41,8 @@ public abstract class ResponseReader<TRequest, TResponse> : IReader<TRequest, TR
     /// </summary>
     public virtual TResponse Read(in TRequest request, in ReadOnlySequence<byte> content)
     {
-        var reader = new RespReader(in content, throwOnErrorResponse: true);
-        if (!reader.TryReadNext()) RespReader.ThrowEOF();
-        reader.ThrowIfError();
+        var reader = new RespReader(in content);
+        reader.MoveNext();
         return Read(in request, ref reader);
     }
 

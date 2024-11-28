@@ -1,21 +1,33 @@
 ﻿using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace RESPite.Resp;
 
 internal static partial class RespConstants
 {
+    public static readonly UTF8Encoding UTF8 = new(false);
+
     public static ReadOnlySpan<byte> CrlfBytes => "\r\n"u8;
 
     public static readonly ushort CrLfUInt16 = UnsafeCpuUInt16(CrlfBytes);
+
+    public static ReadOnlySpan<byte> OKBytes => "OK"u8;
+    public static readonly ushort OKUInt16 = UnsafeCpuUInt16(OKBytes);
+
+    public static readonly uint BulkStringStreaming = UnsafeCpuUInt32("$?\r\n"u8);
+    public static readonly uint BulkStringNull = UnsafeCpuUInt32("$-1\r"u8);
+
+    public static readonly uint ArrayStreaming = UnsafeCpuUInt32("*?\r\n"u8);
+    public static readonly uint ArrayNull = UnsafeCpuUInt32("*-1\r"u8);
 
     public static ushort UnsafeCpuUInt16(ReadOnlySpan<byte> bytes)
         => Unsafe.ReadUnaligned<ushort>(ref MemoryMarshal.GetReference(bytes));
     public static ushort UnsafeCpuUInt16(ReadOnlySpan<byte> bytes, int offset)
         => Unsafe.ReadUnaligned<ushort>(ref Unsafe.Add(ref MemoryMarshal.GetReference(bytes), offset));
     public static byte UnsafeCpuByte(ReadOnlySpan<byte> bytes, int offset)
-    => Unsafe.Add(ref MemoryMarshal.GetReference(bytes), offset);
+        => Unsafe.Add(ref MemoryMarshal.GetReference(bytes), offset);
     public static uint UnsafeCpuUInt32(ReadOnlySpan<byte> bytes)
         => Unsafe.ReadUnaligned<uint>(ref MemoryMarshal.GetReference(bytes));
     public static uint UnsafeCpuUInt32(ReadOnlySpan<byte> bytes, int offset)

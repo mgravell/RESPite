@@ -70,7 +70,7 @@ public partial class CommandFactory : IRespWriterFactory<Scan.Request>, IRespRea
 
         public override Scan.Response Read(ref RespReader reader)
         {
-            reader.Demand(RespPrefix.Array);
+            reader.AssertAggregate();
             if (reader.ChildCount < 2 || !reader.TryReadNext()) Throw();
 
             var cursor = reader.ReadInt64();

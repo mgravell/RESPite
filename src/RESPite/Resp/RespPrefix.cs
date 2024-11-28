@@ -80,9 +80,18 @@ public enum RespPrefix : byte
     /// </summary>
     Push = (byte)'>',
 
-    // these are not actually implemented by any server; no
-    // longer part of RESP3?
-    // Stream = (byte)';',
-    // UnboundEnd = (byte)'.',
-    // Attribute = (byte)'|',
+    /// <summary>
+    /// Continuation of streaming scalar values.
+    /// </summary>
+    StreamContinuation = (byte)';',
+
+    /// <summary>
+    /// End sentinel for streaming aggregate values.
+    /// </summary>
+    StreamTerminator = (byte)'.',
+
+    /// <summary>
+    /// Metadata about the next element.
+    /// </summary>
+    Attribute = (byte)'|',
 }
