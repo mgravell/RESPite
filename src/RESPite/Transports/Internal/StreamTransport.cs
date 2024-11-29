@@ -13,7 +13,9 @@ internal sealed class StreamTransport : IByteTransport
     private readonly bool _closeStreams;
     private BufferCore<byte> _buffer;
 
-    internal StreamTransport(Stream duplex, bool closeStreams) : this(duplex, duplex, closeStreams) { }
+    internal StreamTransport(Stream duplex, bool closeStreams) : this(duplex, duplex, closeStreams)
+    {
+    }
     internal StreamTransport(Stream source, Stream target, bool closeStreams)
     {
         if (source is null) throw new ArgumentNullException(nameof(source));

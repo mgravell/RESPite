@@ -7,6 +7,7 @@ using System.Text;
 using RESPite.Gateways.Internal;
 using RESPite.Internal.Buffers;
 using RESPite.Messages;
+using RESPite.Resp;
 using RESPite.Transports.Internal;
 
 namespace RESPite.Transports;
@@ -263,7 +264,7 @@ public static class TransportExtensions
                         break;
                     case OperationStatus.NeedMoreData:
                         transport.Advance(0);
-                        Debug.WriteLineIf(!entireBuffer.IsEmpty, $"need more after {entireBuffer.Length} bytes: {(entireBuffer.Length < 100 ? Constants.UTF8.GetString(entireBuffer) : Constants.UTF8.GetString(entireBuffer.Slice(0, 100)) + "...")}");
+                        Debug.WriteLineIf(!entireBuffer.IsEmpty, $"need more after {entireBuffer.Length} bytes: {(entireBuffer.Length < 100 ? RespConstants.UTF8.GetString(entireBuffer) : RespConstants.UTF8.GetString(entireBuffer.Slice(0, 100)) + "...")}");
                         if (!transport.TryRead(Math.Max(scanInfo.ReadHint, 1))) ThrowEOF();
                         continue;
                     case OperationStatus.Done when scanInfo.BytesRead <= 0:
@@ -335,7 +336,7 @@ public static class TransportExtensions
                         break;
                     case OperationStatus.NeedMoreData:
                         transport.Advance(0);
-                        if (!await transport.TryReadAsync(Math.Max(scanInfo.ReadHint, 1)).ConfigureAwait(false)) ThrowEOF();
+                        if (!await transport.TryReadAsync(Math.Max(scanInfo.ReadHint, 1), token).ConfigureAwait(false)) ThrowEOF();
                         continue;
                     case OperationStatus.Done when scanInfo.BytesRead <= 0:
                         // if we're not making progress, we'd loop forever

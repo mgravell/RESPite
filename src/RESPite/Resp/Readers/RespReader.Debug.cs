@@ -1,8 +1,11 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics;
 
 namespace RESPite.Resp.Readers;
 
+[DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
+#pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 public ref partial struct RespReader
+#pragma warning restore CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 {
     internal bool DebugEquals(in RespReader other)
         => _prefix == other._prefix

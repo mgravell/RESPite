@@ -126,7 +126,7 @@ public sealed class RespFrameScanner : IFrameScanner<RespFrameScanner.RespFrameS
 
         static OperationStatus TryReadViaReader(ref RespFrameState state, in ReadOnlySequence<byte> data, ref FrameScanInfo info, bool pubsub)
         {
-            var reader = new RespReader(in data, throwOnErrorResponse: false);
+            var reader = new RespReader(in data);
             int remaining = state.Remaining;
             while (remaining != 0 && reader.TryReadNext()) // TODO: implement info.ReadHint
             {
@@ -153,22 +153,23 @@ public sealed class RespFrameScanner : IFrameScanner<RespFrameScanner.RespFrameS
         }
     }
 
-    void IFrameScanner<RespFrameState>.Trim(ref RespFrameState state, ref ReadOnlySequence<byte> data, ref FrameScanInfo info) { }
+    void IFrameScanner<RespFrameState>.Trim(ref RespFrameState state, ref ReadOnlySequence<byte> data, ref FrameScanInfo info)
+    {
+    }
 
     void IFrameValidator.Validate(in ReadOnlySequence<byte> message)
     {
         if (message.IsEmpty) Throw("Empty RESP frame");
-        RespReader reader = new(in message, throwOnErrorResponse: false);
-        if (!reader.TryReadNext(RespPrefix.Array)) ThrowEOF("command header");
+        RespReader reader = new(in message);
+        reader.MoveNext(RespPrefix.Array);
         var count = reader.ChildCount;
         for (int i = 0; i < count; i++)
         {
-            if (!reader.TryReadNext(RespPrefix.BulkString)) ThrowEOF("command argument " + i);
-            if (i == 0 && reader.ScalarLength == 0) Throw("command must be non-empty");
+            reader.MoveNext(RespPrefix.BulkString);
+            if (i == 0 && reader.ScalarIsEmpty()) Throw("command must be non-empty");
         }
-        if (reader.TryReadNext()) Throw($"command should be a single root element; found: {reader.Prefix}");
+        reader.DemandEnd();
 
-        static void ThrowEOF(string message) => throw new EndOfStreamException("Data terminated prematurely: " + message);
         static void Throw(string message) => throw new InvalidOperationException(message);
     }
 

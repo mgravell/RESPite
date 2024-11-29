@@ -7,7 +7,8 @@ namespace RESPite.Transports;
 /// Message transport that supports synchronous and asynchronous calling.
 /// </summary>
 public interface IMessageTransport : ISyncMessageTransport, IAsyncMessageTransport // diamond
-{ }
+{
+}
 
 /// <summary>
 /// Message transport that supports asynchronous calling.

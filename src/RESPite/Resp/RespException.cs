@@ -3,4 +3,6 @@
 /// <summary>
 /// Represents a RESP error message.
 /// </summary>
-public sealed class RespException(string message) : Exception(message) { }
+public sealed class RespException(string message) : Exception(message)
+{
+}

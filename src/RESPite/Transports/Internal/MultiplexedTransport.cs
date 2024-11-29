@@ -3,24 +3,27 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text;
 using RESPite.Internal.Buffers;
 using RESPite.Messages;
+using RESPite.Resp;
 
 namespace RESPite.Transports.Internal;
 
 internal sealed class MultiplexedTransport<TState>(IByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, CancellationToken lifetime)
         : MultiplexedTransportBase<TState>(transport, scanner, validateOutbound, lifetime), IMultiplexedTransport
-{ }
+{
+}
 
 internal sealed class SyncMultiplexedTransport<TState>(ISyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, CancellationToken lifetime)
     : MultiplexedTransportBase<TState>(transport, scanner, validateOutbound, lifetime), ISyncMultiplexedTransport
-{ }
+{
+}
 
 internal sealed class AsyncMultiplexedTransportTransport<TState>(IAsyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, CancellationToken lifetime)
     : MultiplexedTransportBase<TState>(transport, scanner, validateOutbound, lifetime), IAsyncMultiplexedTransport
-{ }
+{
+}
 
 internal abstract partial class MultiplexedTransportBase<TState> : IRequestResponseBase
 {
@@ -151,6 +154,7 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
         }
     }
 
+    [SuppressMessage("Style", "IDE0045:Convert to conditional expression", Justification = "Clarity")]
     public MultiplexedTransportBase(IByteTransportBase transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, CancellationToken lifetime)
     {
         _lifetime = lifetime;
@@ -299,7 +303,7 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
             }
             else
             {
-                Debug.WriteLine($"{GetType().Name} sending {content.Length} bytes to transport: {Constants.UTF8.GetString(content)}");
+                Debug.WriteLine($"{GetType().Name} sending {content.Length} bytes to transport: {RespConstants.UTF8.GetString(content)}");
             }
             AsValidator().Validate(in content);
         }
@@ -319,7 +323,7 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
 #endif
     }
 
-    private Func<Task> _backlogAsyncWorker;
+    private readonly Func<Task> _backlogAsyncWorker;
     private void StartBacklogAsyncWorker() => Task.Run(_backlogAsyncWorker);
 
     private void ExecuteBacklogSyncWorker()

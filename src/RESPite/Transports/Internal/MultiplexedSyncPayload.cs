@@ -48,7 +48,9 @@ internal sealed class MultiplexedSyncPayload<TResponse> : MultiplexedSyncPayload
     [ThreadStatic]
     private static MultiplexedSyncPayload<TResponse>? _spare;
 
-    private MultiplexedSyncPayload() { }
+    private MultiplexedSyncPayload()
+    {
+    }
 
     protected override TResponse Read(in ReadOnlySequence<byte> payload) => Reader.Read(in Empty.Value, in payload);
 

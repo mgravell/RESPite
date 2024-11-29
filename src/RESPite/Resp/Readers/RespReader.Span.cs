@@ -5,7 +5,9 @@ using System.Runtime.InteropServices;
 
 namespace RESPite.Resp.Readers;
 
+#pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
+#pragma warning restore IDE0079 // Remove unnecessary suppression
 
 /*
  How we actually implement the underlying buffer depends on the capabilities of the runtime.
@@ -30,9 +32,6 @@ public ref partial struct RespReader
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get => _bufferLength;
     }
-
-    private readonly partial ReadOnlySpan<byte> UnsafeSlice(int length) =>
-        MemoryMarshal.CreateReadOnlySpan(ref UnsafeCurrent, length);
 
     private readonly partial ReadOnlySpan<byte> CurrentSpan() => MemoryMarshal.CreateReadOnlySpan(
         ref UnsafeCurrent, CurrentAvailable);
@@ -63,9 +62,6 @@ public ref partial struct RespReader // much more conservative - uses slices etc
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get => _buffer.Length;
     }
-
-    private readonly partial ReadOnlySpan<byte> UnsafeSlice(int length)
-        => _buffer.Slice(_bufferIndex, length);
 
     private readonly partial ReadOnlySpan<byte> UnsafePastPrefix() => _buffer.Slice(_bufferIndex + 1);
 

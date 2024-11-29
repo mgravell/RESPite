@@ -1,12 +1,13 @@
-﻿using System.Buffers;
-using System.Buffers.Text;
+﻿using System.Buffers.Text;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace RESPite.Resp.Readers;
 
+#pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 public ref partial struct RespReader
+#pragma warning restore CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void UnsafeAssertClLf(int offset) => UnsafeAssertClLf(ref UnsafeCurrent, offset);
@@ -86,61 +87,6 @@ public ref partial struct RespReader
         }
     }
 
-    // Linearize data that could be coming either from multiple segments in non-streamed RESP,
-    // or from multiple streamed RESP fragments.
-    private byte[] CollateScalarLeased(out int length)
-    {
-        Debug.Assert(IsScalar);
-        byte[] arr;
-        if (IsStreaming)
-        {
-            arr = ArrayPool<byte>.Shared.Rent(512); // take a random punt, without being excessive
-            length = 0;
-            while (true)
-            {
-                MoveNext(false);
-                Debug.Assert(IsScalar);
-                Debug.Assert(_length >= 0);
-
-                if (Prefix != RespPrefix.StreamContinuation) ThrowProtocolFailure("Streaming continuation expected");
-
-                if (_length == 0) break;
-                if (arr.Length < _length + length) // need a bigger buffer
-                {
-                    var tmp = ArrayPool<byte>.Shared.Rent(_length + length);
-                    arr.AsSpan(0, length).CopyTo(tmp);
-                    ArrayPool<byte>.Shared.Return(arr);
-                    arr = tmp;
-                }
-                UnsafeSlice(_length).CopyTo(arr.AsSpan(start: length));
-                length += _length;
-            }
-            MovePastCurrent();
-            return arr;
-        }
-        else
-        {
-            int remaining = length = _length;
-            if (remaining > TotalAvailable) ThrowEOF(); // just not available
-            arr = ArrayPool<byte>.Shared.Rent(remaining);
-            do
-            {
-                var take = Math.Min(CurrentAvailable, remaining);
-                UnsafeSlice(take).CopyTo(new(arr, length - remaining, take));
-                remaining -= take;
-
-                if (remaining == 0)
-                {
-                    return arr;
-                }
-            }
-            while (TryMoveToNextSegment());
-        }
-        return ThrowEOF();
-
-        static byte[] ThrowEOF() => throw new EndOfStreamException();
-    }
-
     private readonly RespReader Clone() => this; // useful for performing streaming operations without moving the primary
 
     [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
@@ -149,6 +95,9 @@ public ref partial struct RespReader
 
     [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
     internal static void ThrowEOF() => throw new EndOfStreamException();
+
+    [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
+    private static void ThrowFormatException() => throw new FormatException();
 
     private int RawTryReadByte()
     {
@@ -261,11 +210,10 @@ public ref partial struct RespReader
 
     private readonly bool RawTryAssertCrLf()
     {
-        DemandScalar();
         Debug.Assert(IsInlineScalar);
-        var len = ScalarLength;
 
         var reader = Clone();
+        var len = reader._length;
         if (len == 0) return reader.RawAssertCrLf();
 
         do
@@ -317,5 +265,10 @@ public ref partial struct RespReader
         while (reader.TryMoveToNextSegment());
         length = 0;
         return false;
+    }
+
+    private string GetDebuggerDisplay()
+    {
+        return ToString();
     }
 }

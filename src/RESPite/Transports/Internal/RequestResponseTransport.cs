@@ -5,20 +5,24 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using RESPite.Internal.Buffers;
 using RESPite.Messages;
+using RESPite.Resp;
 
 namespace RESPite.Transports.Internal;
 
 internal sealed class RequestResponseTransport<TState>(IByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound)
         : RequestResponseBase<TState>(transport, scanner, validateOutbound), IRequestResponseTransport
-{ }
+{
+}
 
 internal sealed class SyncRequestResponseTransport<TState>(ISyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound)
     : RequestResponseBase<TState>(transport, scanner, validateOutbound), ISyncRequestResponseTransport
-{ }
+{
+}
 
 internal sealed class AsyncRequestResponseTransport<TState>(IAsyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound)
     : RequestResponseBase<TState>(transport, scanner, validateOutbound), IAsyncRequestResponseTransport
-{ }
+{
+}
 
 internal abstract class RequestResponseBase<TState> : IRequestResponseBase
 {
@@ -131,7 +135,7 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
             }
             else
             {
-                Debug.WriteLine($"{GetType().Name} sending {content.Length} bytes to transport: {Constants.UTF8.GetString(content)}");
+                Debug.WriteLine($"{GetType().Name} sending {content.Length} bytes to transport: {RespConstants.UTF8.GetString(content)}");
             }
             AsValidator().Validate(in content);
         }

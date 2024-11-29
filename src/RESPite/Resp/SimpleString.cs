@@ -7,7 +7,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
-using RESPite.Internal;
 
 namespace RESPite.Resp;
 
@@ -99,7 +98,7 @@ public readonly struct SimpleString
             }
             if (TryGetBytes(span: out var bytes))
             {
-                return Constants.UTF8.GetString(bytes);
+                return RespConstants.UTF8.GetString(bytes);
             }
             if (TryGetChars(sequence: out var charsSeq))
             {
@@ -107,7 +106,7 @@ public readonly struct SimpleString
             }
             if (TryGetBytes(sequence: out var bytesSeq))
             {
-                return Constants.UTF8.GetString(bytesSeq);
+                return RespConstants.UTF8.GetString(bytesSeq);
             }
         }
 
@@ -126,7 +125,7 @@ public readonly struct SimpleString
     }
 
     /// <summary>
-    /// Indicates whehter this an empty string.
+    /// Indicates whether this an empty string.
     /// </summary>
     public bool IsEmpty => _length == 0 & _obj2 is null;
 
@@ -343,6 +342,7 @@ public readonly struct SimpleString
     /// </summary>
     public static ref readonly SimpleString Empty => ref _empty;
 
+    [SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Required to disambiguate from .ctor()")]
     private SimpleString(int dummy) // used to create the empty value
     {
         _start = _length = 0;
@@ -515,12 +515,16 @@ public readonly struct SimpleString
     /// <summary>
     /// Create a new <see cref="SimpleString"/> from the provided <paramref name="value"/>.
     /// </summary>
-    public SimpleString(ArraySegment<byte> value) : this(value.Array!, value.Offset, value.Count) { }
+    public SimpleString(ArraySegment<byte> value) : this(value.Array!, value.Offset, value.Count)
+    {
+    }
 
     /// <summary>
     /// Create a new <see cref="SimpleString"/> from the provided <paramref name="value"/>.
     /// </summary>
-    public SimpleString(ArraySegment<char> value) : this(value.Array!, value.Offset, value.Count) { }
+    public SimpleString(ArraySegment<char> value) : this(value.Array!, value.Offset, value.Count)
+    {
+    }
 
     /// <summary>
     /// Create a new <see cref="SimpleString"/> from the provided <paramref name="value"/>.
@@ -635,11 +639,11 @@ public readonly struct SimpleString
     {
         null => 0,
         byte[] or MemoryManager<byte> => _length,
-        ReadOnlySequenceSegment<byte> bseg => checked((int)GetByteSequencePrechecked().Length),
-        string s => Constants.UTF8.GetByteCount(s.AsSpan(_start, _length)),
-        char[] c => Constants.UTF8.GetByteCount(c, _start, _length),
-        MemoryManager<char> m => Constants.UTF8.GetByteCount(m.GetSpan().Slice(_start, _length)),
-        ReadOnlySequenceSegment<char> cseg => SlowGetByteCountFromCharSequencePrechecked(),
+        ReadOnlySequenceSegment<byte> => checked((int)GetByteSequencePrechecked().Length),
+        string s => RespConstants.UTF8.GetByteCount(s.AsSpan(_start, _length)),
+        char[] c => RespConstants.UTF8.GetByteCount(c, _start, _length),
+        MemoryManager<char> m => RespConstants.UTF8.GetByteCount(m.GetSpan().Slice(_start, _length)),
+        ReadOnlySequenceSegment<char> => SlowGetByteCountFromCharSequencePrechecked(),
         _ => ThrowInvalidContent(),
     };
 
@@ -661,7 +665,7 @@ public readonly struct SimpleString
         }
         else if (TryGetChars(span: out var chars))
         {
-            return Constants.UTF8.GetBytes(chars, destination);
+            return RespConstants.UTF8.GetBytes(chars, destination);
         }
         else if (_obj1 is ReadOnlySequenceSegment<char>)
         {
@@ -681,7 +685,7 @@ public readonly struct SimpleString
         int tally = 0;
         foreach (var chunk in value)
         {
-            var chunkSize = Constants.UTF8.GetByteCount(chunk.Span);
+            var chunkSize = RespConstants.UTF8.GetByteCount(chunk.Span);
             checked
             {
                 tally += chunkSize;
@@ -697,7 +701,7 @@ public readonly struct SimpleString
         int tally = 0;
         foreach (var chunk in value)
         {
-            var chunkSize = Constants.UTF8.GetBytes(chunk.Span, destination);
+            var chunkSize = RespConstants.UTF8.GetBytes(chunk.Span, destination);
             checked
             {
                 tally += chunkSize;
@@ -707,7 +711,7 @@ public readonly struct SimpleString
         return tally;
     }
 
-    internal int ReadLitteEndianInt64(int offset)
+    internal int ReadLittleEndianInt64(int offset)
     {
         switch (_obj1)
         {
@@ -717,14 +721,14 @@ public readonly struct SimpleString
             case MemoryManager<byte> mgr:
                 if (offset + sizeof(int) > _length) ThrowOffset();
                 return BinaryPrimitives.ReadInt32LittleEndian(mgr.GetSpan().Slice(_start + offset, sizeof(int)));
-            case ReadOnlySequenceSegment<byte> seg:
-                return SlowReadLitteEndianInt32Prechecked(offset);
+            case ReadOnlySequenceSegment<byte>:
+                return SlowReadLittleEndianInt32Prechecked(offset);
             default:
                 return ThrowInvalidContent();
         }
     }
 
-    private int SlowReadLitteEndianInt32Prechecked(int offset)
+    private int SlowReadLittleEndianInt32Prechecked(int offset)
     {
         var value = GetByteSequencePrechecked();
         Span<byte> scratch = stackalloc byte[sizeof(int)];

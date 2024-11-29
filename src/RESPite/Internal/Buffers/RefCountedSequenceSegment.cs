@@ -40,7 +40,9 @@ internal sealed partial class RefCountedSequenceSegment<T> : ReadOnlySequenceSeg
             _triggered = true;
         }
 
-        protected override void Dispose(bool disposing) { }
+        protected override void Dispose(bool disposing)
+        {
+        }
 
         // note that we deliberately spoof a non-empty length, to avoid IsEmpty short-circuits,
         // because we *want* people to know that they're doing something wrong;
@@ -57,7 +59,10 @@ internal sealed partial class RefCountedSequenceSegment<T> : ReadOnlySequenceSeg
             return default;
         }
 
-        public override void Unpin() { if (_triggered) ThrowDisposed(); }
+        public override void Unpin()
+        {
+            if (_triggered) ThrowDisposed();
+        }
         protected override bool TryGetArray(out ArraySegment<T> segment)
         {
             if (_triggered) ThrowDisposed();

@@ -29,7 +29,9 @@ public static class Server
     private sealed class PongEchoReader : IRespReader<Empty, Empty>, IRespReader<SimpleString, Empty>
     {
         internal static readonly PongEchoReader Instance = new();
-        private PongEchoReader() { }
+        private PongEchoReader()
+        {
+        }
 
         Empty IReader<Empty, Empty>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {

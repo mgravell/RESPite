@@ -10,7 +10,9 @@ internal sealed class SemaphoreSlimTransportDecorator : MessageTransportDecorato
     {
         _timeout = timeout;
     }
-    public SemaphoreSlimTransportDecorator(IRequestResponseBase transport) : this(transport, Timeout.InfiniteTimeSpan) { }
+    public SemaphoreSlimTransportDecorator(IRequestResponseBase transport) : this(transport, Timeout.InfiniteTimeSpan)
+    {
+    }
 
     public override TResponse Send<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<Empty, TResponse> reader)
     {

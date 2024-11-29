@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 using System.Text;
-using RESPite.Internal;
+using RESPite.Resp;
 
 namespace RESPite.Messages;
 
@@ -24,7 +24,7 @@ public static class CommonReaders
     private sealed class Core : IReader<Empty, string>, IReader<Empty, Empty>
     {
         string IReader<Empty, string>.Read(in Empty request, in ReadOnlySequence<byte> content)
-            => Constants.UTF8.GetString(content);
+            => RespConstants.UTF8.GetString(content);
         Empty IReader<Empty, Empty>.Read(in Empty request, in ReadOnlySequence<byte> content)
             => RESPite.Empty.Value;
     }

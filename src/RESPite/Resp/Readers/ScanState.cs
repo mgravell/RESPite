@@ -86,7 +86,7 @@ public struct ScanState
             // exiting an aggregate stream
             checked { _streamingAggregateDepth--; }
         }
-        else if (reader.AggregateLength > 0 && _streamingAggregateDepth != 0)
+        else if (reader.AggregateLength() > 0 && _streamingAggregateDepth != 0)
         {
             ThrowNestingNotSupported();
 

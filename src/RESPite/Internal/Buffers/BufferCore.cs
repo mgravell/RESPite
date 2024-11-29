@@ -23,12 +23,16 @@ internal struct BufferCore<T> :
     /// <summary>
     /// Initializes the instance.
     /// </summary>
-    public BufferCore(int maxLength) : this(SlabManager<T>.Ambient, maxLength) { }
+    public BufferCore(int maxLength) : this(SlabManager<T>.Ambient, maxLength)
+    {
+    }
 
     /// <summary>
     /// Initializes the instance.
     /// </summary>
-    public BufferCore() : this(SlabManager<T>.Ambient, 0) { }
+    public BufferCore() : this(SlabManager<T>.Ambient, 0)
+    {
+    }
 
     internal BufferCore(SlabManager<T> slabManager, int maxLength = 0)
     {

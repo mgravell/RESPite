@@ -180,23 +180,13 @@ internal static class RespReaders
         {
             var reader = new RespReader(in content);
             reader.MoveNextScalar();
-            return reader.ScalarLength switch
-            {
-                1 => reader.Is((byte)'1'),
-                2 => reader.IsOK(),
-                _ => false,
-            };
+            return reader.IsOK() || reader.Is((byte)'1');
         }
 
         bool IRespReader<Empty, bool>.Read(in Empty request, ref RespReader reader)
         {
             reader.MoveNextScalar();
-            return reader.ScalarLength switch
-            {
-                1 => reader.Is((byte)'1'),
-                2 => reader.IsOK(),
-                _ => false,
-            };
+            return reader.IsOK() || reader.Is((byte)'1');
         }
 
         private static bool TryReadFastInt32(ReadOnlySpan<byte> span, out int value)
@@ -276,14 +266,14 @@ internal static class RespReaders
 #endif
                 if (TryReadFastInt32(span, out int i)) return i;
             }
-            var reader = new RespReader(in content, throwOnErrorResponse: true);
+            var reader = new RespReader(in content);
             reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadInt32();
         }
 
         LeasedStrings IReader<Empty, LeasedStrings>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
-            var reader = new RespReader(in content, throwOnErrorResponse: true);
+            var reader = new RespReader(in content);
             reader.MoveNextAggregate();
             return reader.ReadLeasedStrings();
         }
@@ -313,11 +303,13 @@ internal static class RespReaders
         /// </summary>
         public static EnumReader<T> Instance { get; } = new();
 
-        private EnumReader() { }
+        private EnumReader()
+        {
+        }
 
         T IReader<Empty, T>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
-            RespReader reader = new(content, throwOnErrorResponse: true);
+            RespReader reader = new(content);
             reader.MoveNextScalar();
             reader.DemandNotNull();
             return reader.ReadEnum<T>(default);
@@ -325,7 +317,7 @@ internal static class RespReaders
 
         T? IReader<Empty, T?>.Read(in Empty request, in ReadOnlySequence<byte> content)
         {
-            RespReader reader = new(content, throwOnErrorResponse: true);
+            RespReader reader = new(content);
             reader.MoveNextScalar();
             return reader.IsNull ? null : reader.ReadEnum<T>(default);
         }

@@ -66,6 +66,6 @@ public class ReaderBench
         if (reader.BytesConsumed != buffer.Length) ThrowTooMuch();
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowTooMuch() => throw new InvalidOperationException("Unhandled trailing data");
 }

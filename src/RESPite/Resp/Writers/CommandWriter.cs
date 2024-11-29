@@ -67,7 +67,7 @@ public abstract class CommandWriter
         if (ArgCount < 0) ThrowNotFixedLength();
 
         // *XX\r\n$YY\r\nCOMMAND\r\n : length of command, plus two integers, plus 8 symbols
-        Span<byte> buffer = stackalloc byte[Constants.UTF8.GetMaxByteCount(Command.Length)
+        Span<byte> buffer = stackalloc byte[RespConstants.UTF8.GetMaxByteCount(Command.Length)
             + (2 * RespConstants.MaxRawBytesInt32) + 8];
         var writer = new RespWriter(buffer);
         writer.WriteArray(ArgCount + 1);
@@ -104,12 +104,10 @@ public abstract class CommandWriter
         {
             var span = CommandAndArgCount;
             var reader = new RespReader(span);
-            reader.MoveNextAggregate();
-            reader.Demand(RespPrefix.Array);
+            reader.MoveNext(RespPrefix.Array);
             var len = reader.ChildCount;
             if (len != ArgCount + 1) throw new InvalidOperationException($"Invalid arg count: {len} vs {ArgCount + 1}");
-            reader.MoveNextScalar();
-            reader.Demand(RespPrefix.BulkString);
+            reader.MoveNext(RespPrefix.BulkString);
             var cmd = reader.ReadString();
             if (cmd != Command) throw new InvalidOperationException($"Invalid command: '{cmd}'");
             if (reader.TryReadNext()) throw new InvalidOperationException($"Unexpected token {reader.Prefix}");
@@ -130,7 +128,9 @@ public abstract class CommandWriter
 
     private sealed class AdHocCommandWriter : CommandWriter<LeasedStrings>
     {
-        private AdHocCommandWriter() : base("ad-hoc", -1) { }
+        private AdHocCommandWriter() : base("ad-hoc", -1)
+        {
+        }
         public static readonly AdHocCommandWriter Instance = new();
 
         protected override IRespWriter<LeasedStrings> Create(string command) => this;
@@ -149,16 +149,13 @@ public abstract class CommandWriter
 /// Common shared <see cref="IRespWriter{TRequest}"/> implementation.
 /// </summary>
 /// <remarks>Implementers of fixed-length commands must (for non-zero arg-counts) override <see cref="WriteArgs(in TRequest, ref RespWriter)"/>. Fully dynamic implementations must override <see cref="WriteArgs(in TRequest, ref RespWriter)"/> and write the command manually. All implementations may choose to override <see cref="WriteArgs(in TRequest, ref RespWriter)"/>, to minimize virtual calls.</remarks>
-public abstract class CommandWriter<TRequest> : CommandWriter, IRespWriter<TRequest>
+/// <remarks>
+/// Create a new instance, (optionally including an externally pinned/computed command header) for the specified <paramref name="command"/>.
+/// </remarks>
+/// <remarks>If <paramref name="pinnedPrefix"/> is supplied, it <b>MUST</b> be externally pinned, for example a <c>"..."u8</c> literal.</remarks>
+public abstract class CommandWriter<TRequest>(string command, int argCount, ReadOnlySpan<byte> pinnedPrefix = default) : CommandWriter(command, argCount, pinnedPrefix), IRespWriter<TRequest>
 {
     bool IRespWriter<TRequest>.IsDisabled => Command.Length == 0;
-
-    /// <summary>
-    /// Create a new instance, (optionally including an externally pinned/computed command header) for the specified <paramref name="command"/>.
-    /// </summary>
-    /// <remarks>If <paramref name="pinnedPrefix"/> is supplied, it <b>MUST</b> be externally pinned, for example a <c>"..."u8</c> literal.</remarks>
-    public CommandWriter(string command, int argCount, ReadOnlySpan<byte> pinnedPrefix = default)
-        : base(command, argCount, pinnedPrefix) { }
 
     /// <inheritdoc cref="IRespWriter{TRequest}.Write(in TRequest, ref RespWriter)"/>
     public virtual void Write(in TRequest request, IBufferWriter<byte> target)
@@ -186,8 +183,7 @@ public abstract class CommandWriter<TRequest> : CommandWriter, IRespWriter<TRequ
     IRespWriter<TRequest> IRespWriter<TRequest>.WithAlias(string command)
     {
         command = string.IsNullOrWhiteSpace(command) ? "" : command.Trim();
-        if (command == Command) return this;
-        return Create(command);
+        return command == Command ? this : Create(command);
     }
 
     /// <summary>

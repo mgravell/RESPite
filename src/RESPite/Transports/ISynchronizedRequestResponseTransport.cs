@@ -5,19 +5,26 @@
 /// </summary>
 public interface ISynchronizedRequestResponseTransport : IAsyncSynchronizedRequestResponseTransport, ISyncSynchronizedRequestResponseTransport,
     IRequestResponseTransport
-{ } // diamond
+{
+} // diamond
 
 /// <summary>
 /// Marker interface for asynchronous request/response connections.
 /// </summary>
-public interface IAsyncSynchronizedRequestResponseTransport : IAsyncRequestResponseTransport, ISynchronizedRequestResponseBase { }
+public interface IAsyncSynchronizedRequestResponseTransport : IAsyncRequestResponseTransport, ISynchronizedRequestResponseBase
+{
+}
 
 /// <summary>
 /// Marker interface for synchronous request/response connections.
 /// </summary>
-public interface ISyncSynchronizedRequestResponseTransport : ISyncRequestResponseTransport, ISynchronizedRequestResponseBase { }
+public interface ISyncSynchronizedRequestResponseTransport : ISyncRequestResponseTransport, ISynchronizedRequestResponseBase
+{
+}
 
 /// <summary>
 /// Base marker interface for request/response connections.
 /// </summary>
-public interface ISynchronizedRequestResponseBase : IRequestResponseBase { }
+public interface ISynchronizedRequestResponseBase : IRequestResponseBase
+{
+}

@@ -457,7 +457,7 @@ public ref partial struct RespReader
     }
 
     /// <summary>
-    /// Asserts that the reader does not reprent a RESP error message.
+    /// Asserts that the reader does not represent a RESP error message.
     /// </summary>
     public readonly void ThrowIfError()
     {
@@ -1219,7 +1219,7 @@ public ref partial struct RespReader
                 Debug.Assert(written == ScalarLength, "copy mismatch");
             }
             Debug.Assert(builder.Count == childCount, "all child elements written?");
-            Debug.Assert(builder.PayloadBytes == totalBytes, "all paylaod data written?");
+            Debug.Assert(builder.PayloadBytes == totalBytes, "all payload data written?");
 
             var result = builder.Create();
             Debug.Assert(result.Count == childCount);

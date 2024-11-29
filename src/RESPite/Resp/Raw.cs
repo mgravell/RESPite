@@ -21,7 +21,7 @@ internal static class Raw
     {
         if (length != bytes.Length)
         {
-            throw new ArgumentException(nameof(length), $"Length check failed: {length} vs {bytes.Length}, value: {Constants.UTF8.GetString(bytes)}");
+            throw new ArgumentException($"Length check failed: {length} vs {bytes.Length}, value: {RespConstants.UTF8.GetString(bytes)}", nameof(length));
         }
         if (length < 0 || length > sizeof(ulong))
         {
@@ -39,7 +39,7 @@ internal static class Raw
     {
         if (length != bytes.Length)
         {
-            throw new ArgumentException(nameof(length), $"Length check failed: {length} vs {bytes.Length}, value: {Constants.UTF8.GetString(bytes)}");
+            throw new ArgumentException($"Length check failed: {length} vs {bytes.Length}, value: {RespConstants.UTF8.GetString(bytes)}", nameof(length));
         }
         if (length < 0 || length > sizeof(uint))
         {

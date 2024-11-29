@@ -17,7 +17,9 @@ internal sealed class SlabManager<T> : IDisposable
     private static readonly SlabManager<T>?[] s_Ambient = new SlabManager<T>[Environment.ProcessorCount];
     public static SlabManager<T> Ambient => s_Ambient[(uint)Environment.CurrentManagedThreadId % s_Ambient.Length] ??= new(false, 16 * 1024, 512);
 
-    public SlabManager(int slabSize = 64 * 1024, int chunkSize = 4096) : this(true, slabSize, chunkSize) { }
+    public SlabManager(int slabSize = 64 * 1024, int chunkSize = 4096) : this(true, slabSize, chunkSize)
+    {
+    }
     private SlabManager(bool dedicated, int slabSize, int chunkSize)
     {
         _slabSize = Math.Max(slabSize, 1024);
