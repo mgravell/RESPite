@@ -105,7 +105,7 @@ public abstract class CommandWriter
             var span = CommandAndArgCount;
             var reader = new RespReader(span);
             reader.MoveNext(RespPrefix.Array);
-            var len = reader.ChildCount;
+            var len = reader.AggregateLength();
             if (len != ArgCount + 1) throw new InvalidOperationException($"Invalid arg count: {len} vs {ArgCount + 1}");
             reader.MoveNext(RespPrefix.BulkString);
             var cmd = reader.ReadString();

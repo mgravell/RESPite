@@ -30,7 +30,7 @@ public static class Utils
         int port,
         bool tls,
         Action<string>? log,
-        IFrameScanner<RespFrameScanner.RespFrameState>? frameScanner = null,
+        IFrameScanner<ScanState>? frameScanner = null,
         FrameValidation validateOutbound = FrameValidation.Debug)
     {
         Socket? socket = null;
@@ -142,7 +142,7 @@ public static class Utils
     {
         reader.MoveNext(RespPrefix.Array);
 
-        var len = reader.ChildCount;
+        var len = reader.AggregateLength();
         reader.MoveNext(RespPrefix.BulkString);
         reader.DemandNotNull();
         string cmd = reader.ReadString()!;
@@ -209,7 +209,7 @@ public static class Utils
         }
         if (reader.IsAggregate)
         {
-            var count = reader.ChildCount;
+            var count = reader.AggregateLength();
 
             sb.Append(prefix).Append(count);
             switch (aggregateMode)

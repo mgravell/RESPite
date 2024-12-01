@@ -74,15 +74,14 @@ public partial class CommandFactory : IRespWriterFactory<Scan.Request>, IRespRea
         public override Scan.Response Read(ref RespReader reader)
         {
             reader.DemandAggregate();
-            if (reader.ChildCount < 2 || !reader.TryReadNext()) Throw();
 
+            reader.MoveNextScalar();
             var cursor = reader.ReadInt64();
+
             reader.MoveNext(RespPrefix.Array);
-
             var keys = reader.ReadLeasedStrings();
-            return new(cursor, keys);
 
-            static void Throw() => throw new InvalidOperationException("Unable to parse SCAN result");
+            return new(cursor, keys);
         }
     }
 }

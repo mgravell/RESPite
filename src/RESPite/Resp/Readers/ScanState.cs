@@ -9,8 +9,36 @@ namespace RESPite.Resp.Readers;
 public struct ScanState
 {
     private int _delta; // when this becomes -1, we have fully read a top-level message;
-    private int _streamingAggregateDepth;
+    private ushort _streamingAggregateDepth;
+    private MessageKind _kind;
     private long _totalBytes;
+
+    private enum MessageKind : byte
+    {
+        None, // we haven't yet seen the first non-attribute element
+        PubSubNone, // we haven't yet seen the first non-attribute element, and this is a pub-sub connection
+        PubSubArrayRoot, // this is a pub-sub connection, and we've seen an array-root first element, waiting for the second
+        OutOfBand, // we have determined that this is an out-of-band message
+        RequestResponse, // we have determined that this is a request-response message
+    }
+
+    /// <summary>
+    /// Initializes a <see cref="ScanState"/> instance.
+    /// </summary>
+    public static ref readonly ScanState Create(bool pubSubConnection) => ref pubSubConnection ? ref _pubSub : ref _default;
+
+    private static readonly ScanState _pubSub = new ScanState(MessageKind.PubSubNone), _default = default;
+
+    private ScanState(MessageKind kind)
+    {
+        this = default;
+        _kind = kind;
+    }
+
+    /// <summary>
+    /// Gets whether the root element represents and out-of-band message.
+    /// </summary>
+    public bool IsOutOfBand => _kind is MessageKind.OutOfBand;
 
     /// <summary>
     /// Gets whether an entire top-level RESP message has been consumed.
@@ -22,6 +50,17 @@ public struct ScanState
     /// <c>TryRead</c> operations.
     /// </summary>
     public long TotalBytes => _totalBytes;
+
+    /// <summary>
+    /// Create a new value that can parse the supplied node (and subtree).
+    /// </summary>
+    internal ScanState(in RespReader reader)
+    {
+        Debug.Assert(reader.Prefix != RespPrefix.None);
+        _totalBytes = 0;
+        _delta = reader.Delta();
+        _streamingAggregateDepth = reader.IsStreamingAggregate ? (ushort)1 : (ushort)0;
+    }
 
     /// <summary>
     /// Scan as far as possible, stopping when an entire top-level RESP message has been consumed or the data is exhausted.
@@ -63,6 +102,27 @@ public struct ScanState
     {
         while (_delta >= 0 && reader.TryReadNext())
         {
+            if (!reader.IsAttribute)
+            {
+                switch (_kind)
+                {
+                    case MessageKind.None:
+                        _kind = reader.Prefix == RespPrefix.Push ? MessageKind.OutOfBand : MessageKind.RequestResponse;
+                        break;
+                    case MessageKind.PubSubNone:
+                        _kind = reader.Prefix switch
+                        {
+                            RespPrefix.Array => MessageKind.PubSubArrayRoot,
+                            _ => MessageKind.OutOfBand, // in pub-sub, everything is OOB unless proven otherwise
+                        };
+                        break;
+                    case MessageKind.PubSubArrayRoot:
+                        // in pub-sub, the only request-response scenario is PING, which responds with an array with "ping" in the first element
+                        _kind = reader.Prefix == RespPrefix.BulkString && reader.Is("pong"u8) ? MessageKind.RequestResponse : MessageKind.OutOfBand;
+                        break;
+                }
+            }
+
             if (reader.IsAggregate) ApplyAggregateRules(ref reader);
 
             if (_streamingAggregateDepth == 0) _delta += reader.Delta();
@@ -103,9 +163,4 @@ public struct ScanState
             static void ThrowNestingNotSupported() => throw new NotSupportedException("Nesting non-streaming aggregates inside streaming aggregates is not currently supported by this client; please log an issue!");
         }
     }
-
-    /// <summary>
-    /// Reset this scan state to anticipate a fresh top-level RESP message.
-    /// </summary>
-    public void Reset() => this = default;
 }

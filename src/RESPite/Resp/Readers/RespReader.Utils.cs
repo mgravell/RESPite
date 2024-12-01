@@ -3,11 +3,13 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
+#pragma warning disable IDE0079 // Remove unnecessary suppression
+#pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
+#pragma warning restore IDE0079 // Remove unnecessary suppression
+
 namespace RESPite.Resp.Readers;
 
-#pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 public ref partial struct RespReader
-#pragma warning restore CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void UnsafeAssertClLf(int offset) => UnsafeAssertClLf(ref UnsafeCurrent, offset);

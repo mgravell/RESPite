@@ -1,13 +1,14 @@
 ﻿#define USE_UNSAFE_SPAN
 
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-
-namespace RESPite.Resp.Readers;
 
 #pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 #pragma warning restore IDE0079 // Remove unnecessary suppression
+
+namespace RESPite.Resp.Readers;
 
 /*
  How we actually implement the underlying buffer depends on the capabilities of the runtime.
@@ -20,6 +21,12 @@ public ref partial struct RespReader
     // intent: avoid lots of slicing by dealing with everything manually, and accepting the "don't get it wrong" rule
     private ref byte _bufferRoot;
     private int _bufferLength;
+
+    private partial void UnsafeTrimCurrentBy(int count)
+    {
+        Debug.Assert(count >= 0 && count <= _bufferLength);
+        _bufferLength -= count;
+    }
 
     private readonly partial ref byte UnsafeCurrent
     {
@@ -51,10 +58,15 @@ public ref partial struct RespReader // much more conservative - uses slices etc
 {
     private ReadOnlySpan<byte> _buffer;
 
+    private partial void UnsafeTrimCurrentBy(int count)
+    {
+        _buffer = _buffer.Slice(0, _buffer.Length - count);
+    }
+
     private readonly partial ref byte UnsafeCurrent
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => ref _buffer[_bufferIndex];
+        get => ref Unsafe.AsRef(in _buffer[_bufferIndex]); // hack around CS8333
     }
 
     private readonly partial int CurrentLength

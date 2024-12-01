@@ -34,10 +34,11 @@ public class RespDeframe(ITestOutputHelper log)
     {
         var reader = new RespReader("*12\r\n$7\r\ntimeout\r\n$1\r\n0\r\n$4\r\nsave\r\n$0\r\n\r\n$10\r\nappendonly\r\n$2\r\nno\r\n$15\r\nslave-read-only\r\n$2\r\nno\r\n$9\r\ndatabases\r\n$2\r\n16\r\n$20\r\ncluster-node-timeout\r\n$2\r\n60\r\n"u8);
 
-        Assert.True(reader.TryReadNext(RespPrefix.Array));
-        Assert.Equal(12, reader.ChildCount);
-        List<string> actual = new(reader.ChildCount);
-        while (reader.TryReadNext(RespPrefix.BulkString))
+        reader.MoveNext(RespPrefix.Array);
+        var len = reader.AggregateLength();
+        Assert.Equal(12, len);
+        List<string> actual = new(len);
+        while (reader.TryMoveNext(RespPrefix.BulkString))
         {
             var s = reader.ReadString();
             Assert.NotNull(s);

@@ -12,14 +12,16 @@ using System.Runtime.Intrinsics.X86;
 using System.Text;
 #endif
 
+#pragma warning disable IDE0079 // Remove unnecessary suppression
+#pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
+#pragma warning restore IDE0079 // Remove unnecessary suppression
+
 namespace RESPite.Resp.Readers;
 
 /// <summary>
 /// Provides low level RESP parsing functionality.
 /// </summary>
-#pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 public ref partial struct RespReader
-#pragma warning restore CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
 {
     [Flags]
     private enum RespFlags : byte
@@ -51,7 +53,7 @@ public ref partial struct RespReader
     private readonly int CurrentAvailable => CurrentLength - _bufferIndex;
 
     private readonly long TotalAvailable => CurrentAvailable + _remainingTailLength;
-
+    private partial void UnsafeTrimCurrentBy(int count);
     private readonly partial ref byte UnsafeCurrent { get; }
     private readonly partial int CurrentLength { get; }
     private partial void SetCurrent(ReadOnlySpan<byte> value);
@@ -119,100 +121,31 @@ public ref partial struct RespReader
     }
 
     /// <summary>
-    /// Gets the chunks associated with a scalar value.
-    /// </summary>
-    public readonly ScalarEnumerator ScalarChunks() => new(in this);
-
-    /// <summary>
-    /// Allows enumeration of chunks in a scalar value; this includes simple values
-    /// that span multiple <see cref="ReadOnlySequence{T}"/> segments, and streaming
-    /// scalar RESP values.
-    /// </summary>
-    public ref struct ScalarEnumerator
-    {
-        /// <inheritdoc cref="IEnumerable{T}.GetEnumerator"/>
-        public readonly ScalarEnumerator GetEnumerator() => this;
-
-        private RespReader _reader;
-
-        private ReadOnlySpan<byte> _current;
-        private ReadOnlySequenceSegment<byte>? _tail;
-        private int _offset, _remaining;
-
-        /// <summary>
-        /// Create a new enumerator for the specified <paramref name="reader"/>.
-        /// </summary>
-        public ScalarEnumerator(scoped in RespReader reader)
-        {
-            reader.DemandScalar();
-            _reader = reader;
-            InitSegment();
-        }
-
-        private void InitSegment()
-        {
-            _current = _reader.CurrentSpan();
-            _tail = _reader._tail;
-            _offset = CurrentLength = 0;
-            _remaining = _reader._length;
-            if (_reader.TotalAvailable < _remaining) ThrowEOF();
-        }
-
-        /// <inheritdoc cref="IEnumerator.MoveNext"/>
-        public bool MoveNext()
-        {
-            while (true) // for each streaming element
-            {
-                _offset += CurrentLength;
-                while (_remaining > 0) // for each span in the current element
-                {
-                    // look in the active span
-                    var take = Math.Min(_remaining, _current.Length - _offset);
-                    if (take > 0) // more in the current chunk
-                    {
-                        _remaining -= take;
-                        CurrentLength = take;
-                        return true;
-                    }
-
-                    // otherwise, we expect more tail data
-                    if (_tail is null) ThrowEOF();
-
-                    _current = _tail.Memory.Span;
-                    _offset = 0;
-                    _tail = _tail.Next;
-                }
-
-                if (!_reader.MoveNextStreamingScalar()) break;
-                InitSegment();
-            }
-
-            CurrentLength = 0;
-            return false;
-        }
-
-        /// <inheritdoc cref="IEnumerator{T}.Current"/>
-        public readonly ReadOnlySpan<byte> Current => _current.Slice(_offset, CurrentLength);
-
-        /// <summary>
-        /// Gets the <see cref="ReadOnlySpan{T}.Length"/> or <see cref="Current"/>.
-        /// </summary>
-        public int CurrentLength { readonly get; private set; }
-    }
-
-    /// <summary>
     /// The number of child elements associated with an aggregate.
     /// </summary>
-    /// <remarks>Zero for scalars, nulls, and for the head element of streaming aggregates. For <see cref="RespPrefix.Map"/>
+    /// <remarks>For <see cref="RespPrefix.Map"/>
     /// and <see cref="RespPrefix.Attribute"/> aggregates, this is <b>twice</b> the value reported in the RESP protocol,
-    /// i.e. a map of the form <c>%2\r\n...</c> will report <c>4</c> as the <see cref="AggregateLength"/>.</remarks>
-    public readonly int AggregateLength()
-    {
-        if ((_flags & (RespFlags.IsAggregate | RespFlags.IsStreaming)) == RespFlags.IsAggregate)
-            return _length;
+    /// i.e. a map of the form <c>%2\r\n...</c> will report <c>4</c> as the length.</remarks>
+    /// <remarks>Note that if the data could be streaming (<see cref="IsStreaming"/>), it may be preferable to use
+    /// the <see cref="AggregateChildren"/> API, using the <see cref="RespReader.AggregateEnumerator.MovePast(out RespReader)"/> API to update the outer reader.</remarks>
+    public readonly int AggregateLength() => (_flags & (RespFlags.IsAggregate | RespFlags.IsStreaming)) == RespFlags.IsAggregate
+            ? _length : AggregateLengthSlow();
 
-        DemandAggregate(); // probably in sub-method
-        throw new NotImplementedException(); // need to handle streaming
+    private readonly int AggregateLengthSlow()
+    {
+        DemandAggregate();
+        if (!IsStreaming) return _length;
+        int count = 0;
+        var reader = Clone();
+        while (true)
+        {
+            if (!reader.TryMoveNext()) ThrowEOF();
+            if (reader.Prefix == RespPrefix.StreamTerminator)
+            {
+                return count;
+            }
+            reader.SkipChildren();
+        }
     }
 
     /// <summary>
@@ -323,6 +256,19 @@ public ref partial struct RespReader
     }
 
     /// <summary>
+    /// Move to the next content element, asserting that it is of the expected type; this skips attribute metadata, checking for RESP error messages by default.
+    /// </summary>
+    /// <exception cref="EndOfStreamException">If the data is exhausted before a streaming scalar is exhausted.</exception>
+    /// <exception cref="RespException">If the data contains an explicit error element.</exception>
+    /// <exception cref="InvalidOperationException">If the data is not of the expected type.</exception>
+    public bool TryMoveNext(RespPrefix prefix)
+    {
+        bool result = TryMoveNext();
+        if (result) Demand(prefix);
+        return result;
+    }
+
+    /// <summary>
     /// Move to the next content element; this skips attribute metadata, checking for RESP error messages by default.
     /// </summary>
     /// <exception cref="EndOfStreamException">If the data is exhausted before content is found.</exception>
@@ -387,6 +333,11 @@ public ref partial struct RespReader
     public void MoveNext(RespPrefix prefix)
     {
         MoveNext();
+        Demand(prefix);
+    }
+
+    private void Demand(RespPrefix prefix)
+    {
         if (Prefix != prefix) Throw(prefix, Prefix);
         static void Throw(RespPrefix expected, RespPrefix actual) => throw new InvalidOperationException($"Expected {expected} element, but found {actual}.");
     }
@@ -394,34 +345,16 @@ public ref partial struct RespReader
     private readonly void ThrowError() => throw new RespException(ReadString()!);
 
     /// <summary>
-    /// Skip all child elements of the current aggregate node.
+    /// Skip all sub elements of the current node; this includes both aggregate children and scalar streaming elements.
     /// </summary>
     public void SkipChildren()
     {
-        DemandAggregate();
-        if (IsStreamingAggregate)
+        // if this is a simple non-streaming scalar, then: there's nothing to do; otherwise, re-use the
+        // frame scanner logic to seek past the noise (this way, we avoid recursion etc)
+        if ((_flags & (RespFlags.IsScalar | RespFlags.IsAggregate | RespFlags.IsStreaming)) != RespFlags.IsScalar)
         {
-            while (true)
-            {
-                MoveNext();
-                if (Prefix == RespPrefix.StreamTerminator)
-                {
-                    break;
-                }
-                else if (IsAggregate)
-                {
-                    SkipChildren();
-                }
-            }
-        }
-        else
-        {
-            var count = _length;
-            while (count-- > 0)
-            {
-                MoveNext();
-                if (IsAggregate) SkipChildren();
-            }
+            ScanState state = new(in this);
+            if (!state.TryRead(ref this, out _)) ThrowEOF();
         }
     }
 
@@ -496,7 +429,7 @@ public ref partial struct RespReader
     /// <summary>
     /// Attempt to move to the next RESP element.
     /// </summary>
-    /// <remarks>Unless you are intentionally handling errors, attributes and streaming data, <see cref="TryMoveNext"/> should be preferred.</remarks>
+    /// <remarks>Unless you are intentionally handling errors, attributes and streaming data, <see cref="TryMoveNext()"/> should be preferred.</remarks>
     [EditorBrowsable(EditorBrowsableState.Never), Browsable(false)]
     public unsafe bool TryReadNext()
     {

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using RESPite.Resp;
 using RESPite.Resp.Readers;
 
 namespace RESPite;
@@ -9,7 +10,7 @@ public class RespReaderTests
     [InlineData("$3\r\n128\r\n")]
     public void HandleSplitTokens(string payload)
     {
-        var bytes = Constants.UTF8.GetBytes(payload).AsMemory();
+        var bytes = RespConstants.UTF8.GetBytes(payload).AsMemory();
 
         for (int i = 4; i <= bytes.Length; i++)
         {
@@ -21,13 +22,11 @@ public class RespReaderTests
             ReadOnlySequence<byte> ros =
                 right.IsEmpty ? new(left.Memory) : new(left, 0, right, right.Length);
 
-            RespReader reader = new(ros, false);
-            int remaining = 1;
-            while (remaining > 0 && reader.TryReadNext())
-            {
-                remaining = remaining + reader.ChildCount - 1;
-            }
-            Assert.True(remaining == 0 && reader.BytesConsumed == bytes.Length, $"i: {i}, remaining: {remaining}, BytesConsumed: {reader.BytesConsumed}");
+            RespReader reader = new(ros);
+            var scan = ScanState.Create(false);
+            Assert.True(scan.TryRead(ref reader, out _));
+            Assert.True(reader.BytesConsumed == bytes.Length, $"i: {i}, BytesConsumed: {reader.BytesConsumed}");
+            Assert.Equal(ros.Length, reader.BytesConsumed);
         }
     }
 

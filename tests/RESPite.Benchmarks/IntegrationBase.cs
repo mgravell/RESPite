@@ -24,7 +24,7 @@ public abstract class IntegrationBase : IDisposable
 
     public IntegrationBase(bool multiplexed)
     {
-        byte[] key = Constants.UTF8.GetBytes(Guid.NewGuid().ToString());
+        byte[] key = RespConstants.UTF8.GetBytes(Guid.NewGuid().ToString());
         RespiteKey = key;
         SERedisKey = key;
 

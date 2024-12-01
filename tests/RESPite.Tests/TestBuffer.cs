@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using RESPite.Resp;
 
 namespace RESPite;
 
@@ -31,7 +32,7 @@ internal sealed class TestBuffer : IDisposable, IBufferWriter<byte>
         ArrayPool<byte>.Shared.Return(arr);
     }
 
-    public override string ToString() => Constants.UTF8.GetString(_buffer, 0, _index);
+    public override string ToString() => RespConstants.UTF8.GetString(_buffer, 0, _index);
 
     public Memory<byte> GetMemory(int sizeHint = 0)
     {

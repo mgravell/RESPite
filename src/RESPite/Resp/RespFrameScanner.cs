@@ -8,7 +8,7 @@ namespace RESPite.Resp;
 /// <summary>
 /// Scans RESP frames.
 /// </summary>.
-public sealed class RespFrameScanner : IFrameScanner<RespFrameScanner.RespFrameState>, IFrameValidator
+public sealed class RespFrameScanner : IFrameScanner<ScanState>, IFrameValidator
 {
     /// <summary>
     /// Gets a frame scanner for RESP2 request/response connections, or RESP3 connections.
@@ -22,9 +22,9 @@ public sealed class RespFrameScanner : IFrameScanner<RespFrameScanner.RespFrameS
     private RespFrameScanner(bool pubsub) => _pubsub = pubsub;
     private readonly bool _pubsub;
 
-    void IFrameScanner<RespFrameState>.OnBeforeFrame(ref RespFrameState state, ref FrameScanInfo info)
+    void IFrameScanner<ScanState>.OnBeforeFrame(ref ScanState state, ref FrameScanInfo info)
     {
-        state.Remaining = 1;
+        state = ScanState.Create(_pubsub);
         info.ReadHint = 3; // minimum legal RESP frame is: _\r\n
     }
 
@@ -110,9 +110,9 @@ public sealed class RespFrameScanner : IFrameScanner<RespFrameScanner.RespFrameS
         }
         return UseReader;
     }
-    OperationStatus IFrameScanner<RespFrameState>.TryRead(ref RespFrameState state, in ReadOnlySequence<byte> data, ref FrameScanInfo info)
+    OperationStatus IFrameScanner<ScanState>.TryRead(ref ScanState state, in ReadOnlySequence<byte> data, ref FrameScanInfo info)
     {
-        if (info.BytesRead == 0 & data.IsSingleSegment)
+        if (!_pubsub & info.BytesRead == 0 & data.IsSingleSegment)
         {
 #if NETCOREAPP3_1_OR_GREATER
             var status = TryFastRead(data.FirstSpan, ref info);
@@ -122,38 +122,23 @@ public sealed class RespFrameScanner : IFrameScanner<RespFrameScanner.RespFrameS
             if (status != UseReader) return status;
         }
 
-        return TryReadViaReader(ref state, in data, ref info, _pubsub);
+        return TryReadViaReader(ref state, in data, ref info);
 
-        static OperationStatus TryReadViaReader(ref RespFrameState state, in ReadOnlySequence<byte> data, ref FrameScanInfo info, bool pubsub)
+        static OperationStatus TryReadViaReader(ref ScanState state, in ReadOnlySequence<byte> data, ref FrameScanInfo info)
         {
             var reader = new RespReader(in data);
-            int remaining = state.Remaining;
-            while (remaining != 0 && reader.TryReadNext()) // TODO: implement info.ReadHint
+            var complete = state.TryRead(ref reader, out var consumed);
+            info.BytesRead += consumed;
+            if (complete)
             {
-                remaining = remaining - 1 + reader.ChildCount;
-                if (info.BytesRead == 0) // message root, indicates the kind
-                {
-                    // "push" messages are out-of-band by definition; on a pub/sub connection, all "array" messages except "pong" can be considered "push"
-                    if (pubsub & reader.Prefix == RespPrefix.Array & reader.ChildCount > 0) // fine to test all; we expect most pub/sub frames to be OOB
-                    {
-                        if (!reader.TryReadNext()) return OperationStatus.NeedMoreData; // need to redo from start when we can see more (no BytesRead delta)
-                        remaining = remaining - 1 + reader.ChildCount;
-                        info.IsOutOfBand = !(reader.Prefix == RespPrefix.BulkString && reader.Is("pong"u8));
-                    }
-                    else
-                    {
-                        info.IsOutOfBand = reader.Prefix == RespPrefix.Push;
-                    }
-                }
+                info.IsOutOfBand = state.IsOutOfBand;
+                return OperationStatus.Done;
             }
-            Debug.Assert(remaining >= 0, "remaining count should not go negative");
-            state.Remaining = remaining;
-            info.BytesRead += reader.BytesConsumed;
-            return remaining == 0 ? OperationStatus.Done : OperationStatus.NeedMoreData;
+            return OperationStatus.NeedMoreData;
         }
     }
 
-    void IFrameScanner<RespFrameState>.Trim(ref RespFrameState state, ref ReadOnlySequence<byte> data, ref FrameScanInfo info)
+    void IFrameScanner<ScanState>.Trim(ref ScanState state, ref ReadOnlySequence<byte> data, ref FrameScanInfo info)
     {
     }
 
@@ -162,23 +147,19 @@ public sealed class RespFrameScanner : IFrameScanner<RespFrameScanner.RespFrameS
         if (message.IsEmpty) Throw("Empty RESP frame");
         RespReader reader = new(in message);
         reader.MoveNext(RespPrefix.Array);
-        var count = reader.ChildCount;
+        reader.DemandNotNull();
+        if (reader.IsStreaming) Throw("Streaming is not supported in this context");
+        var count = reader.AggregateLength();
         for (int i = 0; i < count; i++)
         {
             reader.MoveNext(RespPrefix.BulkString);
+            reader.DemandNotNull();
+            if (reader.IsStreaming) Throw("Streaming is not supported in this context");
+
             if (i == 0 && reader.ScalarIsEmpty()) Throw("command must be non-empty");
         }
         reader.DemandEnd();
 
         static void Throw(string message) => throw new InvalidOperationException(message);
-    }
-
-    /// <summary>
-    /// Internal state required by the frame parser.
-    /// </summary>
-    public struct RespFrameState
-    {
-        internal RespFrameState(int outstanding) => Remaining = outstanding;
-        internal int Remaining;
     }
 }
