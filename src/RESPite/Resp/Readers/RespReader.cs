@@ -66,6 +66,7 @@ public ref partial struct RespReader
     /// </summary>
     /// <returns><c>True</c> if this is a non-streaming scalar element that covers a single span only, otherwise <c>False</c>.</returns>
     /// <remarks>If a scalar reports <c>False</c>, <see cref="ScalarChunks"/> can be used to iterate the entire payload.</remarks>
+    /// <param name="value">When <c>True</c>, the contents of the scalar value.</param>
     public readonly bool TryGetSpan(out ReadOnlySpan<byte> value)
     {
         if (IsInlineScalar && CurrentAvailable >= _length)
@@ -112,10 +113,10 @@ public ref partial struct RespReader
     {
         DemandScalar();
         long length = 0;
-        var iter = ScalarChunks();
-        while (iter.MoveNext())
+        var iterator = ScalarChunks();
+        while (iterator.MoveNext())
         {
-            length += iter.CurrentLength;
+            length += iterator.CurrentLength;
         }
         return length;
     }
@@ -258,6 +259,7 @@ public ref partial struct RespReader
     /// <summary>
     /// Move to the next content element, asserting that it is of the expected type; this skips attribute metadata, checking for RESP error messages by default.
     /// </summary>
+    /// <param name="prefix">The expected data type.</param>
     /// <exception cref="EndOfStreamException">If the data is exhausted before a streaming scalar is exhausted.</exception>
     /// <exception cref="RespException">If the data contains an explicit error element.</exception>
     /// <exception cref="InvalidOperationException">If the data is not of the expected type.</exception>
@@ -327,6 +329,7 @@ public ref partial struct RespReader
     /// Move to the next content element (<see cref="MoveNext()"/>) and assert that it of type specified
     /// in <paramref name="prefix"/>.
     /// </summary>
+    /// <param name="prefix">The expected data type.</param>
     /// <exception cref="EndOfStreamException">If the data is exhausted before content is found.</exception>
     /// <exception cref="RespException">If the data contains an explicit error element.</exception>
     /// <exception cref="InvalidOperationException">If the data is not of the expected type.</exception>
@@ -378,6 +381,7 @@ public ref partial struct RespReader
     /// <summary>
     /// Initializes a new instance of the <see cref="RespReader"/> struct.
     /// </summary>
+    /// <param name="value">The raw contents to parse with this instance.</param>
     public RespReader(ReadOnlySpan<byte> value)
     {
         _length = 0;
@@ -619,7 +623,7 @@ public ref partial struct RespReader
                     {
                         case LengthPrefixResult.Length when _length == 0:
                             // EOF, no payload
-                            _flags = RespFlags.IsScalar; // don't claim as streaming, we want this to count towards delta-decr
+                            _flags = RespFlags.IsScalar; // don't claim as streaming, we want this to count towards delta-decrement
                             break;
                         case LengthPrefixResult.Length:
                             // still need to valid terminating CRLF
@@ -762,7 +766,7 @@ public ref partial struct RespReader
                 {
                     case LengthPrefixResult.Length when isolated._length == 0:
                         // EOF, no payload
-                        isolated._flags = RespFlags.IsScalar; // don't claim as streaming, we want this to count towards delta-decr
+                        isolated._flags = RespFlags.IsScalar; // don't claim as streaming, we want this to count towards delta-decrement
                         break;
                     case LengthPrefixResult.Length:
                         // still need to valid terminating CRLF
@@ -836,12 +840,14 @@ public ref partial struct RespReader
     /// <summary>
     /// Indicates whether the current element is a scalar with a value that matches the provided <paramref name="value"/>.
     /// </summary>
+    /// <param name="value">The payload value to verify.</param>
     public readonly bool Is(ReadOnlySpan<byte> value)
         => TryGetSpan(out var span) ? span.SequenceEqual(value) : IsSlow(value);
 
     /// <summary>
     /// Indicates whether the current element is a scalar with a value that matches the provided <paramref name="value"/>.
     /// </summary>
+    /// <param name="value">The payload value to verify.</param>
     public readonly bool Is(byte value)
     {
         if (IsInlineScalar && _length == 1 && CurrentAvailable >= 1)
@@ -859,20 +865,20 @@ public ref partial struct RespReader
         if (IsNull) return false; // nothing equals null
         if (TotalAvailable < testValue.Length) return false;
 
-        var iter = ScalarChunks();
+        var iterator = ScalarChunks();
         while (true)
         {
             if (testValue.IsEmpty)
             {
                 // nothing left to test; if also nothing left to read, great!
-                return !iter.MoveNext();
+                return !iterator.MoveNext();
             }
-            if (!iter.MoveNext())
+            if (!iterator.MoveNext())
             {
                 return false; // test is longer
             }
 
-            var current = iter.Current;
+            var current = iterator.Current;
             if (testValue.Length < current.Length) return false; // payload is longer
 
             if (!current.SequenceEqual(testValue.Slice(0, current.Length))) return false; // payload is different
@@ -884,6 +890,7 @@ public ref partial struct RespReader
     /// <summary>
     /// Copy the current scalar value out into the supplied <paramref name="target"/>, or as much as can be copied.
     /// </summary>
+    /// <param name="target">The destination for the copy operation.</param>
     /// <returns>The number of bytes successfully copied.</returns>
     public readonly int CopyTo(Span<byte> target)
     {
@@ -896,10 +903,10 @@ public ref partial struct RespReader
         }
 
         int totalBytes = 0;
-        var iter = ScalarChunks();
-        while (iter.MoveNext())
+        var iterator = ScalarChunks();
+        while (iterator.MoveNext())
         {
-            value = iter.Current;
+            value = iterator.Current;
             if (target.Length <= value.Length)
             {
                 value.Slice(0, target.Length).CopyTo(target);
@@ -983,6 +990,7 @@ public ref partial struct RespReader
     /// <summary>
     /// Parse a scalar value as an enum of type <typeparamref name="T"/>.
     /// </summary>
+    /// <param name="unknownValue">The value to report if the value is not recognized.</param>
     public readonly T ReadEnum<T>(T unknownValue = default) where T : struct, Enum
     {
         DemandScalar();

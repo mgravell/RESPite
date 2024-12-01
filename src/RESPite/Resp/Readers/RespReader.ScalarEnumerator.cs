@@ -33,6 +33,7 @@ public ref partial struct RespReader
         /// <summary>
         /// Create a new enumerator for the specified <paramref name="reader"/>.
         /// </summary>
+        /// <param name="reader">The reader containing the data for this operation.</param>
         public ScalarEnumerator(scoped in RespReader reader)
         {
             reader.DemandScalar();
@@ -93,6 +94,8 @@ public ref partial struct RespReader
         /// <summary>
         /// Move to the end of this aggregate and export the state of the <paramref name="reader"/>.
         /// </summary>
+        /// <param name="reader">The reader positioned at the end of the data; this is commonly
+        /// used to update a tree reader, to get to the next data after the aggregate.</param>
         public void MovePast(out RespReader reader)
         {
             while (MoveNext()) { }

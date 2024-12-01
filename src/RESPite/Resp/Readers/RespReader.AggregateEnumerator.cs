@@ -26,6 +26,7 @@ public ref partial struct RespReader
         /// <summary>
         /// Create a new enumerator for the specified <paramref name="reader"/>.
         /// </summary>
+        /// <param name="reader">The reader containing the data for this operation.</param>
         public AggregateEnumerator(scoped in RespReader reader)
         {
             reader.DemandAggregate();
@@ -34,10 +35,10 @@ public ref partial struct RespReader
         }
 
         /// <inheritdoc cref="IEnumerable{T}.GetEnumerator()"/>
-        public AggregateEnumerator GetEnumerator() => this;
+        public readonly AggregateEnumerator GetEnumerator() => this;
 
         /// <inheritdoc cref="IEnumerator{T}.Current"/>
-        public RespReader Current { get; private set; }
+        public RespReader Current { readonly get; private set; }
 
         /// <inheritdoc cref="IEnumerator.MoveNext()"/>>
         public bool MoveNext()
@@ -77,6 +78,8 @@ public ref partial struct RespReader
         /// <summary>
         /// Move to the end of this aggregate and export the state of the <paramref name="reader"/>.
         /// </summary>
+        /// <param name="reader">The reader positioned at the end of the data; this is commonly
+        /// used to update a tree reader, to get to the next data after the aggregate.</param>
         public void MovePast(out RespReader reader)
         {
             while (MoveNext()) { }
@@ -106,6 +109,6 @@ public ref partial struct RespReader
         if (bytes > remaining) Throw();
 
         UnsafeTrimCurrentBy((int)bytes);
-        void Throw() => throw new ArgumentOutOfRangeException(nameof(bytes));
+        static void Throw() => throw new ArgumentOutOfRangeException(nameof(bytes));
     }
 }
