@@ -103,7 +103,7 @@ public ref partial struct RespReader
 
     private int RawTryReadByte()
     {
-        if (CurrentLength < _bufferIndex || TryMoveToNextSegment())
+        if (_bufferIndex < CurrentLength || TryMoveToNextSegment())
         {
             var result = UnsafeCurrent;
             _bufferIndex++;
@@ -114,7 +114,7 @@ public ref partial struct RespReader
 
     private int RawPeekByte()
     {
-        return CurrentLength < _bufferIndex || TryMoveToNextSegment() ? UnsafeCurrent : -1;
+        return (CurrentLength < _bufferIndex || TryMoveToNextSegment()) ? UnsafeCurrent : -1;
     }
 
     private bool RawAssertCrLf()
@@ -157,16 +157,26 @@ public ref partial struct RespReader
             case 0:
                 ThrowProtocolFailure("Length prefix expected");
                 goto case default; // not reached, just satisfying definite assignment
-            case 1 when RawPeekByte() == (byte)'?':
-                _bufferIndex++;
-                return LengthPrefixResult.Streaming;
+            case 1:
+                var b = (byte)RawTryReadByte();
+                RawAssertCrLf();
+                if (b == '?')
+                {
+                    return LengthPrefixResult.Streaming;
+                }
+                else
+                {
+                    _length = ParseSingleDigit(b);
+                    return LengthPrefixResult.Length;
+                }
             default:
                 if (end > RespConstants.MaxRawBytesInt32)
                 {
                     ThrowProtocolFailure("Unable to parse integer");
                 }
-                Span<byte> bytes = stackalloc byte[end + 2];
+                Span<byte> bytes = stackalloc byte[end];
                 RawFillBytes(bytes);
+                RawAssertCrLf();
                 if (!(Utf8Parser.TryParse(bytes, out _length, out var consumed) && consumed == end))
                 {
                     ThrowProtocolFailure("Unable to parse integer");
@@ -210,7 +220,20 @@ public ref partial struct RespReader
         ThrowEOF();
     }
 
-    private readonly bool RawTryAssertCrLf()
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int ParseSingleDigit(byte value)
+    {
+        return value switch
+        {
+            (byte)'0' or (byte)'1' or (byte)'2' or (byte)'3' or (byte)'4' or (byte)'5' or (byte)'6' or (byte)'7' or (byte)'8' or (byte)'9' => value - (byte)'0',
+            _ => Invalid(value),
+        };
+
+        [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
+        static int Invalid(byte value) => throw new FormatException($"Unable to parse integer: '{(char)value}'");
+    }
+
+    private readonly bool RawTryAssertInlineScalarPayloadCrLf()
     {
         Debug.Assert(IsInlineScalar);
 

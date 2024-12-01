@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace RESPite.Resp.Readers;
 
@@ -12,11 +13,26 @@ public struct ScanState
     private ushort _streamingAggregateDepth;
     private MessageKind _kind;
     private long _totalBytes;
+#if DEBUG
+    private int _elementCount;
+
+    /// <inheritdoc/>
+    public override string ToString() => $"{_kind}, consumed: {_totalBytes} bytes, {_elementCount} nodes, complete: {IsComplete}";
+#else
+    /// <inheritdoc/>
+    public override string ToString() => nameof(ScanState);
+#endif
+
+    /// <inheritdoc/>
+    public override bool Equals([NotNullWhen(true)] object? obj) => throw new NotSupportedException();
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => throw new NotSupportedException();
 
     private enum MessageKind : byte
     {
-        None, // we haven't yet seen the first non-attribute element
-        PubSubNone, // we haven't yet seen the first non-attribute element, and this is a pub-sub connection
+        Root, // we haven't yet seen the first non-attribute element
+        PubSubRoot, // we haven't yet seen the first non-attribute element, and this is a pub-sub connection
         PubSubArrayRoot, // this is a pub-sub connection, and we've seen an array-root first element, waiting for the second
         OutOfBand, // we have determined that this is an out-of-band message
         RequestResponse, // we have determined that this is a request-response message
@@ -27,7 +43,7 @@ public struct ScanState
     /// </summary>
     public static ref readonly ScanState Create(bool pubSubConnection) => ref pubSubConnection ? ref _pubSub : ref _default;
 
-    private static readonly ScanState _pubSub = new ScanState(MessageKind.PubSubNone), _default = default;
+    private static readonly ScanState _pubSub = new ScanState(MessageKind.PubSubRoot), _default = default;
 
     private ScanState(MessageKind kind)
     {
@@ -102,14 +118,17 @@ public struct ScanState
     {
         while (_delta >= 0 && reader.TryReadNext())
         {
+#if DEBUG
+            _elementCount++;
+#endif
             if (!reader.IsAttribute)
             {
                 switch (_kind)
                 {
-                    case MessageKind.None:
+                    case MessageKind.Root:
                         _kind = reader.Prefix == RespPrefix.Push ? MessageKind.OutOfBand : MessageKind.RequestResponse;
                         break;
-                    case MessageKind.PubSubNone:
+                    case MessageKind.PubSubRoot:
                         _kind = reader.Prefix switch
                         {
                             RespPrefix.Array => MessageKind.PubSubArrayRoot,

@@ -1,6 +1,5 @@
 ﻿using System.Buffers;
 using System.Buffers.Text;
-using System.Collections;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -557,20 +556,6 @@ public ref partial struct RespReader
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-
-        static int ParseSingleDigit(byte value)
-        {
-            return value switch
-            {
-                (byte)'0' or (byte)'1' or (byte)'2' or (byte)'3' or (byte)'4' or (byte)'5' or (byte)'6' or (byte)'7' or (byte)'8' or (byte)'9' => value - (byte)'0',
-                _ => Invalid(value),
-            };
-
-            [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
-            static int Invalid(byte value) => throw new FormatException($"Unable to parse integer: '{(char)value}'");
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static int ParseDoubleDigitsNonNegative(ref byte value) => (10 * ParseSingleDigit(value)) + ParseSingleDigit(Unsafe.Add(ref value, 1));
 #endif
 
@@ -684,8 +669,8 @@ public ref partial struct RespReader
     {
         // in the case of failure, we don't want to apply any changes,
         // so we work against an isolated copy until we're happy
+        live.MovePastCurrent();
         RespReader isolated = live;
-        isolated.MovePastCurrent();
 
         int next = isolated.RawTryReadByte();
         if (next < 0) return false;
@@ -711,9 +696,8 @@ public ref partial struct RespReader
                 {
                     case LengthPrefixResult.Length:
                         // still need to valid terminating CRLF
-                        if (!isolated.RawTryAssertCrLf()) return false;
-
                         isolated._flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;
+                        if (!isolated.RawTryAssertInlineScalarPayloadCrLf()) return false;
                         break;
                     case LengthPrefixResult.Null:
                         isolated._flags = RespFlags.IsScalar | RespFlags.IsNull;
@@ -770,9 +754,8 @@ public ref partial struct RespReader
                         break;
                     case LengthPrefixResult.Length:
                         // still need to valid terminating CRLF
-                        if (!isolated.RawTryAssertCrLf()) return false; // need more data
-
                         isolated._flags = RespFlags.IsScalar | RespFlags.IsInlineScalar | RespFlags.IsStreaming;
+                        if (!isolated.RawTryAssertInlineScalarPayloadCrLf()) return false; // need more data
                         break;
                     case LengthPrefixResult.Null:
                     case LengthPrefixResult.Streaming:
@@ -823,6 +806,7 @@ public ref partial struct RespReader
                 _positionBase += CurrentLength;
                 _remainingTailLength -= span.Length;
                 SetCurrent(span);
+                _bufferIndex = 0;
                 return true;
             }
         }
