@@ -51,9 +51,9 @@ public enum RespPrefix : byte
     Double = (byte)',',
 
     /// <summary>
-    /// Large floating-point number: (123.45\r\n.
+    /// Large integer number: (12...89\r\n.
     /// </summary>
-    BigNumber = (byte)'(',
+    BigInteger = (byte)'(',
 
     /// <summary>
     /// Error with support for binary data: !7\r\nmessage\r\n.

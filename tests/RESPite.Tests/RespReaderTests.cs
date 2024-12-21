@@ -1,4 +1,6 @@
 ﻿using System.Buffers;
+using System.Globalization;
+using System.Numerics;
 using System.Text;
 using RESPite.Resp;
 using RESPite.Resp.Readers;
@@ -50,6 +52,8 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.MoveNext(RespPrefix.BulkString);
         Assert.True(reader.Is("hello world"u8));
         Assert.Equal("hello world", reader.ReadString());
+        Assert.Equal("hello world", reader.ReadString(out var prefix));
+        Assert.Equal("", prefix);
         reader.DemandEnd();
     }
 
@@ -70,17 +74,20 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.MoveNext(RespPrefix.SimpleString);
         Assert.True(reader.Is("hello world"u8));
         Assert.Equal("hello world", reader.ReadString());
+        Assert.Equal("hello world", reader.ReadString(out var prefix));
+        Assert.Equal("", prefix);
         reader.DemandEnd();
     }
 
     [Fact]
     public void SimpleError_ImplicitErrors()
     {
-        Assert.Throws<RespException>(() =>
+        var ex = Assert.Throws<RespException>(() =>
         {
             var reader = new RespReader("-ERR this is the error description\r\n"u8);
             reader.MoveNext();
         });
+        Assert.Equal("ERR this is the error description", ex.Message);
     }
 
     [Fact]
@@ -217,6 +224,56 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.MoveNext(prefix);
         Assert.Equal(expected, reader.ReadBoolean());
         reader.DemandEnd();
+    }
+
+    [Fact]
+    public void BlobError_ImplicitErrors()
+    {
+        var ex = Assert.Throws<RespException>(() =>
+        {
+            var reader = new RespReader("!21\r\nSYNTAX invalid syntax\r\n"u8);
+            reader.MoveNext();
+        });
+        Assert.Equal("SYNTAX invalid syntax", ex.Message);
+    }
+
+    [Fact]
+    public void BlobError_Careful()
+    {
+        var reader = new RespReader("!21\r\nSYNTAX invalid syntax\r\n"u8);
+        Assert.True(reader.TryReadNext());
+        Assert.Equal(RespPrefix.BulkError, reader.Prefix);
+        Assert.True(reader.Is("SYNTAX invalid syntax"u8));
+        Assert.Equal("SYNTAX invalid syntax", reader.ReadString());
+        reader.DemandEnd();
+    }
+
+    [Fact]
+    public void VerbatimString()
+    {
+        var reader = new RespReader("=15\r\ntxt:Some string\r\n"u8);
+        reader.MoveNext(RespPrefix.VerbatimString);
+        Assert.Equal("Some string", reader.ReadString());
+        Assert.Equal("Some string", reader.ReadString(out var prefix));
+        Assert.Equal("txt", prefix);
+
+        Assert.Equal("Some string", reader.ReadString(out var prefix2));
+        Assert.Same(prefix, prefix2); // check prefix recognized and reuse literal
+        reader.DemandEnd();
+    }
+
+    [Fact]
+    public void BigIntegers()
+    {
+        var reader = new RespReader("(3492890328409238509324850943850943825024385\r\n"u8);
+        reader.MoveNext(RespPrefix.BigInteger);
+        Assert.Equal("3492890328409238509324850943850943825024385", reader.ReadString());
+#if NET8_0_OR_GREATER
+        var actual = reader.ParseChars(chars => BigInteger.Parse(chars, CultureInfo.InvariantCulture));
+
+        var expected = BigInteger.Parse("3492890328409238509324850943850943825024385");
+        Assert.Equal(expected, actual);
+#endif
     }
 
     private sealed class Segment : ReadOnlySequenceSegment<byte>

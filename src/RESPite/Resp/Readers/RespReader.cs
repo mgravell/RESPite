@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 #if NETCOREAPP3_0_OR_GREATER
 using System.Runtime.Intrinsics;
@@ -363,19 +364,123 @@ public ref partial struct RespReader
     /// <summary>
     /// Reads the current element as a string value.
     /// </summary>
-    public readonly string? ReadString() =>
-        TryGetSpan(out var span) ? span.IsEmpty ? (IsNull ? null : "") : RespConstants.UTF8.GetString(span) : ReadStringSlow();
+    public readonly string? ReadString() => ReadString(out _);
 
-    private readonly string ReadStringSlow()
+    /// <summary>
+    /// Reads the current element as a string value.
+    /// </summary>
+    public readonly string? ReadString(out string prefix)
+    {
+        if (TryGetSpan(out var span))
+        {
+            prefix = "";
+            if (span.IsEmpty)
+            {
+                return IsNull ? null : "";
+            }
+            return Prefix == RespPrefix.VerbatimString ? StripVerbatimStringPrefix(span, out prefix) : RespConstants.UTF8.GetString(span);
+        }
+        return ReadStringSlow(out prefix);
+    }
+
+    private static readonly uint
+        PrefixTxt = RespConstants.UnsafeCpuUInt32("txt:"u8),
+        PrefixMkd = RespConstants.UnsafeCpuUInt32("mkd:"u8);
+
+    private static string StripVerbatimStringPrefix(ReadOnlySpan<byte> value, out string prefix)
+    {
+        // "the first three bytes provide information about the format of the following string,
+        // which can be txt for plain text, or mkd for markdown. The fourth byte is always :.
+        // Then the real string follows."
+        if (value.Length >= 4 && value[3] == ':')
+        {
+            var prefixValue = RespConstants.UnsafeCpuUInt32(value);
+            if (prefixValue == PrefixTxt)
+            {
+                prefix = "txt";
+            }
+            else if (prefixValue == PrefixMkd)
+            {
+                prefix = "mkd";
+            }
+            else
+            {
+                prefix = RespConstants.UTF8.GetString(value.Slice(0, 3));
+            }
+            value = value.Slice(4);
+        }
+        else
+        {
+            prefix = "";
+        }
+        return RespConstants.UTF8.GetString(value);
+    }
+
+    private readonly string ReadStringSlow(out string prefix)
     {
         var length = ScalarLength();
         var oversized = ArrayPool<byte>.Shared.Rent(length);
         int actual = CopyTo(oversized);
         Debug.Assert(actual == length);
-        var s = RespConstants.UTF8.GetString(oversized, 0, length);
+        prefix = "";
+        var s = Prefix == RespPrefix.VerbatimString
+            ? StripVerbatimStringPrefix(new(oversized, 0, length), out prefix)
+            : RespConstants.UTF8.GetString(oversized, 0, length);
         ArrayPool<byte>.Shared.Return(oversized);
         return s;
     }
+
+    /// <summary>
+    /// Reads the current element using a general purpose text parser.
+    /// </summary>
+    public readonly T ParseBytes<T>(Parser<byte, T> parser)
+        => TryGetSpan(out var span) ? parser(span) : ParseBytesSlow(parser);
+
+    private readonly T ParseBytesSlow<T>(Parser<byte, T> parser)
+    {
+        var length = ScalarLength();
+        var oversized = ArrayPool<byte>.Shared.Rent(length);
+        int actual = CopyTo(oversized);
+        Debug.Assert(actual == length);
+        var value = parser(new(oversized, 0, length));
+        ArrayPool<byte>.Shared.Return(oversized);
+        return value;
+    }
+
+    /// <summary>
+    /// Reads the current element using a general purpose byte parser.
+    /// </summary>
+    public readonly T ParseChars<T>(Parser<char, T> parser)
+    {
+        byte[] bArr = [];
+        char[] cArr = [];
+        try
+        {
+            if (!TryGetSpan(out var bSpan))
+            {
+                var length = ScalarLength();
+                Span<byte> oversized = ArrayPool<byte>.Shared.Rent(length);
+                int actual = CopyTo(oversized);
+                Debug.Assert(actual == length);
+                bSpan = oversized.Slice(0, length);
+            }
+
+            var maxChars = RespConstants.UTF8.GetMaxCharCount(bSpan.Length);
+            Span<char> cSpan = maxChars <= 256 ? stackalloc char[256] : (cArr = ArrayPool<char>.Shared.Rent(maxChars));
+            int chars = RespConstants.UTF8.GetChars(bSpan, cSpan);
+            return parser(cSpan.Slice(0, chars));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bArr);
+            ArrayPool<char>.Shared.Return(cArr);
+        }
+    }
+
+    /// <summary>
+    /// General purpose parsing callback.
+    /// </summary>
+    public delegate TValue Parser<TSource, TValue>(ReadOnlySpan<TSource> value);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RespReader"/> struct.
@@ -559,7 +664,7 @@ public ref partial struct RespReader
         static int ParseDoubleDigitsNonNegative(ref byte value) => (10 * ParseSingleDigit(value)) + ParseSingleDigit(Unsafe.Add(ref value, 1));
 #endif
 
-                // no fancy vectorization, but: we can still try to find the payload the fast way in a single segment
+        // no fancy vectorization, but: we can still try to find the payload the fast way in a single segment
         if (_bufferIndex + 3 <= CurrentLength) // shortest possible RESP fragment is length 3
         {
             var remaining = UnsafePastPrefix();
@@ -570,7 +675,7 @@ public ref partial struct RespReader
                 case RespPrefix.Integer:
                 case RespPrefix.Boolean:
                 case RespPrefix.Double:
-                case RespPrefix.BigNumber:
+                case RespPrefix.BigInteger:
                     // CRLF-terminated
                     _length = remaining.IndexOf(RespConstants.CrlfBytes);
                     if (_length < 0) break; // can't find, need more data
@@ -682,7 +787,7 @@ public ref partial struct RespReader
             case RespPrefix.Integer:
             case RespPrefix.Boolean:
             case RespPrefix.Double:
-            case RespPrefix.BigNumber:
+            case RespPrefix.BigInteger:
                 // CRLF-terminated
                 if (!isolated.RawTryFindCrLf(out isolated._length)) return false;
                 isolated._flags = RespFlags.IsScalar | RespFlags.IsInlineScalar;

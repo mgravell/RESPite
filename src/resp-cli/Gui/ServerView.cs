@@ -337,7 +337,7 @@ internal class ServerView : View
                         {
                             status = typedNode.Prefix switch
                             {
-                                RespPrefix.BigNumber => "big number",
+                                RespPrefix.BigInteger => "big integer",
                                 RespPrefix.BulkError => "bulk error",
                                 RespPrefix.BulkString => "bulk string",
                                 RespPrefix.SimpleError => "simple error",

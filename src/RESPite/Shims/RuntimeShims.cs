@@ -156,6 +156,19 @@ internal static class RuntimeShims
             }
         }
     }
+
+    public static unsafe int GetChars(this UTF8Encoding encoding, ReadOnlySpan<byte> source, Span<char> target)
+    {
+        if (source.IsEmpty) return 0;
+        fixed (byte* bPtr = source)
+        {
+            fixed (char* cPtr = target)
+            {
+                return encoding.GetChars(bPtr, source.Length, cPtr, target.Length);
+            }
+        }
+    }
+
     public static unsafe int GetByteCount(this UTF8Encoding encoding, ReadOnlySpan<char> source)
     {
         if (source.IsEmpty) return 0;
