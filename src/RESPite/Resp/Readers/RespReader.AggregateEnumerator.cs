@@ -31,6 +31,7 @@ public ref partial struct RespReader
         {
             reader.DemandAggregate();
             _remaining = reader.IsStreaming ? -1 : reader._length;
+            _reader = reader;
             Current = default;
         }
 
@@ -38,7 +39,20 @@ public ref partial struct RespReader
         public readonly AggregateEnumerator GetEnumerator() => this;
 
         /// <inheritdoc cref="IEnumerator{T}.Current"/>
-        public RespReader Current { readonly get; private set; }
+        public RespReader Current; // this is intentionally a field, because of internal mutability
+
+        /// <summary>
+        /// Move to the next child if possible, and move the child element into the next node.
+        /// </summary>
+        public bool MoveNext(RespPrefix prefix)
+        {
+            bool result = MoveNext();
+            if (result)
+            {
+                Current.MoveNext(prefix);
+            }
+            return result;
+        }
 
         /// <inheritdoc cref="IEnumerator.MoveNext()"/>>
         public bool MoveNext()

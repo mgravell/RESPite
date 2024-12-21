@@ -54,6 +54,14 @@ public class RespReaderTests(ITestOutputHelper logger)
         Assert.Equal("hello world", reader.ReadString());
         Assert.Equal("hello world", reader.ReadString(out var prefix));
         Assert.Equal("", prefix);
+#if NET7_0_OR_GREATER
+        Assert.Equal("hello world", reader.ParseChars<string>());
+#endif
+        /* interestingly, string does not implement IUtf8SpanParsable
+#if NET8_0_OR_GREATER
+        Assert.Equal("hello world", reader.ParseBytes<string>());
+#endif
+        */
         reader.DemandEnd();
     }
 
@@ -111,6 +119,16 @@ public class RespReaderTests(ITestOutputHelper logger)
         Assert.Equal(1234, reader.ReadInt32());
         Assert.Equal(1234D, reader.ReadDouble());
         Assert.Equal(1234M, reader.ReadDecimal());
+#if NET7_0_OR_GREATER
+        Assert.Equal(1234, reader.ParseChars<int>());
+        Assert.Equal(1234D, reader.ParseChars<double>());
+        Assert.Equal(1234M, reader.ParseChars<decimal>());
+#endif
+#if NET8_0_OR_GREATER
+        Assert.Equal(1234, reader.ParseBytes<int>());
+        Assert.Equal(1234D, reader.ParseBytes<double>());
+        Assert.Equal(1234M, reader.ParseBytes<decimal>());
+#endif
         reader.DemandEnd();
     }
 
@@ -274,6 +292,23 @@ public class RespReaderTests(ITestOutputHelper logger)
         var expected = BigInteger.Parse("3492890328409238509324850943850943825024385");
         Assert.Equal(expected, actual);
 #endif
+    }
+
+    [Fact]
+    public void Array()
+    {
+        var reader = new RespReader("*3\r\n:1\r\n:2\r\n:3\r\n"u8);
+        reader.MoveNext(RespPrefix.Array);
+        var iter = reader.AggregateChildren();
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, iter.Current.ReadInt32());
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, iter.Current.ReadInt32());
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(3, iter.Current.ReadInt32());
+        Assert.False(iter.MoveNext(RespPrefix.Integer));
+        iter.MovePast(out reader);
+        reader.DemandEnd();
     }
 
     private sealed class Segment : ReadOnlySequenceSegment<byte>

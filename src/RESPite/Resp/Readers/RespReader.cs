@@ -3,8 +3,8 @@ using System.Buffers.Text;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 #if NETCOREAPP3_0_OR_GREATER
 using System.Runtime.Intrinsics;
@@ -371,80 +371,140 @@ public ref partial struct RespReader
     /// </summary>
     public readonly string? ReadString(out string prefix)
     {
-        if (TryGetSpan(out var span))
+        byte[] pooled = [];
+        try
         {
+            var span = Buffer(ref pooled, stackalloc byte[256]);
             prefix = "";
             if (span.IsEmpty)
             {
                 return IsNull ? null : "";
             }
-            return Prefix == RespPrefix.VerbatimString ? StripVerbatimStringPrefix(span, out prefix) : RespConstants.UTF8.GetString(span);
+            if (Prefix == RespPrefix.VerbatimString
+                && span.Length >= 4 && span[3] == ':')
+            {
+                // "the first three bytes provide information about the format of the following string,
+                // which can be txt for plain text, or mkd for markdown. The fourth byte is always :.
+                // Then the real string follows."
+                var prefixValue = RespConstants.UnsafeCpuUInt32(span);
+                if (prefixValue == PrefixTxt)
+                {
+                    prefix = "txt";
+                }
+                else if (prefixValue == PrefixMkd)
+                {
+                    prefix = "mkd";
+                }
+                else
+                {
+                    prefix = RespConstants.UTF8.GetString(span.Slice(0, 3));
+                }
+                span = span.Slice(4);
+            }
+            return RespConstants.UTF8.GetString(span);
         }
-        return ReadStringSlow(out prefix);
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(pooled);
+        }
     }
 
     private static readonly uint
         PrefixTxt = RespConstants.UnsafeCpuUInt32("txt:"u8),
         PrefixMkd = RespConstants.UnsafeCpuUInt32("mkd:"u8);
 
-    private static string StripVerbatimStringPrefix(ReadOnlySpan<byte> value, out string prefix)
+    /// <summary>
+    /// Reads the current element using a general purpose text parser.
+    /// </summary>
+    public readonly T ParseBytes<T>(Parser<byte, T> parser)
     {
-        // "the first three bytes provide information about the format of the following string,
-        // which can be txt for plain text, or mkd for markdown. The fourth byte is always :.
-        // Then the real string follows."
-        if (value.Length >= 4 && value[3] == ':')
+        byte[] pooled = [];
+        var span = Buffer(ref pooled, stackalloc byte[256]);
+        try
         {
-            var prefixValue = RespConstants.UnsafeCpuUInt32(value);
-            if (prefixValue == PrefixTxt)
-            {
-                prefix = "txt";
-            }
-            else if (prefixValue == PrefixMkd)
-            {
-                prefix = "mkd";
-            }
-            else
-            {
-                prefix = RespConstants.UTF8.GetString(value.Slice(0, 3));
-            }
-            value = value.Slice(4);
+            return parser(span);
         }
-        else
+        finally
         {
-            prefix = "";
+            ArrayPool<byte>.Shared.Return(pooled);
         }
-        return RespConstants.UTF8.GetString(value);
-    }
-
-    private readonly string ReadStringSlow(out string prefix)
-    {
-        var length = ScalarLength();
-        var oversized = ArrayPool<byte>.Shared.Rent(length);
-        int actual = CopyTo(oversized);
-        Debug.Assert(actual == length);
-        prefix = "";
-        var s = Prefix == RespPrefix.VerbatimString
-            ? StripVerbatimStringPrefix(new(oversized, 0, length), out prefix)
-            : RespConstants.UTF8.GetString(oversized, 0, length);
-        ArrayPool<byte>.Shared.Return(oversized);
-        return s;
     }
 
     /// <summary>
     /// Reads the current element using a general purpose text parser.
     /// </summary>
-    public readonly T ParseBytes<T>(Parser<byte, T> parser)
-        => TryGetSpan(out var span) ? parser(span) : ParseBytesSlow(parser);
-
-    private readonly T ParseBytesSlow<T>(Parser<byte, T> parser)
+    public readonly T ParseBytes<T, TState>(Parser<byte, TState, T> parser, TState? state)
     {
-        var length = ScalarLength();
-        var oversized = ArrayPool<byte>.Shared.Rent(length);
-        int actual = CopyTo(oversized);
-        Debug.Assert(actual == length);
-        var value = parser(new(oversized, 0, length));
-        ArrayPool<byte>.Shared.Return(oversized);
-        return value;
+        byte[] pooled = [];
+        var span = Buffer(ref pooled, stackalloc byte[256]);
+        try
+        {
+            return parser(span, default);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(pooled);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private readonly ReadOnlySpan<byte> Buffer(Span<byte> target)
+        => TryGetSpan(out var simple) ? simple : BufferSlow(ref Unsafe.NullRef<byte[]>(), target);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private readonly ReadOnlySpan<byte> Buffer(ref byte[] pooled, Span<byte> target = default)
+        => TryGetSpan(out var simple) ? simple : BufferSlow(ref pooled, target);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private readonly ReadOnlySpan<byte> BufferSlow(ref byte[] pooled, Span<byte> target)
+    {
+        DemandScalar();
+
+        if (IsInlineScalar && !Unsafe.IsNullRef(ref pooled))
+        {
+            // grow to the correct size in advance, if needed
+            var length = ScalarLength();
+            if (length > target.Length)
+            {
+                var bigger = ArrayPool<byte>.Shared.Rent(length);
+                ArrayPool<byte>.Shared.Return(pooled);
+                target = pooled = bigger;
+            }
+        }
+
+        var iterator = ScalarChunks();
+        ReadOnlySpan<byte> current;
+        int offset = 0;
+        while (iterator.MoveNext())
+        {
+            // will the current chunk fit?
+            current = iterator.Current;
+            if (current.TryCopyTo(target.Slice(offset)))
+            {
+                // fits into the current buffer
+                offset += current.Length;
+            }
+            else if (Unsafe.IsNullRef(ref pooled))
+            {
+                // rent disallowed; fill what we can
+                var available = target.Slice(offset);
+                current.Slice(0, available.Length).CopyTo(available);
+                return target; // we filled it
+            }
+            else
+            {
+                // rent a bigger buffer, copy and recycle
+                var bigger = ArrayPool<byte>.Shared.Rent(offset + current.Length);
+                if (offset != 0)
+                {
+                    target.Slice(0, offset).CopyTo(bigger);
+                }
+                ArrayPool<byte>.Shared.Return(pooled);
+                target = pooled = bigger;
+                current.CopyTo(target.Slice(offset));
+            }
+        }
+        return target.Slice(0, offset);
     }
 
     /// <summary>
@@ -456,17 +516,9 @@ public ref partial struct RespReader
         char[] cArr = [];
         try
         {
-            if (!TryGetSpan(out var bSpan))
-            {
-                var length = ScalarLength();
-                Span<byte> oversized = ArrayPool<byte>.Shared.Rent(length);
-                int actual = CopyTo(oversized);
-                Debug.Assert(actual == length);
-                bSpan = oversized.Slice(0, length);
-            }
-
+            var bSpan = Buffer(ref bArr, stackalloc byte[128]);
             var maxChars = RespConstants.UTF8.GetMaxCharCount(bSpan.Length);
-            Span<char> cSpan = maxChars <= 256 ? stackalloc char[256] : (cArr = ArrayPool<char>.Shared.Rent(maxChars));
+            Span<char> cSpan = maxChars <= 128 ? stackalloc char[128] : (cArr = ArrayPool<char>.Shared.Rent(maxChars));
             int chars = RespConstants.UTF8.GetChars(bSpan, cSpan);
             return parser(cSpan.Slice(0, chars));
         }
@@ -476,6 +528,76 @@ public ref partial struct RespReader
             ArrayPool<char>.Shared.Return(cArr);
         }
     }
+
+    /// <summary>
+    /// Reads the current element using a general purpose byte parser.
+    /// </summary>
+    public readonly T ParseChars<T, TState>(Parser<char, TState, T> parser, TState? state)
+    {
+        byte[] bArr = [];
+        char[] cArr = [];
+        try
+        {
+            var bSpan = Buffer(ref bArr, stackalloc byte[128]);
+            var maxChars = RespConstants.UTF8.GetMaxCharCount(bSpan.Length);
+            Span<char> cSpan = maxChars <= 128 ? stackalloc char[128] : (cArr = ArrayPool<char>.Shared.Rent(maxChars));
+            int chars = RespConstants.UTF8.GetChars(bSpan, cSpan);
+            return parser(cSpan.Slice(0, chars), state);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bArr);
+            ArrayPool<char>.Shared.Return(cArr);
+        }
+    }
+
+#if NET7_0_OR_GREATER
+    /// <summary>
+    /// Reads the current element using <see cref="ISpanParsable{TSelf}"/>.
+    /// </summary>
+    public readonly T ParseChars<T>(IFormatProvider? formatProvider = null) where T : ISpanParsable<T>
+    {
+        byte[] bArr = [];
+        char[] cArr = [];
+        try
+        {
+            var bSpan = Buffer(ref bArr, stackalloc byte[128]);
+            var maxChars = RespConstants.UTF8.GetMaxCharCount(bSpan.Length);
+            Span<char> cSpan = maxChars <= 128 ? stackalloc char[128] : (cArr = ArrayPool<char>.Shared.Rent(maxChars));
+            int chars = RespConstants.UTF8.GetChars(bSpan, cSpan);
+            return T.Parse(cSpan.Slice(0, chars), formatProvider ?? CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bArr);
+            ArrayPool<char>.Shared.Return(cArr);
+        }
+    }
+#endif
+
+#if NET8_0_OR_GREATER
+    /// <summary>
+    /// Reads the current element using <see cref="IUtf8SpanParsable{TSelf}"/>.
+    /// </summary>
+    public readonly T ParseBytes<T>(IFormatProvider? formatProvider = null) where T : IUtf8SpanParsable<T>
+    {
+        byte[] bArr = [];
+        try
+        {
+            var bSpan = Buffer(ref bArr, stackalloc byte[128]);
+            return T.Parse(bSpan, formatProvider ?? CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bArr);
+        }
+    }
+#endif
+
+    /// <summary>
+    /// General purpose parsing callback.
+    /// </summary>
+    public delegate TValue Parser<TSource, TState, TValue>(ReadOnlySpan<TSource> value, TState? state);
 
     /// <summary>
     /// General purpose parsing callback.
@@ -1021,28 +1143,17 @@ public ref partial struct RespReader
     /// <summary>
     /// Read the current element as a <see cref="long"/> value.
     /// </summary>
+    [SuppressMessage("Style", "IDE0018:Inline variable declaration", Justification = "No it can't - conditional")]
     public readonly long ReadInt64()
     {
-        if (TryGetSpan(out var span) && span.Length <= RespConstants.MaxRawBytesInt64)
-        {
-            if (!(Utf8Parser.TryParse(span, out long value, out int bytes) & bytes == _length))
-            {
-                ThrowFormatException();
-            }
-            return value;
-        }
-        return ReadInt64Slow();
-    }
-
-    private readonly long ReadInt64Slow()
-    {
-        DemandScalar();
-        Span<byte> oversized = stackalloc byte[RespConstants.MaxRawBytesInt64 + 1];
-        int len = CopyTo(oversized);
-        if (!(len <= RespConstants.MaxRawBytesInt64 && Utf8Parser.TryParse(oversized.Slice(0, len), out long value, out int bytes) & bytes == len))
+        var span = Buffer(stackalloc byte[RespConstants.MaxRawBytesInt64 + 1]);
+        long value;
+        if (!(span.Length <= RespConstants.MaxRawBytesInt64
+            && Utf8Parser.TryParse(span, out value, out int bytes)
+            && bytes == span.Length))
         {
             ThrowFormatException();
-            return 0;
+            value = 0;
         }
         return value;
     }
@@ -1050,28 +1161,17 @@ public ref partial struct RespReader
     /// <summary>
     /// Read the current element as a <see cref="int"/> value.
     /// </summary>
+    [SuppressMessage("Style", "IDE0018:Inline variable declaration", Justification = "No it can't - conditional")]
     public readonly int ReadInt32()
     {
-        if (TryGetSpan(out var span) && span.Length <= RespConstants.MaxRawBytesInt32)
-        {
-            if (!(Utf8Parser.TryParse(span, out int value, out int bytes) & bytes == _length))
-            {
-                ThrowFormatException();
-            }
-            return value;
-        }
-        return ReadInt32Slow();
-    }
-
-    private readonly int ReadInt32Slow()
-    {
-        DemandScalar();
-        Span<byte> oversized = stackalloc byte[RespConstants.MaxRawBytesInt32 + 1];
-        int len = CopyTo(oversized);
-        if (!(len <= RespConstants.MaxRawBytesInt32 && Utf8Parser.TryParse(oversized.Slice(0, len), out int value, out int bytes) & bytes == len))
+        var span = Buffer(stackalloc byte[RespConstants.MaxRawBytesInt32 + 1]);
+        int value;
+        if (!(span.Length <= RespConstants.MaxRawBytesInt32
+            && Utf8Parser.TryParse(span, out value, out int bytes)
+            && bytes == span.Length))
         {
             ThrowFormatException();
-            return 0;
+            value = 0;
         }
         return value;
     }
@@ -1081,16 +1181,11 @@ public ref partial struct RespReader
     /// </summary>
     public readonly double ReadDouble()
     {
-        if (TryGetSpan(out var span) && span.Length <= RespConstants.MaxRawBytesNumber)
-        {
-            return ParseDoubleOrThrow(span);
-        }
-        return ReadDoubleSlow();
-    }
+        var span = Buffer(stackalloc byte[RespConstants.MaxRawBytesNumber + 1]);
 
-    private static double ParseDoubleOrThrow(ReadOnlySpan<byte> span)
-    {
-        if (Utf8Parser.TryParse(span, out double value, out int bytes) & bytes == span.Length)
+        if (span.Length <= RespConstants.MaxRawBytesNumber
+            && Utf8Parser.TryParse(span, out double value, out int bytes)
+            && bytes == span.Length)
         {
             return value;
         }
@@ -1109,39 +1204,20 @@ public ref partial struct RespReader
         return 0;
     }
 
-    private readonly double ReadDoubleSlow()
-    {
-        DemandScalar();
-        Span<byte> oversized = stackalloc byte[RespConstants.MaxRawBytesNumber + 1];
-        int len = CopyTo(oversized);
-        return ParseDoubleOrThrow(oversized.Slice(0, len));
-    }
-
     /// <summary>
     /// Read the current element as a <see cref="decimal"/> value.
     /// </summary>
+    [SuppressMessage("Style", "IDE0018:Inline variable declaration", Justification = "No it can't - conditional")]
     public readonly decimal ReadDecimal()
     {
-        if (TryGetSpan(out var span) && span.Length <= RespConstants.MaxRawBytesNumber)
-        {
-            if (!(Utf8Parser.TryParse(span, out decimal value, out int bytes) & bytes == _length))
-            {
-                ThrowFormatException();
-            }
-            return value;
-        }
-        return ReadDecimalSlow();
-    }
-
-    private readonly decimal ReadDecimalSlow()
-    {
-        DemandScalar();
-        Span<byte> oversized = stackalloc byte[RespConstants.MaxRawBytesNumber + 1];
-        int len = CopyTo(oversized);
-        if (!(len <= RespConstants.MaxRawBytesNumber && Utf8Parser.TryParse(oversized.Slice(0, len), out decimal value, out int bytes) & bytes == len))
+        var span = Buffer(stackalloc byte[RespConstants.MaxRawBytesNumber + 1]);
+        decimal value;
+        if (!(span.Length <= RespConstants.MaxRawBytesNumber
+            && Utf8Parser.TryParse(span, out value, out int bytes)
+            && bytes == span.Length))
         {
             ThrowFormatException();
-            return 0;
+            value = 0;
         }
         return value;
     }
@@ -1151,31 +1227,15 @@ public ref partial struct RespReader
     /// </summary>
     public readonly bool ReadBoolean()
     {
-        switch (Prefix)
+        var span = Buffer(stackalloc byte[2]);
+        if (span.Length == 1)
         {
-            case RespPrefix.Boolean:
-                if (TryGetSpan(out var span)) return ParseBooleanOrThrow(span);
-                return ReadBooleanSlow();
-            default:
-                return ReadInt32() != 0;
-        }
-    }
-
-    private readonly bool ReadBooleanSlow()
-    {
-        Span<byte> oversized = stackalloc byte[2];
-        int len = CopyTo(oversized);
-        return ParseBooleanOrThrow(oversized.Slice(0, len));
-    }
-
-    private static bool ParseBooleanOrThrow(ReadOnlySpan<byte> value)
-    {
-        if (value.Length == 1)
-        {
-            switch (value[0])
+            switch (span[0])
             {
-                case (byte)'t': return true;
-                case (byte)'f': return false;
+                case (byte)'0' when Prefix == RespPrefix.Integer: return false;
+                case (byte)'1' when Prefix == RespPrefix.Integer: return true;
+                case (byte)'f' when Prefix == RespPrefix.Boolean: return false;
+                case (byte)'t' when Prefix == RespPrefix.Boolean: return true;
             }
         }
         ThrowFormatException();
@@ -1188,42 +1248,10 @@ public ref partial struct RespReader
     /// <param name="unknownValue">The value to report if the value is not recognized.</param>
     public readonly T ReadEnum<T>(T unknownValue = default) where T : struct, Enum
     {
-        DemandScalar();
-
 #if NET6_0_OR_GREATER
-        const int MAX_STACK = 128;
-        T value;
-        if (TryGetSpan(out var bytes) && bytes.Length <= MAX_STACK)
-        {
-            Span<char> chars = stackalloc char[RespConstants.UTF8.GetMaxCharCount(bytes.Length)];
-            var count = RespConstants.UTF8.GetChars(bytes, chars);
-            if (!Enum.TryParse(chars.Slice(0, count), true, out value))
-            {
-                value = unknownValue;
-            }
-        }
-        else
-        {
-            var byteLength = ScalarLength();
-            var byteBuffer = ArrayPool<byte>.Shared.Rent(byteLength);
-            var actual = CopyTo(byteBuffer);
-            Debug.Assert(actual == byteLength);
-            var charBuffer = ArrayPool<char>.Shared.Rent(RespConstants.UTF8.GetMaxCharCount(byteLength));
-            var charLength = RespConstants.UTF8.GetChars(byteBuffer, 0, byteLength, charBuffer, 0);
-            if (!Enum.TryParse(new ReadOnlySpan<char>(charBuffer, 0, charLength), true, out value))
-            {
-                value = unknownValue;
-            }
-            ArrayPool<byte>.Shared.Return(byteBuffer);
-            ArrayPool<char>.Shared.Return(charBuffer);
-        }
-        return value;
+        return ParseChars(static (chars, state) => Enum.TryParse(chars, true, out T value) ? value : state, unknownValue);
 #else
-        if (!Enum.TryParse(ReadString(), true, out T value))
-        {
-            value = unknownValue;
-        }
-        return value;
+        return Enum.TryParse(ReadString(), true, out T value) ? value : unknownValue;
 #endif
     }
 }
