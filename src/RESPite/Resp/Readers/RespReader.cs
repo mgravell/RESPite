@@ -972,6 +972,112 @@ public ref partial struct RespReader
     }
 
     /// <summary>
+    /// Read the current element as a <see cref="double"/> value.
+    /// </summary>
+    public readonly double ReadDouble()
+    {
+        if (TryGetSpan(out var span) && span.Length <= RespConstants.MaxRawBytesNumber)
+        {
+            return ParseDoubleOrThrow(span);
+        }
+        return ReadDoubleSlow();
+    }
+
+    private static double ParseDoubleOrThrow(ReadOnlySpan<byte> span)
+    {
+        if (Utf8Parser.TryParse(span, out double value, out int bytes) & bytes == span.Length)
+        {
+            return value;
+        }
+        switch (span.Length)
+        {
+            case 3 when "inf"u8.SequenceEqual(span):
+                return double.PositiveInfinity;
+            case 3 when "nan"u8.SequenceEqual(span):
+                return double.NaN;
+            case 4 when "+inf"u8.SequenceEqual(span): // not actually mentioned in spec, but: we'll allow it
+                return double.PositiveInfinity;
+            case 4 when "-inf"u8.SequenceEqual(span):
+                return double.NegativeInfinity;
+        }
+        ThrowFormatException();
+        return 0;
+    }
+
+    private readonly double ReadDoubleSlow()
+    {
+        DemandScalar();
+        Span<byte> oversized = stackalloc byte[RespConstants.MaxRawBytesNumber + 1];
+        int len = CopyTo(oversized);
+        return ParseDoubleOrThrow(oversized.Slice(0, len));
+    }
+
+    /// <summary>
+    /// Read the current element as a <see cref="decimal"/> value.
+    /// </summary>
+    public readonly decimal ReadDecimal()
+    {
+        if (TryGetSpan(out var span) && span.Length <= RespConstants.MaxRawBytesNumber)
+        {
+            if (!(Utf8Parser.TryParse(span, out decimal value, out int bytes) & bytes == _length))
+            {
+                ThrowFormatException();
+            }
+            return value;
+        }
+        return ReadDecimalSlow();
+    }
+
+    private readonly decimal ReadDecimalSlow()
+    {
+        DemandScalar();
+        Span<byte> oversized = stackalloc byte[RespConstants.MaxRawBytesNumber + 1];
+        int len = CopyTo(oversized);
+        if (!(len <= RespConstants.MaxRawBytesNumber && Utf8Parser.TryParse(oversized.Slice(0, len), out decimal value, out int bytes) & bytes == len))
+        {
+            ThrowFormatException();
+            return 0;
+        }
+        return value;
+    }
+
+    /// <summary>
+    /// Read the current element as a <see cref="bool"/> value.
+    /// </summary>
+    public readonly bool ReadBoolean()
+    {
+        switch (Prefix)
+        {
+            case RespPrefix.Boolean:
+                if (TryGetSpan(out var span)) return ParseBooleanOrThrow(span);
+                return ReadBooleanSlow();
+            default:
+                return ReadInt32() != 0;
+        }
+    }
+
+    private readonly bool ReadBooleanSlow()
+    {
+        Span<byte> oversized = stackalloc byte[2];
+        int len = CopyTo(oversized);
+        return ParseBooleanOrThrow(oversized.Slice(0, len));
+    }
+
+    private static bool ParseBooleanOrThrow(ReadOnlySpan<byte> value)
+    {
+        if (value.Length == 1)
+        {
+            switch (value[0])
+            {
+                case (byte)'t': return true;
+                case (byte)'f': return false;
+            }
+        }
+        ThrowFormatException();
+        return false;
+    }
+
+    /// <summary>
     /// Parse a scalar value as an enum of type <typeparamref name="T"/>.
     /// </summary>
     /// <param name="unknownValue">The value to report if the value is not recognized.</param>

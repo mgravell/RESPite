@@ -45,8 +45,7 @@ internal static partial class RespConstants
         MaxRawBytesInt64 = 20, // "-9223372036854775808",
         MaxProtocolBytesIntegerInt32 = MaxRawBytesInt32 + 3, // ?X10X\r\n where ? could be $, *, etc - usually a length prefix
         MaxProtocolBytesBulkStringIntegerInt32 = MaxRawBytesInt32 + 7, // $NN\r\nX11X\r\n for NN (length) 1-11
-        MaxProtocolBytesBulkStringIntegerInt64 = MaxRawBytesInt64 + 7; // $NN\r\nX20X\r\n for NN (length) 1-20
-    /*
-                MaxBytesSingle = 27; // $NN\r\nX...X\r\n - note G17 format, allow 20 for payload
-*/
+        MaxProtocolBytesBulkStringIntegerInt64 = MaxRawBytesInt64 + 7, // $NN\r\nX20X\r\n for NN (length) 1-20
+        MaxRawBytesNumber = 20, // note G17 format, allow 20 for payload
+        MaxProtocolBytesBytesNumber = MaxRawBytesNumber + 7; // $NN\r\nX...X\r\n for NN (length) 1-20
 }
