@@ -370,14 +370,28 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.MoveNext(RespPrefix.Array);
         var iter = reader.AggregateChildren();
         Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(1, iter.Current.ReadInt32());
+        Assert.Equal(1, iter.Value.ReadInt32());
         Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(2, iter.Current.ReadInt32());
+        Assert.Equal(2, iter.Value.ReadInt32());
         Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(3, iter.Current.ReadInt32());
+        Assert.Equal(3, iter.Value.ReadInt32());
         Assert.False(iter.MoveNext(RespPrefix.Integer));
         iter.MovePast(out reader);
         reader.DemandEnd();
+
+        reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Array);
+        int[] arr = new int[reader.AggregateLength()];
+        int i = 0;
+        foreach (var sub in reader.AggregateChildren())
+        {
+            sub.MoveNext(RespPrefix.Integer);
+            arr[i] = sub.ReadInt32();
+        }
+        iter.MovePast(out reader);
+        reader.DemandEnd();
+
+        Assert.Equal([1, 2, 3], arr);
     }
 
     private sealed class Segment : ReadOnlySequenceSegment<byte>

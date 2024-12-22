@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.ComponentModel;
 
 #pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
@@ -32,14 +33,20 @@ public ref partial struct RespReader
             reader.DemandAggregate();
             _remaining = reader.IsStreaming ? -1 : reader._length;
             _reader = reader;
-            Current = default;
+            Value = default;
         }
 
         /// <inheritdoc cref="IEnumerable{T}.GetEnumerator()"/>
         public readonly AggregateEnumerator GetEnumerator() => this;
 
         /// <inheritdoc cref="IEnumerator{T}.Current"/>
-        public RespReader Current; // this is intentionally a field, because of internal mutability
+        [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
+        public RespReader Current => Value;
+
+        /// <summary>
+        /// Gets the current element associated with this reader.
+        /// </summary>
+        public RespReader Value; // intentionally a field, because of ref-semantics
 
         /// <summary>
         /// Move to the next child if possible, and move the child element into the next node.
@@ -49,7 +56,7 @@ public ref partial struct RespReader
             bool result = MoveNext();
             if (result)
             {
-                Current.MoveNext(prefix);
+                Value.MoveNext(prefix);
             }
             return result;
         }
@@ -59,13 +66,14 @@ public ref partial struct RespReader
         {
             if (_remaining == 0)
             {
-                Current = default;
+                Value = default;
                 return false;
             }
 
             // in order to provide access to attributes etc, we want Current to be positioned
             // *before* the next element; for that, we'll take a snapshot before we read
-            var before = _reader.Clone();
+            _reader.MovePastCurrent();
+            var snapshot = _reader.Clone();
 
             _reader.MoveNext();
             if (_remaining > 0)
@@ -77,15 +85,16 @@ public ref partial struct RespReader
             {
                 // end of streaming aggregate
                 _remaining = 0;
-                Current = default;
+                Value = default;
                 return false;
             }
 
-            // move past that sub-tree and trim the "before" state, giving
+            // move past that sub-tree and trim the "snapshot" state, giving
             // us a scoped reader that is *just* that sub-tree
             _reader.SkipChildren();
-            before.TrimTo(_reader.BytesConsumed);
-            Current = before;
+            snapshot.TrimTo(_reader.BytesConsumed);
+
+            Value = snapshot;
             return true;
         }
 
