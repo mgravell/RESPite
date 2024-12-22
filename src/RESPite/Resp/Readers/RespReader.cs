@@ -639,7 +639,7 @@ public ref partial struct RespReader
     }
 
     /// <inheritdoc cref="RespReader.RespReader(ReadOnlySpan{byte})"/>
-    public RespReader(in ReadOnlySequence<byte> value)
+    public RespReader(scoped in ReadOnlySequence<byte> value)
 #if NETCOREAPP3_0_OR_GREATER
         : this(value.FirstSpan)
 #else
@@ -1023,7 +1023,7 @@ public ref partial struct RespReader
 
     private bool TryMoveToNextSegment()
     {
-        while (_tail is not null)
+        while (_tail is not null && _remainingTailLength > 0)
         {
             var memory = _tail.Memory;
             _tail = _tail.Next;
@@ -1031,7 +1031,15 @@ public ref partial struct RespReader
             {
                 var span = memory.Span; // check we can get this before mutating anything
                 _positionBase += CurrentLength;
-                _remainingTailLength -= span.Length;
+                if (span.Length > _remainingTailLength)
+                {
+                    span = span.Slice(0, (int)_remainingTailLength);
+                    _remainingTailLength = 0;
+                }
+                else
+                {
+                    _remainingTailLength -= span.Length;
+                }
                 SetCurrent(span);
                 _bufferIndex = 0;
                 return true;

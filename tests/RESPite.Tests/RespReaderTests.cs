@@ -1,54 +1,100 @@
 ﻿using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Reflection;
 using System.Text;
 using RESPite.Resp;
 using RESPite.Resp.Readers;
 using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace RESPite;
 
 public class RespReaderTests(ITestOutputHelper logger)
 {
-    [Theory]
-    [InlineData("$3\r\n128\r\n", 0)]
-    [InlineData("$3\r\n128\r\n", 1)]
-    [InlineData("$3\r\n128\r\n", 2)]
-    [InlineData("$3\r\n128\r\n", 3)]
-    [InlineData("$3\r\n128\r\n", 4)]
-    [InlineData("$3\r\n128\r\n", 5)]
-    [InlineData("$3\r\n128\r\n", 6)]
-    [InlineData("$3\r\n128\r\n", 7)]
-    [InlineData("$3\r\n128\r\n", 8)]
-    [InlineData("$3\r\n128\r\n", 9)]
-    public void HandleSplitTokens(string payload, int split)
+    public readonly struct RespPayload(string label, ReadOnlySequence<byte> payload, byte[] expected)
     {
-        var bytes = RespConstants.UTF8.GetBytes(payload).AsMemory();
+        public override string ToString() => Label;
+        public string Label { get; } = label;
+        public ReadOnlySequence<byte> PayloadRaw { get; } = payload;
+        public int Length { get; } = CheckPayload(payload, expected);
+        private static int CheckPayload(in ReadOnlySequence<byte> actual, byte[] expected)
+        {
+            Assert.Equal(expected.LongLength, actual.Length);
+            var pool = ArrayPool<byte>.Shared.Rent(expected.Length);
+            actual.CopyTo(pool);
+            bool isSame = pool.AsSpan(0, expected.Length).SequenceEqual(expected);
+            ArrayPool<byte>.Shared.Return(pool);
+            Assert.True(isSame, "Data mismatch");
+            return expected.Length;
+        }
 
-        Segment left = new(bytes.Slice(0, split), null);
-        Segment right = new(bytes.Slice(split), left);
+        public RespReader Reader() => new(PayloadRaw);
+    }
 
-        logger.WriteLine($"left: '{left}', right: '{right}'");
-        Assert.Equal(split, left.Length);
-        Assert.Equal(bytes.Length - split, right.Length);
+    public sealed class RespAttribute(string resp) : DataAttribute
+    {
+        public string Resp { get; } = resp;
 
-        ReadOnlySequence<byte> ros =
-            right.IsEmpty ? new(left.Memory) : new(left, 0, right, right.Length);
-        Assert.Equal(ros.Length, bytes.Length);
+        public override IEnumerable<object[]> GetData(MethodInfo testMethod)
+        {
+            foreach (var item in GetVariants(Resp))
+            {
+                yield return new object[] { item };
+            }
+        }
 
-        RespReader reader = new(ros);
+        private static IEnumerable<RespPayload> GetVariants(string value)
+        {
+            var bytes = Encoding.UTF8.GetBytes(value);
+
+            // all in one
+            yield return new("Right-sized", new(bytes), bytes);
+
+            var bigger = new byte[bytes.Length + 4];
+            bytes.CopyTo(bigger.AsSpan(2, bytes.Length));
+            bigger.AsSpan(0, 2).Fill(0xFF);
+            bigger.AsSpan(bytes.Length + 2, 2).Fill(0xFF);
+
+            // all in one, oversized
+            yield return new("Oversized", new(bigger, 2, bytes.Length), bytes);
+
+            // two-chunks
+            for (int i = 0; i <= bytes.Length; i++)
+            {
+                int offset = 2 + i;
+                var left = new Segment(new ReadOnlyMemory<byte>(bigger, 0, offset), null);
+                var right = new Segment(new ReadOnlyMemory<byte>(bigger, offset, bigger.Length - offset), left);
+                yield return new($"Split:{i}", new ReadOnlySequence<byte>(left, 2, right, right.Length - 2), bytes);
+            }
+
+            // N-chunks
+            Segment head = new(new(bytes, 0, 1), null), tail = head;
+            for (int i = 1; i < bytes.Length; i++)
+            {
+                tail = new(new(bytes, i, 1), tail);
+            }
+            yield return new("Chunk-per-byte", new(head, 0, tail, 1), bytes);
+        }
+    }
+
+    [Theory, Resp("$3\r\n128\r\n")]
+    public void HandleSplitTokens(RespPayload payload)
+    {
+        RespReader reader = payload.Reader();
         var scan = ScanState.Create(false);
         bool readResult = scan.TryRead(ref reader, out _);
         logger.WriteLine(scan.ToString());
-        Assert.Equal(bytes.Length, reader.BytesConsumed);
+        Assert.Equal(payload.Length, reader.BytesConsumed);
         Assert.True(readResult);
     }
 
     // the examples from https://github.com/redis/redis-specifications/blob/master/protocol/RESP3.md
-    [Fact]
-    public void BlobString()
+    [Theory, Resp("$11\r\nhello world\r\n")]
+    public void BlobString(RespPayload payload)
     {
-        var reader = new RespReader("$11\r\nhello world\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.BulkString);
         Assert.True(reader.Is("hello world"u8));
         Assert.Equal("hello world", reader.ReadString());
@@ -65,20 +111,20 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void EmptyBlobString()
+    [Theory, Resp("$0\r\n\r\n")]
+    public void EmptyBlobString(RespPayload payload)
     {
-        var reader = new RespReader("$0\r\n\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.BulkString);
         Assert.True(reader.Is(""u8));
         Assert.Equal("", reader.ReadString());
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void SimpleString()
+    [Theory, Resp("+hello world\r\n")]
+    public void SimpleString(RespPayload payload)
     {
-        var reader = new RespReader("+hello world\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.SimpleString);
         Assert.True(reader.Is("hello world"u8));
         Assert.Equal("hello world", reader.ReadString());
@@ -87,21 +133,21 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void SimpleError_ImplicitErrors()
+    [Theory, Resp("-ERR this is the error description\r\n")]
+    public void SimpleError_ImplicitErrors(RespPayload payload)
     {
         var ex = Assert.Throws<RespException>(() =>
         {
-            var reader = new RespReader("-ERR this is the error description\r\n"u8);
+            var reader = payload.Reader();
             reader.MoveNext();
         });
         Assert.Equal("ERR this is the error description", ex.Message);
     }
 
-    [Fact]
-    public void SimpleError_Careful()
+    [Theory, Resp("-ERR this is the error description\r\n")]
+    public void SimpleError_Careful(RespPayload payload)
     {
-        var reader = new RespReader("-ERR this is the error description\r\n"u8);
+        var reader = payload.Reader();
         Assert.True(reader.TryReadNext());
         Assert.Equal(RespPrefix.SimpleError, reader.Prefix);
         Assert.True(reader.Is("ERR this is the error description"u8));
@@ -109,10 +155,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Number()
+    [Theory, Resp(":1234\r\n")]
+    public void Number(RespPayload payload)
     {
-        var reader = new RespReader(":1234\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Integer);
         Assert.True(reader.Is("1234"u8));
         Assert.Equal("1234", reader.ReadString());
@@ -132,20 +178,20 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Null()
+    [Theory, Resp("_\r\n")]
+    public void Null(RespPayload payload)
     {
-        var reader = new RespReader("_\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Null);
         Assert.True(reader.Is(""u8));
         Assert.Null(reader.ReadString());
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Double()
+    [Theory, Resp(",1.23\r\n")]
+    public void Double(RespPayload payload)
     {
-        var reader = new RespReader(",1.23\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Double);
         Assert.True(reader.Is("1.23"u8));
         Assert.Equal("1.23", reader.ReadString());
@@ -154,10 +200,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Integer_Simple()
+    [Theory, Resp(":10\r\n")]
+    public void Integer_Simple(RespPayload payload)
     {
-        var reader = new RespReader(":10\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Integer);
         Assert.True(reader.Is("10"u8));
         Assert.Equal("10", reader.ReadString());
@@ -167,10 +213,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Double_Simple()
+    [Theory, Resp(",10\r\n")]
+    public void Double_Simple(RespPayload payload)
     {
-        var reader = new RespReader(",10\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Double);
         Assert.True(reader.Is("10"u8));
         Assert.Equal("10", reader.ReadString());
@@ -180,10 +226,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Double_Infinity()
+    [Theory, Resp(",inf\r\n")]
+    public void Double_Infinity(RespPayload payload)
     {
-        var reader = new RespReader(",inf\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Double);
         Assert.True(reader.Is("inf"u8));
         Assert.Equal("inf", reader.ReadString());
@@ -193,10 +239,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Double_PosInfinity()
+    [Theory, Resp(",+inf\r\n")]
+    public void Double_PosInfinity(RespPayload payload)
     {
-        var reader = new RespReader(",+inf\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Double);
         Assert.True(reader.Is("+inf"u8));
         Assert.Equal("+inf", reader.ReadString());
@@ -206,10 +252,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Double_NegInfinity()
+    [Theory, Resp(",-inf\r\n")]
+    public void Double_NegInfinity(RespPayload payload)
     {
-        var reader = new RespReader(",-inf\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Double);
         Assert.True(reader.Is("-inf"u8));
         Assert.Equal("-inf", reader.ReadString());
@@ -219,10 +265,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void Double_NaN()
+    [Theory, Resp(",nan\r\n")]
+    public void Double_NaN(RespPayload payload)
     {
-        var reader = new RespReader(",nan\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Double);
         Assert.True(reader.Is("nan"u8));
         Assert.Equal("nan", reader.ReadString());
@@ -231,34 +277,57 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Theory]
-    [InlineData("#t\r\n", RespPrefix.Boolean, true)]
-    [InlineData("#f\r\n", RespPrefix.Boolean, false)]
-    [InlineData(":1\r\n", RespPrefix.Integer, true)]
-    [InlineData(":0\r\n", RespPrefix.Integer, false)]
-    public void Boolean(string value, RespPrefix prefix, bool expected)
+    [Theory, Resp("#t\r\n")]
+    public void Boolean_T(RespPayload payload)
     {
-        var reader = new RespReader(Encoding.ASCII.GetBytes(value));
-        reader.MoveNext(prefix);
-        Assert.Equal(expected, reader.ReadBoolean());
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Boolean);
+        Assert.True(reader.ReadBoolean());
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void BlobError_ImplicitErrors()
+    [Theory, Resp("#f\r\n")]
+    public void Boolean_F(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Boolean);
+        Assert.False(reader.ReadBoolean());
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp(":1\r\n")]
+    public void Boolean_1(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Integer);
+        Assert.True(reader.ReadBoolean());
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp(":0\r\n")]
+    public void Boolean_0(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Integer);
+        Assert.False(reader.ReadBoolean());
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp("!21\r\nSYNTAX invalid syntax\r\n")]
+    public void BlobError_ImplicitErrors(RespPayload payload)
     {
         var ex = Assert.Throws<RespException>(() =>
         {
-            var reader = new RespReader("!21\r\nSYNTAX invalid syntax\r\n"u8);
+            var reader = payload.Reader();
             reader.MoveNext();
         });
         Assert.Equal("SYNTAX invalid syntax", ex.Message);
     }
 
-    [Fact]
-    public void BlobError_Careful()
+    [Theory, Resp("!21\r\nSYNTAX invalid syntax\r\n")]
+    public void BlobError_Careful(RespPayload payload)
     {
-        var reader = new RespReader("!21\r\nSYNTAX invalid syntax\r\n"u8);
+        var reader = payload.Reader();
         Assert.True(reader.TryReadNext());
         Assert.Equal(RespPrefix.BulkError, reader.Prefix);
         Assert.True(reader.Is("SYNTAX invalid syntax"u8));
@@ -266,10 +335,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void VerbatimString()
+    [Theory, Resp("=15\r\ntxt:Some string\r\n")]
+    public void VerbatimString(RespPayload payload)
     {
-        var reader = new RespReader("=15\r\ntxt:Some string\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.VerbatimString);
         Assert.Equal("Some string", reader.ReadString());
         Assert.Equal("Some string", reader.ReadString(out var prefix));
@@ -280,10 +349,10 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Fact]
-    public void BigIntegers()
+    [Theory, Resp("(3492890328409238509324850943850943825024385\r\n")]
+    public void BigIntegers(RespPayload payload)
     {
-        var reader = new RespReader("(3492890328409238509324850943850943825024385\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.BigInteger);
         Assert.Equal("3492890328409238509324850943850943825024385", reader.ReadString());
 #if NET8_0_OR_GREATER
@@ -294,10 +363,10 @@ public class RespReaderTests(ITestOutputHelper logger)
 #endif
     }
 
-    [Fact]
-    public void Array()
+    [Theory, Resp("*3\r\n:1\r\n:2\r\n:3\r\n")]
+    public void Array(RespPayload payload)
     {
-        var reader = new RespReader("*3\r\n:1\r\n:2\r\n:3\r\n"u8);
+        var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Array);
         var iter = reader.AggregateChildren();
         Assert.True(iter.MoveNext(RespPrefix.Integer));
