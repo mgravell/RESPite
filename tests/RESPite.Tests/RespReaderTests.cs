@@ -33,15 +33,32 @@ public class RespReaderTests(ITestOutputHelper logger)
         public RespReader Reader() => new(PayloadRaw);
     }
 
-    public sealed class RespAttribute(string resp) : DataAttribute
+    public sealed class RespAttribute : DataAttribute
     {
-        public string Resp { get; } = resp;
+        private readonly object _value;
+
+        public RespAttribute(string value) => _value = value;
+        public RespAttribute(params string[] values) => _value = values;
 
         public override IEnumerable<object[]> GetData(MethodInfo testMethod)
         {
-            foreach (var item in GetVariants(Resp))
+            switch (_value)
             {
-                yield return new object[] { item };
+                case string s:
+                    foreach (var item in GetVariants(s))
+                    {
+                        yield return new object[] { item };
+                    }
+                    break;
+                case string[] arr:
+                    foreach (string s in arr)
+                    {
+                        foreach (var item in GetVariants(s))
+                        {
+                            yield return new object[] { item };
+                        }
+                    }
+                    break;
             }
         }
 
@@ -91,7 +108,7 @@ public class RespReaderTests(ITestOutputHelper logger)
     }
 
     // the examples from https://github.com/redis/redis-specifications/blob/master/protocol/RESP3.md
-    [Theory, Resp("$11\r\nhello world\r\n")]
+    [Theory, Resp("$11\r\nhello world\r\n", "$?\r\n;6\r\nhello \r\n;5\r\nworld\r\n;0\r\n")]
     public void BlobString(RespPayload payload)
     {
         var reader = payload.Reader();
@@ -111,7 +128,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Theory, Resp("$0\r\n\r\n")]
+    [Theory, Resp("$0\r\n\r\n", "$?\r\n;0\r\n")]
     public void EmptyBlobString(RespPayload payload)
     {
         var reader = payload.Reader();
@@ -313,7 +330,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Theory, Resp("!21\r\nSYNTAX invalid syntax\r\n")]
+    [Theory, Resp("!21\r\nSYNTAX invalid syntax\r\n", "!?\r\n;6\r\nSYNTAX\r\n;15\r\n invalid syntax\r\n;0\r\n")]
     public void BlobError_ImplicitErrors(RespPayload payload)
     {
         var ex = Assert.Throws<RespException>(() =>
@@ -324,7 +341,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         Assert.Equal("SYNTAX invalid syntax", ex.Message);
     }
 
-    [Theory, Resp("!21\r\nSYNTAX invalid syntax\r\n")]
+    [Theory, Resp("!21\r\nSYNTAX invalid syntax\r\n", "!?\r\n;6\r\nSYNTAX\r\n;15\r\n invalid syntax\r\n;0\r\n")]
     public void BlobError_Careful(RespPayload payload)
     {
         var reader = payload.Reader();
@@ -335,7 +352,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Theory, Resp("=15\r\ntxt:Some string\r\n")]
+    [Theory, Resp("=15\r\ntxt:Some string\r\n", "=?\r\n;4\r\ntxt:\r\n;11\r\nSome string\r\n;0\r\n")]
     public void VerbatimString(RespPayload payload)
     {
         var reader = payload.Reader();

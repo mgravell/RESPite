@@ -1088,6 +1088,8 @@ public ref partial struct RespReader
         if (IsNull) return false; // nothing equals null
         if (TotalAvailable < testValue.Length) return false;
 
+        if (!IsStreaming && testValue.Length != ScalarLength()) return false;
+
         var iterator = ScalarChunks();
         while (true)
         {
