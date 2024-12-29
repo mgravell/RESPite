@@ -92,7 +92,7 @@ public ref partial struct RespReader
             // move past that sub-tree and trim the "snapshot" state, giving
             // us a scoped reader that is *just* that sub-tree
             _reader.SkipChildren();
-            snapshot.TrimTo(_reader.BytesConsumed);
+            snapshot.TrimToTotal(_reader.BytesConsumed);
 
             Value = snapshot;
             return true;
@@ -110,28 +110,28 @@ public ref partial struct RespReader
         }
     }
 
-    internal void TrimTo(long length) => TrimBy(length - BytesConsumed);
+    internal void TrimToTotal(long length) => TrimToRemaining(length - BytesConsumed);
 
-    internal void TrimBy(long bytes)
+    internal void TrimToRemaining(long bytes)
     {
-        if (bytes < 0) Throw();
+        if (_prefix != RespPrefix.None || bytes < 0) Throw();
 
-        if (bytes < _remainingTailLength)
+        var current = CurrentAvailable;
+        if (bytes <= current)
         {
-            // just cut the tail
-            _remainingTailLength -= bytes;
+            UnsafeTrimCurrentBy(current - (int)bytes);
+            _remainingTailLength = 0;
             return;
         }
 
-        // otherwise, we've eaten the entire tail and need to cut the current buffer
-        bytes -= _remainingTailLength;
-        _tail = null;
+        bytes -= current;
+        if (bytes <= _remainingTailLength)
+        {
+            _remainingTailLength = bytes;
+            return;
+        }
 
-        // note we can't cut into the *current* element - only into the region *after* that element
-        var remaining = CurrentAvailable - TrailingLength;
-        if (bytes > remaining) Throw();
-
-        UnsafeTrimCurrentBy((int)bytes);
+        Throw();
         static void Throw() => throw new ArgumentOutOfRangeException(nameof(bytes));
     }
 }

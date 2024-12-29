@@ -388,10 +388,16 @@ public class RespReaderTests(ITestOutputHelper logger)
         var iter = reader.AggregateChildren();
         Assert.True(iter.MoveNext(RespPrefix.Integer));
         Assert.Equal(1, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
         Assert.True(iter.MoveNext(RespPrefix.Integer));
         Assert.Equal(2, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
         Assert.True(iter.MoveNext(RespPrefix.Integer));
         Assert.Equal(3, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
         Assert.False(iter.MoveNext(RespPrefix.Integer));
         iter.MovePast(out reader);
         reader.DemandEnd();
@@ -403,7 +409,8 @@ public class RespReaderTests(ITestOutputHelper logger)
         foreach (var sub in reader.AggregateChildren())
         {
             sub.MoveNext(RespPrefix.Integer);
-            arr[i] = sub.ReadInt32();
+            arr[i++] = sub.ReadInt32();
+            sub.DemandEnd();
         }
         iter.MovePast(out reader);
         reader.DemandEnd();

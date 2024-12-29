@@ -354,14 +354,20 @@ public ref partial struct RespReader
     {
         // if this is a simple non-streaming scalar, then: there's nothing complex to do; otherwise, re-use the
         // frame scanner logic to seek past the noise (this way, we avoid recursion etc)
-        if ((_flags & (RespFlags.IsScalar | RespFlags.IsAggregate | RespFlags.IsStreaming)) == RespFlags.IsScalar)
+        switch (_flags & (RespFlags.IsScalar | RespFlags.IsAggregate | RespFlags.IsStreaming))
         {
-            MovePastCurrent();
-        }
-        else
-        {
-            ScanState state = new(in this);
-            if (!state.TryRead(ref this, out _)) ThrowEOF();
+            case RespFlags.None:
+                // no current element
+                break;
+            case RespFlags.IsScalar:
+                // simple scalar
+                MovePastCurrent();
+                break;
+            default:
+                // something more complex
+                ScanState state = new(in this);
+                if (!state.TryRead(ref this, out _)) ThrowEOF();
+                break;
         }
     }
 
