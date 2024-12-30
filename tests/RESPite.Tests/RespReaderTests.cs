@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using System.Reflection;
@@ -546,6 +545,41 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
+    private sealed class TestAttributeReader : AttributeReader<(int Count, int Ttl, decimal A, decimal B)>
+    {
+        public override void Read(ref RespReader reader, ref (int Count, int Ttl, decimal A, decimal B) value)
+        {
+            value.Count += ReadKeyValuePairs(ref reader, ref value);
+        }
+        private TestAttributeReader() { }
+        public static readonly TestAttributeReader Instance = new();
+        public static (int Count, int Ttl, decimal A, decimal B) Zero = (0, 0, 0, 0);
+        public override bool ReadKeyValuePair(scoped ReadOnlySpan<byte> key, ref RespReader reader, ref (int Count, int Ttl, decimal A, decimal B) value)
+        {
+            if (key.SequenceEqual("ttl"u8) && reader.IsScalar)
+            {
+                value.Ttl = reader.ReadInt32();
+            }
+            else if (key.SequenceEqual("key-popularity"u8) && reader.IsAggregate)
+            {
+                ReadKeyValuePairs(ref reader, ref value); // recurse to process a/b below
+            }
+            else if (key.SequenceEqual("a"u8) && reader.IsScalar)
+            {
+                value.A = reader.ReadDecimal();
+            }
+            else if (key.SequenceEqual("b"u8) && reader.IsScalar)
+            {
+                value.B = reader.ReadDecimal();
+            }
+            else
+            {
+                return false; // not recognized
+            }
+            return true; // recognized
+        }
+    }
+
     [Theory, Resp("|1\r\n+key-popularity\r\n%2\r\n$1\r\na\r\n,0.1923\r\n$1\r\nb\r\n,0.0012\r\n*2\r\n:2039123\r\n:9543892\r\n")]
     public void AttributeRoot(RespPayload payload)
     {
@@ -561,6 +595,32 @@ public class RespReaderTests(ITestOutputHelper logger)
 
         Assert.True(iter.MoveNext(RespPrefix.Integer));
         Assert.Equal(9543892, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+        reader.DemandEnd();
+
+        // process the attribute data
+        var state = TestAttributeReader.Zero;
+        reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Array, TestAttributeReader.Instance, ref state);
+        Assert.Equal(1, state.Count);
+        Assert.Equal(0.1923M, state.A);
+        Assert.Equal(0.0012M, state.B);
+        state = TestAttributeReader.Zero;
+
+        Assert.Equal(2, reader.AggregateLength());
+        iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.Equal(2039123, iter.Value.ReadInt32());
+        Assert.Equal(0, state.Count);
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.Equal(9543892, iter.Value.ReadInt32());
+        Assert.Equal(0, state.Count);
         iter.Value.DemandEnd();
 
         Assert.False(iter.MoveNext());
@@ -590,6 +650,36 @@ public class RespReaderTests(ITestOutputHelper logger)
         iter.Value.DemandEnd();
 
         Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+        reader.DemandEnd();
+
+        // process the attribute data
+        var state = TestAttributeReader.Zero;
+        reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Array, TestAttributeReader.Instance, ref state);
+        Assert.Equal(0, state.Count);
+        Assert.Equal(3, reader.AggregateLength());
+        iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.Equal(0, state.Count);
+        Assert.Equal(1, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.Equal(0, state.Count);
+        Assert.Equal(2, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.Equal(1, state.Count);
+        Assert.Equal(3600, state.Ttl);
+        state = TestAttributeReader.Zero; // reset
+        Assert.Equal(3, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext(TestAttributeReader.Instance, ref state));
+        Assert.Equal(0, state.Count);
         iter.MovePast(out reader);
         reader.DemandEnd();
     }

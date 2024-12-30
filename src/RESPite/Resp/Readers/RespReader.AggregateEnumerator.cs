@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 #pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable CS0282 // There is no defined ordering between fields in multiple declarations of partial struct
@@ -61,8 +62,29 @@ public ref partial struct RespReader
             return result;
         }
 
+        /// <summary>
+        /// Move to the next child if possible, and move the child element into the next node.
+        /// </summary>
+        public bool MoveNext<T>(RespPrefix prefix, AttributeReader<T> attributeReader, ref T attributes)
+        {
+            bool result = MoveNext(attributeReader, ref attributes);
+            if (result)
+            {
+                Value.MoveNext(prefix);
+            }
+            return result;
+        }
+
         /// <inheritdoc cref="IEnumerator.MoveNext()"/>>
         public bool MoveNext()
+            => MoveNextCore(null, ref Unsafe.NullRef<object>());
+
+        /// <inheritdoc cref="IEnumerator.MoveNext()"/>>
+        public bool MoveNext<T>(AttributeReader<T> attributeReader, ref T attributes)
+            => MoveNextCore<T>(attributeReader, ref attributes);
+
+        /// <inheritdoc cref="IEnumerator.MoveNext()"/>>
+        private bool MoveNextCore<T>(AttributeReader<T>? attributeReader, ref T attributes)
         {
             if (_remaining == 0)
             {
@@ -75,7 +97,14 @@ public ref partial struct RespReader
             _reader.MovePastCurrent();
             var snapshot = _reader.Clone();
 
-            _reader.MoveNext();
+            if (attributeReader is null)
+            {
+                _reader.MoveNext();
+            }
+            else
+            {
+                _reader.MoveNext(attributeReader, ref attributes);
+            }
             if (_remaining > 0)
             {
                 // non-streaming, decrement

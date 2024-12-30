@@ -222,13 +222,29 @@ public ref partial struct RespReader
         static void Throw(RespPrefix prefix) => throw new InvalidOperationException($"Expected end of payload, but found {prefix}");
     }
 
-    private bool TryReadNextSkipAttribute()
+    private bool TryReadNextSkipAttributes()
     {
         while (TryReadNext())
         {
             if (IsAttribute)
             {
                 SkipChildren();
+            }
+            else
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private bool TryReadNextProcessAttributes<T>(AttributeReader<T> attributeReader, ref T attributes)
+    {
+        while (TryReadNext())
+        {
+            if (IsAttribute)
+            {
+                attributeReader.Read(ref this, ref attributes);
             }
             else
             {
@@ -247,10 +263,32 @@ public ref partial struct RespReader
     {
         while (IsStreamingScalar) // close out the current streaming scalar
         {
-            if (!TryReadNextSkipAttribute()) ThrowEOF();
+            if (!TryReadNextSkipAttributes()) ThrowEOF();
         }
 
-        if (TryReadNextSkipAttribute())
+        if (TryReadNextSkipAttributes())
+        {
+            if (IsError) ThrowError();
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Move to the next content element; this skips attribute metadata, checking for RESP error messages by default.
+    /// </summary>
+    /// <param name="attributeReader">Parser for attribute data preceding the data.</param>
+    /// <param name="attributes">The state for attributes encountered.</param>
+    /// <exception cref="EndOfStreamException">If the data is exhausted before a streaming scalar is exhausted.</exception>
+    /// <exception cref="RespException">If the data contains an explicit error element.</exception>
+    public bool TryMoveNext<T>(AttributeReader<T> attributeReader, ref T attributes)
+    {
+        while (IsStreamingScalar) // close out the current streaming scalar
+        {
+            if (!TryReadNextSkipAttributes()) ThrowEOF();
+        }
+
+        if (TryReadNextProcessAttributes(attributeReader, ref attributes))
         {
             if (IsError) ThrowError();
             return true;
@@ -280,6 +318,18 @@ public ref partial struct RespReader
     public void MoveNext()
     {
         if (!TryMoveNext()) ThrowEOF();
+    }
+
+    /// <summary>
+    /// Move to the next content element; this skips attribute metadata, checking for RESP error messages by default.
+    /// </summary>
+    /// <param name="attributeReader">Parser for attribute data preceding the data.</param>
+    /// <param name="attributes">The state for attributes encountered.</param>
+    /// <exception cref="EndOfStreamException">If the data is exhausted before content is found.</exception>
+    /// <exception cref="RespException">If the data contains an explicit error element.</exception>
+    public void MoveNext<T>(AttributeReader<T> attributeReader, ref T attributes)
+    {
+        if (!TryMoveNext(attributeReader, ref attributes)) ThrowEOF();
     }
 
     private bool MoveNextStreamingScalar()
@@ -332,6 +382,22 @@ public ref partial struct RespReader
     /// in <paramref name="prefix"/>.
     /// </summary>
     /// <param name="prefix">The expected data type.</param>
+    /// <param name="attributeReader">Parser for attribute data preceding the data.</param>
+    /// <param name="attributes">The state for attributes encountered.</param>
+    /// <exception cref="EndOfStreamException">If the data is exhausted before content is found.</exception>
+    /// <exception cref="RespException">If the data contains an explicit error element.</exception>
+    /// <exception cref="InvalidOperationException">If the data is not of the expected type.</exception>
+    public void MoveNext<T>(RespPrefix prefix, AttributeReader<T> attributeReader, ref T attributes)
+    {
+        MoveNext(attributeReader, ref attributes);
+        Demand(prefix);
+    }
+
+    /// <summary>
+    /// Move to the next content element (<see cref="MoveNext()"/>) and assert that it of type specified
+    /// in <paramref name="prefix"/>.
+    /// </summary>
+    /// <param name="prefix">The expected data type.</param>
     /// <exception cref="EndOfStreamException">If the data is exhausted before content is found.</exception>
     /// <exception cref="RespException">If the data contains an explicit error element.</exception>
     /// <exception cref="InvalidOperationException">If the data is not of the expected type.</exception>
@@ -341,7 +407,7 @@ public ref partial struct RespReader
         Demand(prefix);
     }
 
-    private void Demand(RespPrefix prefix)
+    internal void Demand(RespPrefix prefix)
     {
         if (Prefix != prefix) Throw(prefix, Prefix);
         static void Throw(RespPrefix expected, RespPrefix actual) => throw new InvalidOperationException($"Expected {expected} element, but found {actual}.");
@@ -460,15 +526,15 @@ public ref partial struct RespReader
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private readonly ReadOnlySpan<byte> Buffer(Span<byte> target)
+    internal readonly ReadOnlySpan<byte> Buffer(Span<byte> target)
         => TryGetSpan(out var simple) ? simple : BufferSlow(ref Unsafe.NullRef<byte[]>(), target);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private readonly ReadOnlySpan<byte> Buffer(ref byte[] pooled, Span<byte> target = default)
+    internal readonly ReadOnlySpan<byte> Buffer(scoped ref byte[] pooled, Span<byte> target = default)
         => TryGetSpan(out var simple) ? simple : BufferSlow(ref pooled, target);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private readonly ReadOnlySpan<byte> BufferSlow(ref byte[] pooled, Span<byte> target)
+    private readonly ReadOnlySpan<byte> BufferSlow(scoped ref byte[] pooled, Span<byte> target)
     {
         DemandScalar();
 
