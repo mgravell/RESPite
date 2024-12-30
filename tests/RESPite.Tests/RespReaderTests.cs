@@ -13,13 +13,13 @@ namespace RESPite;
 
 public class RespReaderTests(ITestOutputHelper logger)
 {
-    public readonly struct RespPayload(string label, ReadOnlySequence<byte> payload, byte[] expected, bool outOfBand)
+    public readonly struct RespPayload(string label, ReadOnlySequence<byte> payload, byte[] expected, bool? outOfBand, int count)
     {
         public override string ToString() => Label;
         public string Label { get; } = label;
         public ReadOnlySequence<byte> PayloadRaw { get; } = payload;
-        public int Length { get; } = CheckPayload(payload, expected, outOfBand);
-        private static int CheckPayload(scoped in ReadOnlySequence<byte> actual, byte[] expected, bool outOfBand)
+        public int Length { get; } = CheckPayload(payload, expected, outOfBand, count);
+        private static int CheckPayload(scoped in ReadOnlySequence<byte> actual, byte[] expected, bool? outOfBand, int count)
         {
             Assert.Equal(expected.LongLength, actual.Length);
             var pool = ArrayPool<byte>.Shared.Rent(expected.Length);
@@ -29,13 +29,22 @@ public class RespReaderTests(ITestOutputHelper logger)
             Assert.True(isSame, "Data mismatch");
 
             // verify that the data exactly passes frame-scanning
-            ScanState state = ScanState.Create(false);
+            long totalBytes = 0;
             RespReader reader = new(actual);
-            Assert.True(state.TryRead(ref reader, out long bytesRead));
-            Assert.Equal(expected.Length, bytesRead);
-            Assert.Equal(expected.Length, state.TotalBytes);
-            Assert.True(state.IsComplete, nameof(state.IsComplete));
-            Assert.Equal(outOfBand, state.IsOutOfBand);
+            while (count > 0)
+            {
+                ScanState state = ScanState.Create(false);
+                Assert.True(state.TryRead(ref reader, out long bytesRead));
+                totalBytes += bytesRead;
+                Assert.True(state.IsComplete, nameof(state.IsComplete));
+                if (outOfBand.HasValue)
+                {
+                    Assert.Equal(outOfBand.Value, state.IsOutOfBand);
+                }
+                count--;
+            }
+            Assert.Equal(expected.Length, totalBytes);
+            reader.DemandEnd();
             return expected.Length;
         }
 
@@ -45,7 +54,11 @@ public class RespReaderTests(ITestOutputHelper logger)
     public sealed class RespAttribute : DataAttribute
     {
         private readonly object _value;
-        public bool OutOfBand { get; init; }
+        public bool OutOfBand { get; init; } = false;
+
+        private bool? EffectiveOutOfBand => Count == 1 ? OutOfBand : default(bool?);
+        public int Count { get; init; } = 1;
+
         public RespAttribute(string value) => _value = value;
         public RespAttribute(params string[] values) => _value = values;
 
@@ -54,7 +67,7 @@ public class RespReaderTests(ITestOutputHelper logger)
             switch (_value)
             {
                 case string s:
-                    foreach (var item in GetVariants(s, OutOfBand))
+                    foreach (var item in GetVariants(s, EffectiveOutOfBand, Count))
                     {
                         yield return new object[] { item };
                     }
@@ -62,7 +75,7 @@ public class RespReaderTests(ITestOutputHelper logger)
                 case string[] arr:
                     foreach (string s in arr)
                     {
-                        foreach (var item in GetVariants(s, OutOfBand))
+                        foreach (var item in GetVariants(s, EffectiveOutOfBand, Count))
                         {
                             yield return new object[] { item };
                         }
@@ -71,12 +84,12 @@ public class RespReaderTests(ITestOutputHelper logger)
             }
         }
 
-        private static IEnumerable<RespPayload> GetVariants(string value, bool outOfBand)
+        private static IEnumerable<RespPayload> GetVariants(string value, bool? outOfBand, int count)
         {
             var bytes = Encoding.UTF8.GetBytes(value);
 
             // all in one
-            yield return new("Right-sized", new(bytes), bytes, outOfBand);
+            yield return new("Right-sized", new(bytes), bytes, outOfBand, count);
 
             var bigger = new byte[bytes.Length + 4];
             bytes.CopyTo(bigger.AsSpan(2, bytes.Length));
@@ -84,7 +97,7 @@ public class RespReaderTests(ITestOutputHelper logger)
             bigger.AsSpan(bytes.Length + 2, 2).Fill(0xFF);
 
             // all in one, oversized
-            yield return new("Oversized", new(bigger, 2, bytes.Length), bytes, outOfBand);
+            yield return new("Oversized", new(bigger, 2, bytes.Length), bytes, outOfBand, count);
 
             // two-chunks
             for (int i = 0; i <= bytes.Length; i++)
@@ -92,7 +105,7 @@ public class RespReaderTests(ITestOutputHelper logger)
                 int offset = 2 + i;
                 var left = new Segment(new ReadOnlyMemory<byte>(bigger, 0, offset), null);
                 var right = new Segment(new ReadOnlyMemory<byte>(bigger, offset, bigger.Length - offset), left);
-                yield return new($"Split:{i}", new ReadOnlySequence<byte>(left, 2, right, right.Length - 2), bytes, outOfBand);
+                yield return new($"Split:{i}", new ReadOnlySequence<byte>(left, 2, right, right.Length - 2), bytes, outOfBand, count);
             }
 
             // N-chunks
@@ -101,7 +114,7 @@ public class RespReaderTests(ITestOutputHelper logger)
             {
                 tail = new(new(bytes, i, 1), tail);
             }
-            yield return new("Chunk-per-byte", new(head, 0, tail, 1), bytes, outOfBand);
+            yield return new("Chunk-per-byte", new(head, 0, tail, 1), bytes, outOfBand, count);
         }
     }
 
@@ -604,6 +617,66 @@ public class RespReaderTests(ITestOutputHelper logger)
 
         Assert.False(iter.MoveNext());
         iter.MovePast(out reader);
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp(">3\r\n+message\r\n+somechannel\r\n+this is the message\r\n$9\r\nGet-Reply\r\n", Count = 2)]
+    public void PushThenGetReply(RespPayload payload)
+    {
+        // ignore the attribute data
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Push);
+        Assert.Equal(3, reader.AggregateLength());
+        var iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("message"u8));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("somechannel"u8));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("this is the message"u8));
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+
+        reader.MoveNext(RespPrefix.BulkString);
+        Assert.True(reader.Is("Get-Reply"u8));
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp("$9\r\nGet-Reply\r\n>3\r\n+message\r\n+somechannel\r\n+this is the message\r\n", Count = 2)]
+    public void GetReplyThenPush(RespPayload payload)
+    {
+        // ignore the attribute data
+        var reader = payload.Reader();
+
+        reader.MoveNext(RespPrefix.BulkString);
+        Assert.True(reader.Is("Get-Reply"u8));
+
+        reader.MoveNext(RespPrefix.Push);
+        Assert.Equal(3, reader.AggregateLength());
+        var iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("message"u8));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("somechannel"u8));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("this is the message"u8));
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+
         reader.DemandEnd();
     }
 
