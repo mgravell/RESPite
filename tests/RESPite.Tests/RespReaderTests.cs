@@ -401,7 +401,7 @@ public class RespReaderTests(ITestOutputHelper logger)
 #endif
     }
 
-    [Theory, Resp("*3\r\n:1\r\n:2\r\n:3\r\n")]
+    [Theory, Resp("*3\r\n:1\r\n:2\r\n:3\r\n", "*?\r\n:1\r\n:2\r\n:3\r\n.\r\n")]
     public void Array(RespPayload payload)
     {
         var reader = payload.Reader();
@@ -440,7 +440,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         Assert.Equal([1, 2, 3], arr);
     }
 
-    [Theory, Resp("*2\r\n*3\r\n:1\r\n$5\r\nhello\r\n:2\r\n#f\r\n")]
+    [Theory, Resp("*2\r\n*3\r\n:1\r\n$5\r\nhello\r\n:2\r\n#f\r\n", "*?\r\n*?\r\n:1\r\n$5\r\nhello\r\n:2\r\n.\r\n#f\r\n.\r\n")]
     public void NestedArray(RespPayload payload)
     {
         var reader = payload.Reader();
@@ -477,7 +477,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Theory, Resp("%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n")]
+    [Theory, Resp("%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n", "%?\r\n+first\r\n:1\r\n+second\r\n:2\r\n.\r\n")]
     public void Map(RespPayload payload)
     {
         var reader = payload.Reader();
@@ -509,7 +509,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Theory, Resp("~5\r\n+orange\r\n+apple\r\n#t\r\n:100\r\n:999\r\n")]
+    [Theory, Resp("~5\r\n+orange\r\n+apple\r\n#t\r\n:100\r\n:999\r\n", "~?\r\n+orange\r\n+apple\r\n#t\r\n:100\r\n:999\r\n.\r\n")]
     public void Set(RespPayload payload)
     {
         var reader = payload.Reader();
@@ -580,7 +580,9 @@ public class RespReaderTests(ITestOutputHelper logger)
         }
     }
 
-    [Theory, Resp("|1\r\n+key-popularity\r\n%2\r\n$1\r\na\r\n,0.1923\r\n$1\r\nb\r\n,0.0012\r\n*2\r\n:2039123\r\n:9543892\r\n")]
+    [Theory, Resp(
+        "|1\r\n+key-popularity\r\n%2\r\n$1\r\na\r\n,0.1923\r\n$1\r\nb\r\n,0.0012\r\n*2\r\n:2039123\r\n:9543892\r\n",
+        "|1\r\n+key-popularity\r\n%2\r\n$1\r\na\r\n,0.1923\r\n$1\r\nb\r\n,0.0012\r\n*?\r\n:2039123\r\n:9543892\r\n.\r\n")]
     public void AttributeRoot(RespPayload payload)
     {
         // ignore the attribute data
@@ -628,7 +630,7 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
-    [Theory, Resp("*3\r\n:1\r\n:2\r\n|1\r\n+ttl\r\n:3600\r\n:3\r\n")]
+    [Theory, Resp("*3\r\n:1\r\n:2\r\n|1\r\n+ttl\r\n:3600\r\n:3\r\n", "*?\r\n:1\r\n:2\r\n|1\r\n+ttl\r\n:3600\r\n:3\r\n.\r\n")]
     public void AttributeInner(RespPayload payload)
     {
         // ignore the attribute data
