@@ -13,13 +13,13 @@ namespace RESPite;
 
 public class RespReaderTests(ITestOutputHelper logger)
 {
-    public readonly struct RespPayload(string label, ReadOnlySequence<byte> payload, byte[] expected)
+    public readonly struct RespPayload(string label, ReadOnlySequence<byte> payload, byte[] expected, bool outOfBand)
     {
         public override string ToString() => Label;
         public string Label { get; } = label;
         public ReadOnlySequence<byte> PayloadRaw { get; } = payload;
-        public int Length { get; } = CheckPayload(payload, expected);
-        private static int CheckPayload(in ReadOnlySequence<byte> actual, byte[] expected)
+        public int Length { get; } = CheckPayload(payload, expected, outOfBand);
+        private static int CheckPayload(scoped in ReadOnlySequence<byte> actual, byte[] expected, bool outOfBand)
         {
             Assert.Equal(expected.LongLength, actual.Length);
             var pool = ArrayPool<byte>.Shared.Rent(expected.Length);
@@ -27,6 +27,15 @@ public class RespReaderTests(ITestOutputHelper logger)
             bool isSame = pool.AsSpan(0, expected.Length).SequenceEqual(expected);
             ArrayPool<byte>.Shared.Return(pool);
             Assert.True(isSame, "Data mismatch");
+
+            // verify that the data exactly passes frame-scanning
+            ScanState state = ScanState.Create(false);
+            RespReader reader = new(actual);
+            Assert.True(state.TryRead(ref reader, out long bytesRead));
+            Assert.Equal(expected.Length, bytesRead);
+            Assert.Equal(expected.Length, state.TotalBytes);
+            Assert.True(state.IsComplete, nameof(state.IsComplete));
+            Assert.Equal(outOfBand, state.IsOutOfBand);
             return expected.Length;
         }
 
@@ -36,7 +45,7 @@ public class RespReaderTests(ITestOutputHelper logger)
     public sealed class RespAttribute : DataAttribute
     {
         private readonly object _value;
-
+        public bool OutOfBand { get; init; }
         public RespAttribute(string value) => _value = value;
         public RespAttribute(params string[] values) => _value = values;
 
@@ -45,7 +54,7 @@ public class RespReaderTests(ITestOutputHelper logger)
             switch (_value)
             {
                 case string s:
-                    foreach (var item in GetVariants(s))
+                    foreach (var item in GetVariants(s, OutOfBand))
                     {
                         yield return new object[] { item };
                     }
@@ -53,7 +62,7 @@ public class RespReaderTests(ITestOutputHelper logger)
                 case string[] arr:
                     foreach (string s in arr)
                     {
-                        foreach (var item in GetVariants(s))
+                        foreach (var item in GetVariants(s, OutOfBand))
                         {
                             yield return new object[] { item };
                         }
@@ -62,12 +71,12 @@ public class RespReaderTests(ITestOutputHelper logger)
             }
         }
 
-        private static IEnumerable<RespPayload> GetVariants(string value)
+        private static IEnumerable<RespPayload> GetVariants(string value, bool outOfBand)
         {
             var bytes = Encoding.UTF8.GetBytes(value);
 
             // all in one
-            yield return new("Right-sized", new(bytes), bytes);
+            yield return new("Right-sized", new(bytes), bytes, outOfBand);
 
             var bigger = new byte[bytes.Length + 4];
             bytes.CopyTo(bigger.AsSpan(2, bytes.Length));
@@ -75,7 +84,7 @@ public class RespReaderTests(ITestOutputHelper logger)
             bigger.AsSpan(bytes.Length + 2, 2).Fill(0xFF);
 
             // all in one, oversized
-            yield return new("Oversized", new(bigger, 2, bytes.Length), bytes);
+            yield return new("Oversized", new(bigger, 2, bytes.Length), bytes, outOfBand);
 
             // two-chunks
             for (int i = 0; i <= bytes.Length; i++)
@@ -83,7 +92,7 @@ public class RespReaderTests(ITestOutputHelper logger)
                 int offset = 2 + i;
                 var left = new Segment(new ReadOnlyMemory<byte>(bigger, 0, offset), null);
                 var right = new Segment(new ReadOnlyMemory<byte>(bigger, offset, bigger.Length - offset), left);
-                yield return new($"Split:{i}", new ReadOnlySequence<byte>(left, 2, right, right.Length - 2), bytes);
+                yield return new($"Split:{i}", new ReadOnlySequence<byte>(left, 2, right, right.Length - 2), bytes, outOfBand);
             }
 
             // N-chunks
@@ -92,7 +101,7 @@ public class RespReaderTests(ITestOutputHelper logger)
             {
                 tail = new(new(bytes, i, 1), tail);
             }
-            yield return new("Chunk-per-byte", new(head, 0, tail, 1), bytes);
+            yield return new("Chunk-per-byte", new(head, 0, tail, 1), bytes, outOfBand);
         }
     }
 
@@ -385,6 +394,7 @@ public class RespReaderTests(ITestOutputHelper logger)
     {
         var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Array);
+        Assert.Equal(3, reader.AggregateLength());
         var iter = reader.AggregateChildren();
         Assert.True(iter.MoveNext(RespPrefix.Integer));
         Assert.Equal(1, iter.Value.ReadInt32());
@@ -416,6 +426,185 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
 
         Assert.Equal([1, 2, 3], arr);
+    }
+
+    [Theory, Resp("*2\r\n*3\r\n:1\r\n$5\r\nhello\r\n:2\r\n#f\r\n")]
+    public void NestedArray(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Array);
+
+        Assert.Equal(2, reader.AggregateLength());
+
+        var iter = reader.AggregateChildren();
+        Assert.True(iter.MoveNext(RespPrefix.Array));
+
+        Assert.Equal(3, iter.Value.AggregateLength());
+        var subIter = iter.Value.AggregateChildren();
+        Assert.True(subIter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, subIter.Value.ReadInt64());
+        subIter.Value.DemandEnd();
+
+        Assert.True(subIter.MoveNext(RespPrefix.BulkString));
+        Assert.True(subIter.Value.Is("hello"u8));
+        subIter.Value.DemandEnd();
+
+        Assert.True(subIter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, subIter.Value.ReadInt64());
+        subIter.Value.DemandEnd();
+
+        Assert.False(subIter.MoveNext());
+
+        Assert.True(iter.MoveNext(RespPrefix.Boolean));
+        Assert.False(iter.Value.ReadBoolean());
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp("%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n")]
+    public void Map(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Map);
+
+        Assert.Equal(4, reader.AggregateLength());
+
+        var iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("first"));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("second"));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+
+        iter.MovePast(out reader);
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp("~5\r\n+orange\r\n+apple\r\n#t\r\n:100\r\n:999\r\n")]
+    public void Set(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Set);
+
+        Assert.Equal(5, reader.AggregateLength());
+
+        var iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("orange"));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("apple"));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Boolean));
+        Assert.True(iter.Value.ReadBoolean());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(100, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(999, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+
+        iter.MovePast(out reader);
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp("|1\r\n+key-popularity\r\n%2\r\n$1\r\na\r\n,0.1923\r\n$1\r\nb\r\n,0.0012\r\n*2\r\n:2039123\r\n:9543892\r\n")]
+    public void AttributeRoot(RespPayload payload)
+    {
+        // ignore the attribute data
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Array);
+        Assert.Equal(2, reader.AggregateLength());
+        var iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2039123, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(9543892, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp("*3\r\n:1\r\n:2\r\n|1\r\n+ttl\r\n:3600\r\n:3\r\n")]
+    public void AttributeInner(RespPayload payload)
+    {
+        // ignore the attribute data
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Array);
+        Assert.Equal(3, reader.AggregateLength());
+        var iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.Integer));
+        Assert.Equal(3, iter.Value.ReadInt32());
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp(">3\r\n+message\r\n+somechannel\r\n+this is the message\r\n", OutOfBand = true)]
+    public void Push(RespPayload payload)
+    {
+        // ignore the attribute data
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Push);
+        Assert.Equal(3, reader.AggregateLength());
+        var iter = reader.AggregateChildren();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("message"u8));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("somechannel"u8));
+        iter.Value.DemandEnd();
+
+        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iter.Value.Is("this is the message"u8));
+        iter.Value.DemandEnd();
+
+        Assert.False(iter.MoveNext());
+        iter.MovePast(out reader);
+        reader.DemandEnd();
     }
 
     private sealed class Segment : ReadOnlySequenceSegment<byte>

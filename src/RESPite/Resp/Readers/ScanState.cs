@@ -74,8 +74,7 @@ public struct ScanState
     {
         Debug.Assert(reader.Prefix != RespPrefix.None);
         _totalBytes = 0;
-        _delta = reader.Delta();
-        _streamingAggregateDepth = reader.IsStreamingAggregate ? (ushort)1 : (ushort)0;
+        _delta = reader.GetInitialScanCount(out _streamingAggregateDepth);
     }
 
     /// <summary>

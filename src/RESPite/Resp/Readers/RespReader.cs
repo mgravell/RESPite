@@ -180,14 +180,9 @@ public ref partial struct RespReader
     public readonly bool IsStreaming => (_flags & RespFlags.IsStreaming) != 0;
 
     /// <summary>
-    /// Equivalent to both <see cref="IsStreaming"/> and <see cref="IsAggregate"/>.
-    /// </summary>
-    public readonly bool IsStreamingAggregate => (_flags & (RespFlags.IsAggregate | RespFlags.IsStreaming)) == (RespFlags.IsAggregate | RespFlags.IsStreaming);
-
-    /// <summary>
     /// Equivalent to both <see cref="IsStreaming"/> and <see cref="IsScalar"/>.
     /// </summary>
-    public readonly bool IsStreamingScalar => (_flags & (RespFlags.IsScalar | RespFlags.IsStreaming)) == (RespFlags.IsScalar | RespFlags.IsStreaming);
+    internal readonly bool IsStreamingScalar => (_flags & (RespFlags.IsScalar | RespFlags.IsStreaming)) == (RespFlags.IsScalar | RespFlags.IsStreaming);
 
     /// <summary>
     /// Indicates errors reported inside the protocol.
@@ -206,6 +201,7 @@ public ref partial struct RespReader
     {
         RespFlags.IsScalar => -1,
         RespFlags.IsAggregate => _length - 1,
+        RespFlags.IsAggregate | RespFlags.IsAttribute => _length,
         _ => 0,
     };
 
@@ -226,6 +222,22 @@ public ref partial struct RespReader
         static void Throw(RespPrefix prefix) => throw new InvalidOperationException($"Expected end of payload, but found {prefix}");
     }
 
+    private bool TryReadNextSkipAttribute()
+    {
+        while (TryReadNext())
+        {
+            if (IsAttribute)
+            {
+                SkipChildren();
+            }
+            else
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>
     /// Move to the next content element; this skips attribute metadata, checking for RESP error messages by default.
     /// </summary>
@@ -235,23 +247,13 @@ public ref partial struct RespReader
     {
         while (IsStreamingScalar) // close out the current streaming scalar
         {
-            do
-            {
-                if (!TryReadNext()) ThrowEOF();
-            }
-            while (IsAttribute);
+            if (!TryReadNextSkipAttribute()) ThrowEOF();
         }
-        while (TryReadNext())
+
+        if (TryReadNextSkipAttribute())
         {
-            if (IsAttribute)
-            {
-                SkipChildren();
-            }
-            else
-            {
-                if (IsError) ThrowError();
-                return true;
-            }
+            if (IsError) ThrowError();
+            return true;
         }
         return false;
     }
@@ -866,11 +868,13 @@ public ref partial struct RespReader
                 case RespPrefix.Set:
                 case RespPrefix.Map:
                 case RespPrefix.Push:
+                case RespPrefix.Attribute:
                     // length prefix without value payload (child values follow)
                     switch (TryReadLengthPrefix(remaining, out _length, out consumed))
                     {
                         case LengthPrefixResult.Length:
                             _flags = RespFlags.IsAggregate;
+                            if (AggregateLengthNeedsDoubling()) _length *= 2;
                             break;
                         case LengthPrefixResult.Null:
                             _flags = RespFlags.IsAggregate | RespFlags.IsNull;
@@ -880,6 +884,7 @@ public ref partial struct RespReader
                             break;
                     }
                     if (_flags == 0) break; // will need more data to know
+                    if (_prefix is RespPrefix.Attribute) _flags |= RespFlags.IsAttribute;
                     _bufferIndex += consumed + 1;
                     return true;
                 case RespPrefix.Null: // null
@@ -954,11 +959,13 @@ public ref partial struct RespReader
             case RespPrefix.Set:
             case RespPrefix.Map:
             case RespPrefix.Push:
+            case RespPrefix.Attribute:
                 // length prefix without value payload (child values follow)
                 switch (isolated.RawTryReadLengthPrefix())
                 {
                     case LengthPrefixResult.Length:
                         isolated._flags = RespFlags.IsAggregate;
+                        if (isolated.AggregateLengthNeedsDoubling()) isolated._length *= 2;
                         break;
                     case LengthPrefixResult.Null:
                         isolated._flags = RespFlags.IsAggregate | RespFlags.IsNull;
@@ -972,6 +979,7 @@ public ref partial struct RespReader
                         ThrowProtocolFailure("Unexpected length prefix");
                         return false;
                 }
+                if (isolated._prefix is RespPrefix.Attribute) isolated._flags |= RespFlags.IsAttribute;
                 break;
             case RespPrefix.Null: // null
                 if (!isolated.RawAssertCrLf()) return false;
@@ -1030,6 +1038,8 @@ public ref partial struct RespReader
         [DoesNotReturn]
         static void Throw() => throw new EndOfStreamException("Unexpected end of payload; this is unexpected because we already validated that it was available!");
     }
+
+    private bool AggregateLengthNeedsDoubling() => _prefix is RespPrefix.Map or RespPrefix.Attribute;
 
     private bool TryMoveToNextSegment()
     {

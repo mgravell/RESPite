@@ -296,4 +296,21 @@ public ref partial struct RespReader
     {
         return ToString();
     }
+
+    internal int GetInitialScanCount(out ushort streamingAggregateDepth)
+    {
+        // this is *similar* to GetDelta, but: without any discount for attributes
+        switch (_flags & (RespFlags.IsAggregate | RespFlags.IsStreaming))
+        {
+            case RespFlags.IsAggregate:
+                streamingAggregateDepth = 0;
+                return _length - 1;
+            case RespFlags.IsAggregate | RespFlags.IsStreaming:
+                streamingAggregateDepth = 1;
+                return 0;
+            default:
+                streamingAggregateDepth = 0;
+                return -1;
+        }
+    }
 }
