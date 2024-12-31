@@ -9,6 +9,18 @@ namespace RESPite.Resp.Readers;
 /// </summary>
 public struct ScanState
 {
+    /*
+    The key point of ScanState is to skim over a RESP stream with minimal frame processing, to find the
+    end of a single top-level RESP message. We start by expecting 1 message, and then just read, with the
+    rules that the end of a message subtracts one, and aggregates add N. Streaming scalars apply zero offset
+    until the scalar stream terminator. Attributes also apply zero offset.
+    Note that streaming aggregates change the rules - when at least one streaming aggregate is in effect,
+    no offsets are applied until we get back out of the outermost streaming aggregate - we achieve this
+    by simply counting the streaming aggregate depth, which is usually zero.
+    Note that in reality streaming (scalar and aggregates) and attributes are non-existent; in addition
+    to being specific to RESP3, no known server currently implements these parts of the RESP3 specification,
+    so everything here is theoretical, but: works according to the spec.
+    */
     private int _delta; // when this becomes -1, we have fully read a top-level message;
     private ushort _streamingAggregateDepth;
     private MessageKind _kind;
@@ -157,28 +169,16 @@ public struct ScanState
         if (reader.IsStreaming)
         {
             // entering an aggregate stream
-            checked { _streamingAggregateDepth++; }
+            if (_streamingAggregateDepth == ushort.MaxValue) ThrowTooDeep();
+            _streamingAggregateDepth++;
         }
         else if (reader.Prefix == RespPrefix.StreamTerminator)
         {
             // exiting an aggregate stream
-            checked { _streamingAggregateDepth--; }
+            if (_streamingAggregateDepth == 0) ThrowUnexpectedTerminator();
+            _streamingAggregateDepth--;
         }
-        else if (reader.AggregateLength() > 0 && _streamingAggregateDepth != 0)
-        {
-            ThrowNestingNotSupported();
-
-            // The problem here is that for frame-scanning purposes, we need to know when a node is ending; if we support non-streaming inside streaming, we
-            // need to know at every level whether this is a decrementing level or not, when ending nodes; at the moment, the logic is simple:
-            // - if we're inside an aggregate stream, delta is zero
-            // - if we're an aggregate node, delta is ChildCount - 1
-            // - otherwise, delta is -1
-            // Emphasis: this is doable; it is just very unlikely to ever become an issue! most likely approach here is an int32 bit mask that indicates
-            // whether aggregate depth N is streaming or not.
-            // Since we have the ScanState type, we can introduce this logic later as needed.
-            // In particular, note that we *do not* need this complexity when reading payloads, since a: we're not trying to do incremental parse, and
-            // b: when reading payloads, we are observing the hierarchy more strictly. This is purely an issue when scanning for entire frames.
-            static void ThrowNestingNotSupported() => throw new NotSupportedException("Nesting non-streaming aggregates inside streaming aggregates is not currently supported by this client; please log an issue!");
-        }
+        static void ThrowTooDeep() => throw new InvalidOperationException("Maximum streaming aggregate depth exceeded.");
+        static void ThrowUnexpectedTerminator() => throw new InvalidOperationException("Unexpected streaming aggregate terminator.");
     }
 }
