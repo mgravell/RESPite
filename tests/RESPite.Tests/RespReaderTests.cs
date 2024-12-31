@@ -424,21 +424,21 @@ public class RespReaderTests(ITestOutputHelper logger)
         var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Array);
         Assert.Equal(3, reader.AggregateLength());
-        var iter = reader.AggregateChildren();
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(1, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        var iterator = reader.AggregateChildren();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(2, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(3, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(3, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext(RespPrefix.Integer));
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext(RespPrefix.Integer));
+        iterator.MovePast(out reader);
         reader.DemandEnd();
 
         reader = payload.Reader();
@@ -451,7 +451,7 @@ public class RespReaderTests(ITestOutputHelper logger)
             arr[i++] = sub.ReadInt32();
             sub.DemandEnd();
         }
-        iter.MovePast(out reader);
+        iterator.MovePast(out reader);
         reader.DemandEnd();
 
         Assert.Equal([1, 2, 3], arr);
@@ -478,31 +478,31 @@ public class RespReaderTests(ITestOutputHelper logger)
 
         Assert.Equal(2, reader.AggregateLength());
 
-        var iter = reader.AggregateChildren();
-        Assert.True(iter.MoveNext(RespPrefix.Array));
+        var iterator = reader.AggregateChildren();
+        Assert.True(iterator.MoveNext(RespPrefix.Array));
 
-        Assert.Equal(3, iter.Value.AggregateLength());
-        var subIter = iter.Value.AggregateChildren();
-        Assert.True(subIter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(1, subIter.Value.ReadInt64());
-        subIter.Value.DemandEnd();
+        Assert.Equal(3, iterator.Value.AggregateLength());
+        var subIterator = iterator.Value.AggregateChildren();
+        Assert.True(subIterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, subIterator.Value.ReadInt64());
+        subIterator.Value.DemandEnd();
 
-        Assert.True(subIter.MoveNext(RespPrefix.BulkString));
-        Assert.True(subIter.Value.Is("hello"u8));
-        subIter.Value.DemandEnd();
+        Assert.True(subIterator.MoveNext(RespPrefix.BulkString));
+        Assert.True(subIterator.Value.Is("hello"u8));
+        subIterator.Value.DemandEnd();
 
-        Assert.True(subIter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(2, subIter.Value.ReadInt64());
-        subIter.Value.DemandEnd();
+        Assert.True(subIterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, subIterator.Value.ReadInt64());
+        subIterator.Value.DemandEnd();
 
-        Assert.False(subIter.MoveNext());
+        Assert.False(subIterator.MoveNext());
 
-        Assert.True(iter.MoveNext(RespPrefix.Boolean));
-        Assert.False(iter.Value.ReadBoolean());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Boolean));
+        Assert.False(iterator.Value.ReadBoolean());
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
 
         reader.DemandEnd();
     }
@@ -515,27 +515,27 @@ public class RespReaderTests(ITestOutputHelper logger)
 
         Assert.Equal(4, reader.AggregateLength());
 
-        var iter = reader.AggregateChildren();
+        var iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("first"));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("first"));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(1, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("second"));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("second"));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(2, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
+        Assert.False(iterator.MoveNext());
 
-        iter.MovePast(out reader);
+        iterator.MovePast(out reader);
         reader.DemandEnd();
     }
 
@@ -547,31 +547,31 @@ public class RespReaderTests(ITestOutputHelper logger)
 
         Assert.Equal(5, reader.AggregateLength());
 
-        var iter = reader.AggregateChildren();
+        var iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("orange"));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("orange"));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("apple"));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("apple"));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Boolean));
-        Assert.True(iter.Value.ReadBoolean());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Boolean));
+        Assert.True(iterator.Value.ReadBoolean());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(100, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(100, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(999, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(999, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
+        Assert.False(iterator.MoveNext());
 
-        iter.MovePast(out reader);
+        iterator.MovePast(out reader);
         reader.DemandEnd();
     }
 
@@ -619,18 +619,18 @@ public class RespReaderTests(ITestOutputHelper logger)
         var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Array);
         Assert.Equal(2, reader.AggregateLength());
-        var iter = reader.AggregateChildren();
+        var iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(2039123, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2039123, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(9543892, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(9543892, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
         reader.DemandEnd();
 
         // process the attribute data
@@ -643,20 +643,20 @@ public class RespReaderTests(ITestOutputHelper logger)
         state = TestAttributeReader.Zero;
 
         Assert.Equal(2, reader.AggregateLength());
-        iter = reader.AggregateChildren();
+        iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
-        Assert.Equal(2039123, iter.Value.ReadInt32());
+        Assert.True(iterator.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.Equal(2039123, iterator.Value.ReadInt32());
         Assert.Equal(0, state.Count);
-        iter.Value.DemandEnd();
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
-        Assert.Equal(9543892, iter.Value.ReadInt32());
+        Assert.True(iterator.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.Equal(9543892, iterator.Value.ReadInt32());
         Assert.Equal(0, state.Count);
-        iter.Value.DemandEnd();
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
         reader.DemandEnd();
     }
 
@@ -667,22 +667,22 @@ public class RespReaderTests(ITestOutputHelper logger)
         var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Array);
         Assert.Equal(3, reader.AggregateLength());
-        var iter = reader.AggregateChildren();
+        var iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(1, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(1, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(2, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(2, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer));
-        Assert.Equal(3, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.Integer));
+        Assert.Equal(3, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
         reader.DemandEnd();
 
         // process the attribute data
@@ -691,28 +691,28 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.MoveNext(RespPrefix.Array, TestAttributeReader.Instance, ref state);
         Assert.Equal(0, state.Count);
         Assert.Equal(3, reader.AggregateLength());
-        iter = reader.AggregateChildren();
+        iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.True(iterator.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
         Assert.Equal(0, state.Count);
-        Assert.Equal(1, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.Equal(1, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.True(iterator.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
         Assert.Equal(0, state.Count);
-        Assert.Equal(2, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.Equal(2, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
+        Assert.True(iterator.MoveNext(RespPrefix.Integer, TestAttributeReader.Instance, ref state));
         Assert.Equal(1, state.Count);
         Assert.Equal(3600, state.Ttl);
         state = TestAttributeReader.Zero; // reset
-        Assert.Equal(3, iter.Value.ReadInt32());
-        iter.Value.DemandEnd();
+        Assert.Equal(3, iterator.Value.ReadInt32());
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext(TestAttributeReader.Instance, ref state));
+        Assert.False(iterator.MoveNext(TestAttributeReader.Instance, ref state));
         Assert.Equal(0, state.Count);
-        iter.MovePast(out reader);
+        iterator.MovePast(out reader);
         reader.DemandEnd();
     }
 
@@ -723,22 +723,22 @@ public class RespReaderTests(ITestOutputHelper logger)
         var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Push);
         Assert.Equal(3, reader.AggregateLength());
-        var iter = reader.AggregateChildren();
+        var iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("message"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("message"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("somechannel"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("somechannel"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("this is the message"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("this is the message"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
         reader.DemandEnd();
     }
 
@@ -749,22 +749,22 @@ public class RespReaderTests(ITestOutputHelper logger)
         var reader = payload.Reader();
         reader.MoveNext(RespPrefix.Push);
         Assert.Equal(3, reader.AggregateLength());
-        var iter = reader.AggregateChildren();
+        var iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("message"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("message"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("somechannel"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("somechannel"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("this is the message"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("this is the message"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
 
         reader.MoveNext(RespPrefix.BulkString);
         Assert.True(reader.Is("Get-Reply"u8));
@@ -782,22 +782,46 @@ public class RespReaderTests(ITestOutputHelper logger)
 
         reader.MoveNext(RespPrefix.Push);
         Assert.Equal(3, reader.AggregateLength());
-        var iter = reader.AggregateChildren();
+        var iterator = reader.AggregateChildren();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("message"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("message"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("somechannel"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("somechannel"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.True(iter.MoveNext(RespPrefix.SimpleString));
-        Assert.True(iter.Value.Is("this is the message"u8));
-        iter.Value.DemandEnd();
+        Assert.True(iterator.MoveNext(RespPrefix.SimpleString));
+        Assert.True(iterator.Value.Is("this is the message"u8));
+        iterator.Value.DemandEnd();
 
-        Assert.False(iter.MoveNext());
-        iter.MovePast(out reader);
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
+
+        reader.DemandEnd();
+    }
+
+    [Theory, Resp("*0\r\n$4\r\npass\r\n", "*1\r\n+ok\r\n$4\r\npass\r\n", "*-1\r\n$4\r\npass\r\n", "*?\r\n.\r\n$4\r\npass\r\n", Count = 2)]
+    public void ArrayThenString(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        Assert.True(reader.TryMoveNext(RespPrefix.Array));
+        reader.SkipChildren();
+
+        Assert.True(reader.TryMoveNext(RespPrefix.BulkString));
+        Assert.True(reader.Is("pass"u8));
+
+        reader.DemandEnd();
+
+        // and the same using child iterator
+        reader = payload.Reader();
+        Assert.True(reader.TryMoveNext(RespPrefix.Array));
+        var iterator = reader.AggregateChildren();
+        iterator.MovePast(out reader);
+
+        Assert.True(reader.TryMoveNext(RespPrefix.BulkString));
+        Assert.True(reader.Is("pass"u8));
 
         reader.DemandEnd();
     }
