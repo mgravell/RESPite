@@ -134,8 +134,17 @@ public ref partial struct RespReader
 
     private readonly int AggregateLengthSlow()
     {
-        DemandAggregate();
-        if (!IsStreaming) return _length;
+        switch (_flags & (RespFlags.IsAggregate | RespFlags.IsStreaming))
+        {
+            case RespFlags.IsAggregate:
+                return _length;
+            case RespFlags.IsAggregate | RespFlags.IsStreaming:
+                break;
+            default:
+                DemandAggregate(); // we expect this to throw
+                break;
+        }
+
         int count = 0;
         var reader = Clone();
         while (true)
@@ -146,6 +155,7 @@ public ref partial struct RespReader
                 return count;
             }
             reader.SkipChildren();
+            count++;
         }
     }
 
@@ -963,6 +973,7 @@ public ref partial struct RespReader
                     // note we already checked we had 3 bytes
                     UnsafeAssertClLf(1);
                     _flags = RespFlags.IsAggregate; // don't claim as streaming - this counts towards delta
+                    _bufferIndex += 3; // skip prefix+terminator
                     return true;
                 default:
                     ThrowProtocolFailure("Unexpected protocol prefix: " + _prefix);

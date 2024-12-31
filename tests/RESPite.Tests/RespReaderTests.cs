@@ -226,6 +226,23 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
     }
 
+    [Theory, Resp("$-1\r\n")]
+    public void NullString(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.BulkString);
+        Assert.True(reader.IsNull);
+        Assert.Null(reader.ReadString());
+        Assert.Equal(0, reader.ScalarLength());
+        Assert.True(reader.Is(""u8));
+        Assert.True(reader.ScalarIsEmpty());
+
+        var iterator = reader.ScalarChunks();
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
+        reader.DemandEnd();
+    }
+
     [Theory, Resp(",1.23\r\n")]
     public void Double(RespPayload payload)
     {
@@ -438,6 +455,19 @@ public class RespReaderTests(ITestOutputHelper logger)
         reader.DemandEnd();
 
         Assert.Equal([1, 2, 3], arr);
+    }
+
+    [Theory, Resp("*-1\r\n")]
+    public void NullArray(RespPayload payload)
+    {
+        var reader = payload.Reader();
+        reader.MoveNext(RespPrefix.Array);
+        Assert.True(reader.IsNull);
+        Assert.Equal(0, reader.AggregateLength());
+        var iterator = reader.AggregateChildren();
+        Assert.False(iterator.MoveNext());
+        iterator.MovePast(out reader);
+        reader.DemandEnd();
     }
 
     [Theory, Resp("*2\r\n*3\r\n:1\r\n$5\r\nhello\r\n:2\r\n#f\r\n", "*?\r\n*?\r\n:1\r\n$5\r\nhello\r\n:2\r\n.\r\n#f\r\n.\r\n")]
