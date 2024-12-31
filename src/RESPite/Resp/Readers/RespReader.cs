@@ -816,9 +816,7 @@ public ref partial struct RespReader
                     if (comparand == RespConstants.BulkStringNull)
                     {
                         _length = 0;
-                        _bufferIndex += 5;
                         _flags = RespFlags.IsScalar | RespFlags.IsNull;
-                        return true;
                     }
                     else
                     {
