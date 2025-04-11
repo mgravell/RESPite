@@ -7,6 +7,7 @@ using System.Text;
 using RESPite.Gateways.Internal;
 using RESPite.Internal.Buffers;
 using RESPite.Messages;
+using RESPite.Resp;
 using RESPite.Transports.Internal;
 
 namespace RESPite.Transports;
@@ -85,18 +86,18 @@ public static class TransportExtensions
     public static IAsyncRequestResponseTransport WithSemaphoreSlimSynchronization(this IAsyncRequestResponseTransport transport, TimeSpan timeout)
         => new SemaphoreSlimTransportDecorator(transport, timeout);
 
-    private class Scratch : IBufferWriter<byte>
+    private sealed class Scratch : IBufferWriter<byte>
     {
         [ThreadStatic]
         private static Scratch? perThread;
         public static Scratch Create()
         {
-            var obj = perThread ?? new();
-            perThread = null;
-            obj.buffer = new(SlabManager<byte>.Ambient);
+            var obj = perThread ?? new(SlabManager<byte>.Ambient);
+            perThread = null; // we don't expect nested, but it also isn't re-entrant: so, guard
             return obj;
         }
-        private Scratch() { }
+        private Scratch(SlabManager<byte> slabManager) => buffer = new(slabManager);
+
         private BufferCore<byte> buffer;
         public void Advance(int count) => buffer.Commit(count);
         public Memory<byte> GetMemory(int sizeHint = 0) => buffer.GetWritableTail();
@@ -104,7 +105,6 @@ public static class TransportExtensions
         public RefCountedBuffer<byte> DetachAndRecycle()
         {
             var result = buffer.Detach();
-            buffer = default;
             perThread = this;
             return result;
         }
@@ -116,10 +116,12 @@ public static class TransportExtensions
         return buffer.DetachAndRecycle();
     }
 
-    private static void ThrowEmptyFrame() => throw new InvalidOperationException("Frames must have positive length");
-    private static void ThrowInvalidData() => throw new InvalidOperationException("Invalid data while processing frame");
-    private static void ThrowEOF() => throw new EndOfStreamException();
-    private static void ThrowInvalidOperationStatus(OperationStatus status) => throw new InvalidOperationException("Invalid operation status: " + status);
+    internal static void ThrowEmptyFrame() => throw new InvalidOperationException("Frames must have positive length");
+    internal static void ThrowInvalidData() => throw new InvalidOperationException("Invalid data while processing frame");
+    internal static void ThrowEOF() => throw new EndOfStreamException();
+    internal static void ThrowInvalidOperationStatus(OperationStatus status) => throw new InvalidOperationException("Invalid operation status: " + status);
+
+    internal static void ThrowNotExpected() => throw new InvalidOperationException("A response was received but no corresponding request was pending");
 
     internal static IEnumerable<RefCountedBuffer<byte>> ReadAll<TState>(
         this ISyncByteTransport transport,
@@ -262,7 +264,7 @@ public static class TransportExtensions
                         break;
                     case OperationStatus.NeedMoreData:
                         transport.Advance(0);
-                        Debug.WriteLineIf(!entireBuffer.IsEmpty, $"need more after {entireBuffer.Length} bytes: {(entireBuffer.Length < 100 ? Constants.UTF8.GetString(entireBuffer) : Constants.UTF8.GetString(entireBuffer.Slice(0, 100)) + "...")}");
+                        Debug.WriteLineIf(!entireBuffer.IsEmpty, $"need more after {entireBuffer.Length} bytes: {(entireBuffer.Length < 100 ? RespConstants.UTF8.GetString(entireBuffer) : RespConstants.UTF8.GetString(entireBuffer.Slice(0, 100)) + "...")}");
                         if (!transport.TryRead(Math.Max(scanInfo.ReadHint, 1))) ThrowEOF();
                         continue;
                     case OperationStatus.Done when scanInfo.BytesRead <= 0:
@@ -295,6 +297,9 @@ public static class TransportExtensions
         }
     }
 
+#if NET6_0_OR_GREATER
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
     internal static async ValueTask<RefCountedBuffer<byte>> ReadOneAsync<TState>(
         this IAsyncByteTransport transport,
         IFrameScanner<TState> scanner,
@@ -331,7 +336,7 @@ public static class TransportExtensions
                         break;
                     case OperationStatus.NeedMoreData:
                         transport.Advance(0);
-                        if (!await transport.TryReadAsync(Math.Max(scanInfo.ReadHint, 1)).ConfigureAwait(false)) ThrowEOF();
+                        if (!await transport.TryReadAsync(Math.Max(scanInfo.ReadHint, 1), token).ConfigureAwait(false)) ThrowEOF();
                         continue;
                     case OperationStatus.Done when scanInfo.BytesRead <= 0:
                         // if we're not making progress, we'd loop forever
@@ -368,32 +373,58 @@ public static class TransportExtensions
     }
 
     /// <summary>
-    /// Builds a connection intended for pipelined operation, with a backlog
+    /// Builds a connection intended for multiplexed operation, with a backlog
     /// of work.
     /// </summary>
-    public static IPipelinedTransport Pipeline(this IByteTransport gateway)
-        => throw new NotImplementedException();
+    public static IMultiplexedTransport Multiplexed<TState>(this IByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug, CancellationToken token = default)
+        => new MultiplexedTransport<TState>(gateway, frameScanner, validateOutbound, token);
 
     /// <summary>
-    /// Create a RESP transport over a duplex stream.
+    /// Apply an outbound buffer over an existing transport.
+    /// </summary>
+    public static IByteTransport WithOutboundBuffer(this IByteTransport transport)
+        => transport is OutboundPipeBufferTransport buffered ? buffered : new OutboundPipeBufferTransport(transport);
+
+    /// <summary>
+    /// Apply an outbound buffer over an existing transport.
+    /// </summary>
+    public static IAsyncByteTransport WithOutboundBuffer(this IAsyncByteTransport transport)
+        => transport is OutboundPipeBufferTransport buffered ? buffered : new OutboundPipeBufferTransport(transport);
+
+    /// <summary>
+    /// Create a transport over a duplex stream.
     /// </summary>
     public static IByteTransport CreateTransport(this Stream duplex, bool closeStream = true)
         => new StreamTransport(duplex, closeStream);
 
     /// <summary>
-    /// Create a RESP transport over a pair of streams.
+    /// Create a transport over a pair of streams.
     /// </summary>
     public static IByteTransport CreateTransport(this Stream source, Stream target, bool closeStreams = true)
         => new StreamTransport(source, target, closeStreams);
 
     /// <summary>
-    /// Create a RESP transport over a socket.
+    /// Create a transport over a socket.
     /// </summary>
     public static IByteTransport CreateTransport(this Socket socket, bool closeStreams = true)
         => new StreamTransport(new NetworkStream(socket), closeStreams);
 
     /// <summary>
-    /// Create a RESP transport over a socket.
+    /// Create a transport over a socket.
+    /// </summary>
+    public static IByteTransport CreateTransport(this EndPoint endpoint)
+    {
+        Socket socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+        {
+            NoDelay = true,
+        };
+        socket.Connect(endpoint);
+        var conn = new NetworkStream(socket, ownsSocket: true);
+        return conn.CreateTransport(closeStream: true);
+    }
+
+    /// <summary>
+    /// Create a  transport over a socket.
     /// </summary>
     public static IByteTransport CreateTransport(this EndPoint remoteEndpoint, bool closeStreams = true)
     {

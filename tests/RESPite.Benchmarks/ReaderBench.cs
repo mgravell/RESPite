@@ -37,15 +37,15 @@ public class ReaderBench
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public void ReadUnoptimized()
     {
-        RespReader reader = new(buffer);
+        RespReader reader = new(buffer)
+        {
+            VectorizeDisabled = true,
+        };
         for (int i = 0; i < OperationsPerInvoke; i++)
         {
             reader.DebugReset();
-            int remaining = 1;
-            while (remaining != 0 && reader.TryReadNextUnpotimized())
-            {
-                remaining = remaining + reader.ChildCount - 1;
-            }
+            ScanState state = ScanState.Create(false);
+            if (!state.TryRead(ref reader, out _)) RespReader.ThrowEOF();
         }
         if (reader.BytesConsumed != buffer.Length) ThrowTooMuch();
     }
@@ -53,19 +53,19 @@ public class ReaderBench
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public void ReadOptimized()
     {
-        RespReader reader = new(buffer);
+        RespReader reader = new(buffer)
+        {
+            VectorizeDisabled = false,
+        };
         for (int i = 0; i < OperationsPerInvoke; i++)
         {
             reader.DebugReset();
-            int remaining = 1;
-            while (remaining != 0 && reader.TryReadNext())
-            {
-                remaining = remaining + reader.ChildCount - 1;
-            }
+            ScanState state = ScanState.Create(false);
+            if (!state.TryRead(ref reader, out _)) RespReader.ThrowEOF();
         }
         if (reader.BytesConsumed != buffer.Length) ThrowTooMuch();
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowTooMuch() => throw new InvalidOperationException("Unhandled trailing data");
 }

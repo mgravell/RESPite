@@ -1,4 +1,6 @@
-﻿using System.Reflection;
+﻿using System.Net;
+using System.Net.Sockets;
+using System.Reflection;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
@@ -9,36 +11,61 @@ using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Validators;
 using Benchmarks;
 using RESPite.Benchmarks;
+using RESPite.Resp;
+using RESPite.Resp.Client;
+using RESPite.Transports;
 
 #if DEBUG
+
+/*
+using Socket socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+{
+    NoDelay = true,
+};
+socket.Connect(new IPEndPoint(IPAddress.Loopback, 6379));
+var conn = new NetworkStream(socket);
+using var respite = conn.CreateTransport().Multiplexed(RespFrameScanner.Default);
+Keys.DEL.Send(respite, "abc");
+Strings.SETEX.Send(respite, ("abc", 60, "def"));
+using var s = Strings.GET.Send(respite, "abc");
+Console.WriteLine((string?)s.Value);
+*/
+/*
 WriterBench writer = new();
 var attrib = writer.GetType().GetProperty(nameof(writer.Value))?.GetCustomAttribute<ParamsAttribute>()!;
 foreach (object? boxed in attrib.Values)
 {
-    if (boxed is not int value) throw new InvalidOperationException($"Bad parameter value: {boxed}");
-    Console.WriteLine($"{writer} checking {value}...");
-    writer.Value = value;
-    writer.Setup(); // runs validation tests
+if (boxed is not int value) throw new InvalidOperationException($"Bad parameter value: {boxed}");
+Console.WriteLine($"{writer} checking {value}...");
+writer.Value = value;
+writer.Setup(); // runs validation tests
 }
 
 ReaderBench reader = new();
 attrib = reader.GetType().GetProperty(nameof(reader.Scenario))?.GetCustomAttribute<ParamsAttribute>()!;
 foreach (object? boxed in attrib.Values)
 {
-    if (boxed is not string value) throw new InvalidOperationException($"Bad parameter value: {boxed}");
-    Console.WriteLine($"{reader} checking {value}...");
-    reader.Scenario = value;
-    reader.ReadOptimized();
-    reader.ReadUnoptimized();
+if (boxed is not string value) throw new InvalidOperationException($"Bad parameter value: {boxed}");
+Console.WriteLine($"{reader} checking {value}...");
+reader.Scenario = value;
+reader.ReadOptimized();
+reader.ReadUnoptimized();
 }
 
-using GetBench get = new();
+using GetBenchMultiplexed get = new();
 get.Length = 64;
 get.Setup();
 get.SER_GetSync();
 await get.SER_GetAsync();
 get.RESP_GetSync();
 await get.RESP_GetAsync();
+*/
+
+using var incr = new IncrBenchMultiplexed { Threads = 1 };
+incr.SER_IncrSync();
+await incr.SER_IncrAsync();
+incr.RESP_IncrSync();
+await incr.RESP_IncrAsync();
 
 #else
 BenchmarkSwitcher.FromAssembly(Assembly.GetExecutingAssembly()).Run(args: args);

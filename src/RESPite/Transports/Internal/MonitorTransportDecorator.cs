@@ -5,7 +5,9 @@ namespace RESPite.Transports.Internal;
 
 internal sealed class MonitorTransportDecorator(ISyncRequestResponseTransport transport, TimeSpan timeout) : ISyncSynchronizedRequestResponseTransport
 {
-    public MonitorTransportDecorator(ISyncRequestResponseTransport transport) : this(transport, Timeout.InfiniteTimeSpan) { }
+    public MonitorTransportDecorator(ISyncRequestResponseTransport transport) : this(transport, Timeout.InfiniteTimeSpan)
+    {
+    }
 
     private readonly object syncLock = new();
     public event MessageCallback OutOfBandData

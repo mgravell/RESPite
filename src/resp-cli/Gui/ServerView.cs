@@ -18,12 +18,12 @@ namespace StackExchange.Redis.Gui;
 
 internal class ServerView : View
 {
-    private sealed class InterceptingScanner : IFrameScanner<RespFrameScanner.RespFrameState>, IFrameValidator
+    private sealed class InterceptingScanner : IFrameScanner<ScanState>, IFrameValidator
     {
-        private readonly IFrameScanner<RespFrameScanner.RespFrameState> tailScanner;
+        private readonly IFrameScanner<ScanState> tailScanner;
         private readonly IFrameValidator? tailValidator;
 
-        public InterceptingScanner(IFrameScanner<RespFrameScanner.RespFrameState>? tail = null)
+        public InterceptingScanner(IFrameScanner<ScanState>? tail = null)
         {
             if (tail is not null)
             {
@@ -38,11 +38,11 @@ internal class ServerView : View
             }
         }
 
-        public void OnBeforeFrame(ref RespFrameScanner.RespFrameState state, ref FrameScanInfo info)
+        public void OnBeforeFrame(ref ScanState state, ref FrameScanInfo info)
             => tailScanner.OnBeforeFrame(ref state, ref info);
-        public OperationStatus TryRead(ref RespFrameScanner.RespFrameState state, in ReadOnlySequence<byte> data, ref FrameScanInfo info)
+        public OperationStatus TryRead(ref ScanState state, in ReadOnlySequence<byte> data, ref FrameScanInfo info)
             => tailScanner.TryRead(ref state, data, ref info);
-        public void Trim(ref RespFrameScanner.RespFrameState state, ref ReadOnlySequence<byte> data, ref FrameScanInfo info)
+        public void Trim(ref ScanState state, ref ReadOnlySequence<byte> data, ref FrameScanInfo info)
         {
             tailScanner.Trim(ref state, ref data, ref info);
 
@@ -337,7 +337,7 @@ internal class ServerView : View
                         {
                             status = typedNode.Prefix switch
                             {
-                                RespPrefix.BigNumber => "big number",
+                                RespPrefix.BigInteger => "big integer",
                                 RespPrefix.BulkError => "bulk error",
                                 RespPrefix.BulkString => "bulk string",
                                 RespPrefix.SimpleError => "simple error",
@@ -436,11 +436,20 @@ internal class ServerView : View
         node = new RespTreeNode(sb.ToString(), reader.Prefix);
         if (reader.IsAggregate)
         {
-            var count = reader.ChildCount;
-            for (int i = 0; i < count && TryCreateNode(ref reader, out var child); i++)
+            var iter = reader.AggregateChildren();
+            while (iter.MoveNext())
             {
-                node.Children.Add(child);
+                var subtree = iter.Current;
+                if (TryCreateNode(ref subtree, out var child))
+                {
+                    node.Children.Add(child);
+                }
+                else
+                {
+                    return false;
+                }
             }
+            iter.MovePast(out reader);
         }
         return true;
     }
@@ -463,7 +472,8 @@ internal static class NopCommandExtensions
 
         public Empty Read(in Empty request, in ReadOnlySequence<byte> content)
         {
-            new RespReader(content, throwOnErrorResponse: true); // just for ERR validation
+            var reader = new RespReader(content);
+            reader.MoveNext(); // asserts not empty / error
             return request;
         }
     }

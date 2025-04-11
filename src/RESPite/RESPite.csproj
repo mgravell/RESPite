@@ -13,6 +13,10 @@
     <InternalsVisibleTo Include="RESPite.Benchmarks" />
 
     <None Include="../../readme.md" Pack="true" Link="readme.md" PackagePath="/" />
+
+    <Compile Update="/**/RespReader.*.cs">
+      <DependentUpon>RespReader.cs</DependentUpon>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup Condition="'$(Configuration)'=='Isolation'">
@@ -28,4 +32,7 @@
     <PackageReference Include="System.Threading.Channels" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.IO.Pipelines" />
+  </ItemGroup>
 </Project>

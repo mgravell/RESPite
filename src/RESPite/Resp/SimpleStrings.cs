@@ -109,7 +109,7 @@ public readonly struct SimpleStrings : IEnumerable<SimpleString>, IEnumerable
                 _current = default;
                 return false;
             }
-            var nextLen = _buffer.ReadLitteEndianInt64(_byteIndex);
+            var nextLen = _buffer.ReadLittleEndianInt64(_byteIndex);
             if (nextLen > 0)
             {
                 _current = _buffer.SliceBytes(_byteIndex + sizeof(int), nextLen);
@@ -128,6 +128,8 @@ public readonly struct SimpleStrings : IEnumerable<SimpleString>, IEnumerable
         /// <inheritdoc cref="IEnumerator.Reset" />
         public void Reset() => _elementIndex = 0;
 
-        readonly void IDisposable.Dispose() { }
+        readonly void IDisposable.Dispose()
+        {
+        }
     }
 }

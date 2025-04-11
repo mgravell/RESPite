@@ -40,7 +40,8 @@ public readonly struct LeasedString : IDisposable
     public static implicit operator SimpleString(in LeasedString value) => value.Value;
 
     /// <summary>
-    /// Create a new leased buffer of the requested length.
+    /// Create a new leased buffer of the requested <paramref name="length"/>, allowing
+    /// the caller to write to the corresponding <paramref name="memory"/>.
     /// </summary>
     public LeasedString(int length, out Memory<byte> memory)
     {
@@ -50,6 +51,22 @@ public readonly struct LeasedString : IDisposable
 
     internal LeasedString(byte[] buffer, int length)
         => _lease = new Lease<byte>(buffer, length);
+
+    /// <summary>
+    /// Create a new leased buffer from the supplied <paramref name="value"/>.
+    /// </summary>
+    public LeasedString(ReadOnlySpan<byte> value)
+    {
+        if (value.IsEmpty)
+        {
+            this = Empty;
+        }
+        else
+        {
+            _lease = new Lease<byte>(value.Length);
+            value.CopyTo(_lease.Memory.Span);
+        }
+    }
 
     /// <inheritdoc cref="IDisposable.Dispose"/>
     public void Dispose() => _lease.Dispose();

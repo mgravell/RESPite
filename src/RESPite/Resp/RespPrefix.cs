@@ -51,9 +51,9 @@ public enum RespPrefix : byte
     Double = (byte)',',
 
     /// <summary>
-    /// Large floating-point number: (123.45\r\n.
+    /// Large integer number: (12...89\r\n.
     /// </summary>
-    BigNumber = (byte)'(',
+    BigInteger = (byte)'(',
 
     /// <summary>
     /// Error with support for binary data: !7\r\nmessage\r\n.
@@ -80,9 +80,18 @@ public enum RespPrefix : byte
     /// </summary>
     Push = (byte)'>',
 
-    // these are not actually implemented by any server; no
-    // longer part of RESP3?
-    // Stream = (byte)';',
-    // UnboundEnd = (byte)'.',
-    // Attribute = (byte)'|',
+    /// <summary>
+    /// Continuation of streaming scalar values.
+    /// </summary>
+    StreamContinuation = (byte)';',
+
+    /// <summary>
+    /// End sentinel for streaming aggregate values.
+    /// </summary>
+    StreamTerminator = (byte)'.',
+
+    /// <summary>
+    /// Metadata about the next element.
+    /// </summary>
+    Attribute = (byte)'|',
 }

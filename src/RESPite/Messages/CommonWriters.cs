@@ -16,6 +16,8 @@ public static class CommonWriters
 
     private sealed class Core : IWriter<Empty>
     {
-        void IWriter<Empty>.Write(in Empty request, IBufferWriter<byte> target) { }
+        void IWriter<Empty>.Write(in Empty request, IBufferWriter<byte> target)
+        {
+        }
     }
 }

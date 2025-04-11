@@ -12,8 +12,11 @@ public sealed partial class CommandFactory : RespCommandFactory
     /// <summary>
     /// Provides a factory with support for all required types.
     /// </summary>
-    public static CommandFactory Default = new();
-    private CommandFactory() { }
+    public static CommandFactory Default { get; } = new();
+
+    private CommandFactory()
+    {
+    }
 }
 
 public partial class CommandFactory : IRespWriterFactory<Scan.Request>, IRespReaderFactory<Empty, Scan.Response>, IRespReaderFactory<Empty, Keys.KnownType>
@@ -70,16 +73,15 @@ public partial class CommandFactory : IRespWriterFactory<Scan.Request>, IRespRea
 
         public override Scan.Response Read(ref RespReader reader)
         {
-            reader.Demand(RespPrefix.Array);
-            if (reader.ChildCount < 2 || !reader.TryReadNext()) Throw();
+            reader.DemandAggregate();
 
+            reader.MoveNextScalar();
             var cursor = reader.ReadInt64();
-            if (!reader.TryReadNext(RespPrefix.Array)) Throw();
 
+            reader.MoveNext(RespPrefix.Array);
             var keys = reader.ReadLeasedStrings();
-            return new(cursor, keys);
 
-            static void Throw() => throw new InvalidOperationException("Unable to parse SCAN result");
+            return new(cursor, keys);
         }
     }
 }

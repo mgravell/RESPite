@@ -13,13 +13,14 @@ namespace StackExchange.Redis;
 
 public static class Utils
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "TFMs")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1845:Use span-based 'string.Concat'", Justification = "TFMs")]
     internal static string Truncate(string? value, int length)
     {
         value ??= "";
         if (value.Length > length)
         {
-            if (length <= 1) return "\u2026";
-            return value.Substring(0, length - 1) + "\u2026";
+            return length <= 1 ? "\u2026" : value.Substring(0, length - 1) + "\u2026";
         }
         return value;
     }
@@ -29,7 +30,7 @@ public static class Utils
         int port,
         bool tls,
         Action<string>? log,
-        IFrameScanner<RespFrameScanner.RespFrameState>? frameScanner = null,
+        IFrameScanner<ScanState>? frameScanner = null,
         FrameValidation validateOutbound = FrameValidation.Debug)
     {
         Socket? socket = null;
@@ -70,6 +71,7 @@ public static class Utils
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "Clarity")]
     internal static string GetHandshake(string? user, string? pass, bool resp3)
     {
         if (resp3)
@@ -108,7 +110,7 @@ public static class Utils
     {
         try
         {
-            var reader = new RespReader(content, throwOnErrorResponse: false);
+            var reader = new RespReader(content);
             var sb = new StringBuilder();
             if (TryGetSimpleText(sb, ref reader, childMode, sizeHint: sizeHint) && !reader.TryReadNext())
             {
@@ -138,12 +140,10 @@ public static class Utils
 
     public static string GetCommandText(ref RespReader reader, int sizeHint = int.MaxValue)
     {
-        reader.ReadNextAggregate();
-        reader.Demand(RespPrefix.Array);
+        reader.MoveNext(RespPrefix.Array);
 
-        var len = reader.ChildCount;
-        reader.ReadNextScalar();
-        reader.Demand(RespPrefix.BulkString);
+        var len = reader.AggregateLength();
+        reader.MoveNext(RespPrefix.BulkString);
         reader.DemandNotNull();
         string cmd = reader.ReadString()!;
         if (len != 1)
@@ -151,8 +151,7 @@ public static class Utils
             var sb = new StringBuilder(cmd);
             for (int i = 1; i < len; i++)
             {
-                reader.ReadNextScalar();
-                reader.Demand(RespPrefix.BulkString);
+                reader.MoveNext(RespPrefix.BulkString);
                 reader.DemandNotNull();
                 string orig = reader.ReadString()!;
                 var s = Escape(reader.ReadString());
@@ -161,7 +160,7 @@ public static class Utils
             }
             cmd = sb.ToString();
         }
-        reader.ReadEnd();
+        reader.DemandEnd();
         return cmd;
     }
 
@@ -197,7 +196,7 @@ public static class Utils
                     sb.Append(Escape(reader.ReadString()));
                     break;
                 case RespPrefix.BulkString:
-                    sb.Append("\"").Append(Escape(reader.ReadString())).Append('"');
+                    sb.Append('"').Append(Escape(reader.ReadString())).Append('"');
                     break;
                 case RespPrefix.VerbatimString:
                     sb.Append("\"\"\"").Append(Escape(reader.ReadString())).Append("\"\"\"");
@@ -210,7 +209,7 @@ public static class Utils
         }
         if (reader.IsAggregate)
         {
-            var count = reader.ChildCount;
+            var count = reader.AggregateLength();
 
             sb.Append(prefix).Append(count);
             switch (aggregateMode)
@@ -241,23 +240,14 @@ public static class Utils
                     if (reader.IsAggregate) reader.SkipChildren();
                 }
             }
-            if (sb.Length < sizeHint) sb.Append("]");
+            if (sb.Length < sizeHint) sb.Append(']');
             return true;
         }
         return false;
     }
 
-    public static EndPoint BuildEndPoint(string host, int port)
-    {
-        if (IPAddress.TryParse(host, out var ipAddress))
-        {
-            return new IPEndPoint(ipAddress, port);
-        }
-        else
-        {
-            return new DnsEndPoint(host, port);
-        }
-    }
+    public static EndPoint BuildEndPoint(string host, int port) =>
+        IPAddress.TryParse(host, out var ipAddress) ? new IPEndPoint(ipAddress, port) : new DnsEndPoint(host, port);
 
     public static string Parse(string value, out object[] args)
     {
@@ -271,7 +261,7 @@ public static class Utils
             {
                 (list ??= []).Add(iter.Current);
             }
-            if (list is not null) args = list.ToArray();
+            if (list is not null) args = [.. list];
             return cmd;
         }
         return "";

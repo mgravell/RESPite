@@ -1,136 +1,316 @@
-﻿Console.WriteLine("todo");
+﻿#pragma warning disable CS8321 // Local function is declared but never used
 
-/*
-using Bedrock.Framework;
-using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Running;
-using Microsoft.AspNetCore.Connections;
-using Microsoft.Extensions.DependencyInjection;
-using Pipelines.Sockets.Unofficial;
-using Respite;
-using Respite.Bedrock;
-using StackExchange.Redis;
-using System;
+using System.Diagnostics;
 using System.Net;
-using System.Net.Sockets;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
+using System.Text;
+using RESPite.Resp;
+using RESPite.Resp.Client;
+using RESPite.Transports;
+using StackExchange.Redis;
 
-namespace RunProfiler
+const int DefaultTargetOps = 100_000;
+
+var ep = new IPEndPoint(IPAddress.Loopback, 6379);
+// using var respite = ep.CreateTransport().RequestResponse(RespFrameScanner.Default);
+using var respite = ep.CreateTransport().WithOutboundBuffer().Multiplexed(RespFrameScanner.Default);
+using var muxer = ConnectionMultiplexer.Connect(new ConfigurationOptions { EndPoints = { ep } });
+var seredis = muxer.GetDatabase();
+
+var stringKey = Encoding.ASCII.GetBytes(Guid.NewGuid().ToString());
+var listKey = Encoding.ASCII.GetBytes(Guid.NewGuid().ToString());
+var payload512 = new byte[512];
+var rand = new Random();
+rand.NextBytes(payload512);
+
+int expirySeconds = 10 * 60;
+TimeSpan expiryTime = TimeSpan.FromSeconds(expirySeconds);
+
+seredis.StringSet(stringKey, payload512, expiryTime); // in case get-only
+var payload50 = new byte[50];
+for (int i = 0; i < 15; i++)
 {
-    public static class Program
+    rand.NextBytes(payload50);
+    seredis.ListLeftPush(listKey, payload50);
+}
+seredis.KeyExpire(listKey, expiryTime);
+
+Mode[] modes = [Mode.Ping, Mode.Set, Mode.Get, Mode.List];
+int[] workerCounts = [1, 5, 10, 20, 40];
+
+foreach (var mode in modes)
+{
+    Console.WriteLine($"# MODE: {mode}");
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
     {
-        public static void Main() => BenchmarkRunner.Run<RedisPingPong>();
+        RunRESPite(workerCount, mode);
+    }
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
+    {
+        await RunRESPiteAsync(workerCount, mode);
+    }
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
+    {
+        RunSERedis(workerCount, mode);
+    }
+    Console.WriteLine();
+    foreach (int workerCount in workerCounts)
+    {
+        await RunSERedisAsync(workerCount, mode);
+    }
+    Console.WriteLine();
+}
+
+async Task RunRESPiteAsync(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
+{
+    int remaining = workerCount;
+    int totalOps = 0;
+    Task[] workers = new Task[remaining];
+
+    Stopwatch timer = Stopwatch.StartNew();
+    for (int i = 0; i < workers.Length; i++)
+    {
+        int snapshot = i;
+        workers[i] = Task.Run(() => RunAsync(snapshot));
+    }
+
+    for (int i = 0; i < workers.Length; i++)
+    {
+        await workers[i];
+    }
+    timer.Stop();
+    Console.WriteLine($"RESPite async; {totalOps} over {workers.Length} workers in {timer.ElapsedMilliseconds}ms; {totalOps / timer.Elapsed.TotalSeconds}ops/s");
+
+    async Task RunAsync(int label)
+    {
+        int OPS_THIS_RUN = targetOps / workerCount;
+
+        switch (mode)
+        {
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await Server.PING.SendAsync(respite).ConfigureAwait(false);
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    (await Strings.GET.SendAsync(respite, stringKey).ConfigureAwait(false)).Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await Strings.SET.SendAsync(respite, (stringKey, payload512)).ConfigureAwait(false);
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    (await Lists.LRANGE.SendAsync(respite, (listKey, 0, 10))).Dispose();
+                }
+                break;
+        }
+        Interlocked.Add(ref totalOps, OPS_THIS_RUN);
     }
 }
 
-[MemoryDiagnoser]
-[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
-public class RedisPingPong : IAsyncDisposable
+void RunRESPite(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
 {
-    private ConnectionMultiplexer _muxer;
-    private IServer _server;
-    private RespConnection _bedrock, _socket, _stream;
+    object gate = new object();
+    int remaining = workerCount;
+    int totalOps = 0;
+    Thread[] workers = new Thread[remaining];
 
-    private ConnectionContext _connection;
-
-    [BenchmarkCategory("Async")]
-    [Benchmark(Baseline = true, Description = nameof(SERedis))]
-    public Task SERedisAsync() => _server.PingAsync();
-
-    [BenchmarkCategory("Async")]
-    [Benchmark(Description = nameof(Bedrock))]
-    public Task BedrockAsync() => PingAsync(_bedrock);
-
-    [BenchmarkCategory("Async")]
-    [Benchmark(Description = nameof(Socket))]
-    public Task SocketAsync() => PingAsync(_socket);
-
-    [BenchmarkCategory("Async")]
-    [Benchmark(Description = nameof(Stream))]
-    public Task StreamAsync() => PingAsync(_stream);
-
-    static readonly RespValue
-        s_ping = RespValue.CreateAggregate(RespType.Array, "PING"),
-        s_pong = RespValue.Create(RespType.SimpleString, "PONG");
-
-    static Task PingAsync(RespConnection connection)
-        => connection.CallAsync(s_ping, resp =>
-        {
-            resp.ThrowIfError();
-            if (!resp.Equals(s_pong)) Throw();
-        }).AsTask();
-    static void Ping(RespConnection connection)
-        => connection.Call(s_ping, resp =>
-        {
-            resp.ThrowIfError();
-            if (!resp.Equals(s_pong)) Throw();
-        });
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    static void Throw() => throw new InvalidOperationException();
-
-    [BenchmarkCategory("Sync")]
-    [Benchmark(Baseline = true)]
-    public void SERedis() => _server.Ping();
-
-    [BenchmarkCategory("Sync")]
-    [Benchmark]
-    public void Bedrock() => Ping(_bedrock);
-
-    [BenchmarkCategory("Sync")]
-    [Benchmark]
-    public void Socket() => Ping(_socket);
-
-    [BenchmarkCategory("Sync")]
-    [Benchmark]
-    public void Stream() => Ping(_stream);
-
-
-    public async ValueTask DisposeAsync()
+    Stopwatch timer = new Stopwatch();
+    for (int i = 0; i < workers.Length; i++)
     {
-        _muxer?.Dispose();
-        if (_stream != null) await _stream.DisposeAsync().ConfigureAwait(false);
-        if (_socket != null) await _socket.DisposeAsync().ConfigureAwait(false);
-        if (_connection != null) await _connection.DisposeAsync().ConfigureAwait(false);
+        int snapshot = i;
+        (workers[i] = new Thread(() => Run(snapshot))).Start();
     }
 
-    [GlobalSetup]
-    public async Task ConnectAsync()
+    for (int i = 0; i < workers.Length; i++)
     {
-        var endpoint = new IPEndPoint(IPAddress.Loopback, 6379);
-        _muxer = await ConnectionMultiplexer.ConnectAsync(new ConfigurationOptions
+        workers[i].Join();
+    }
+    timer.Stop();
+    Console.WriteLine($"RESPite sync; {totalOps} over {workers.Length} workers in {timer.ElapsedMilliseconds}ms; {totalOps / timer.Elapsed.TotalSeconds}ops/s");
+
+    void Run(int label)
+    {
+        lock (gate)
         {
-            EndPoints = { endpoint }
-        });
-        _server = _muxer.GetServer(endpoint);
-        SERedis();
-        await SERedisAsync();
+            if (--remaining == 0)
+            {
+                timer.Restart();
+                Monitor.PulseAll(gate);
+            }
+            else
+            {
+                Monitor.Wait(gate);
+            }
+        }
+        int OPS_THIS_RUN = targetOps / workerCount;
 
-        var serviceProvider = new ServiceCollection().BuildServiceProvider();
-        var client = new ClientBuilder(serviceProvider)
-            .UseSockets()
-            .Build();
-
-        _connection = await client.ConnectAsync(endpoint);
-        _bedrock = new RespBedrockProtocol(_connection);
-        Bedrock();
-        await BedrockAsync();
-
-        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        SocketConnection.SetRecommendedClientOptions(socket);
-        socket.Connect(endpoint);
-        _socket = RespConnection.Create(socket);
-        Socket();
-        await SocketAsync();
-
-        socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        SocketConnection.SetRecommendedClientOptions(socket);
-        socket.Connect(endpoint);
-        _stream = RespConnection.Create(new NetworkStream(socket));
-        Stream();
-        await StreamAsync();
+        switch (mode)
+        {
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Server.PING.Send(respite);
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Strings.GET.Send(respite, stringKey).Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Strings.SET.Send(respite, (stringKey, payload512));
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    Lists.LRANGE.Send(respite, (listKey, 0, 10)).Dispose();
+                }
+                break;
+        }
+        Interlocked.Add(ref totalOps, OPS_THIS_RUN);
     }
 }
-*/
+
+async Task RunSERedisAsync(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
+{
+    int remaining = workerCount;
+    int totalOps = 0;
+    Task[] workers = new Task[remaining];
+
+    Stopwatch timer = Stopwatch.StartNew();
+    for (int i = 0; i < workers.Length; i++)
+    {
+        int snapshot = i;
+        workers[i] = Task.Run(() => RunAsync(snapshot));
+    }
+
+    for (int i = 0; i < workers.Length; i++)
+    {
+        await workers[i];
+    }
+    timer.Stop();
+    Console.WriteLine($"SE.Redis async; {totalOps} over {workers.Length} workers in {timer.ElapsedMilliseconds}ms; {totalOps / timer.Elapsed.TotalSeconds}ops/s");
+
+    async Task RunAsync(int label)
+    {
+        int OPS_THIS_RUN = targetOps / workerCount;
+        switch (mode)
+        {
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await seredis.PingAsync().ConfigureAwait(false);
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    (await seredis.StringGetLeaseAsync(stringKey).ConfigureAwait(false))?.Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await seredis.StringSetAsync(stringKey, payload512, expiryTime).ConfigureAwait(false);
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    await seredis.ListRangeAsync(listKey, 0, 10).ConfigureAwait(false);
+                }
+                break;
+        }
+        Interlocked.Add(ref totalOps, OPS_THIS_RUN);
+    }
+}
+
+void RunSERedis(int workerCount, Mode mode, int targetOps = DefaultTargetOps)
+{
+    object gate = new object();
+    int remaining = workerCount;
+    int totalOps = 0;
+    Thread[] workers = new Thread[remaining];
+
+    Stopwatch timer = new Stopwatch();
+    for (int i = 0; i < workers.Length; i++)
+    {
+        int snapshot = i;
+        (workers[i] = new Thread(() => Run(snapshot))).Start();
+    }
+
+    for (int i = 0; i < workers.Length; i++)
+    {
+        workers[i].Join();
+    }
+    timer.Stop();
+    Console.WriteLine($"SE.Redis sync; {totalOps} over {workers.Length} workers in {timer.ElapsedMilliseconds}ms; {totalOps / timer.Elapsed.TotalSeconds}ops/s");
+
+    void Run(int label)
+    {
+        lock (gate)
+        {
+            if (--remaining == 0)
+            {
+                timer.Restart();
+                Monitor.PulseAll(gate);
+            }
+            else
+            {
+                Monitor.Wait(gate);
+            }
+        }
+        int OPS_THIS_RUN = targetOps / workerCount;
+        switch (mode)
+        {
+            case Mode.Ping:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.Ping();
+                }
+                break;
+            case Mode.Get:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.StringGetLease(stringKey)?.Dispose();
+                }
+                break;
+            case Mode.Set:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.StringSet(stringKey, payload512, expiryTime);
+                }
+                break;
+            case Mode.List:
+                for (int i = 0; i < OPS_THIS_RUN; i++)
+                {
+                    seredis.ListRange(listKey, 0, 10);
+                }
+                break;
+        }
+        Interlocked.Add(ref totalOps, OPS_THIS_RUN);
+    }
+}
+
+internal enum Mode
+{
+    Ping,
+    Get,
+    Set,
+    List,
+}

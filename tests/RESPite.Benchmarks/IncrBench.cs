@@ -5,7 +5,18 @@ using RESPite.Resp.Commands;
 
 namespace RESPite.Benchmarks;
 
-public class IncrBench : IntegrationBase
+public class IncrBenchMultiplexed() : IncrBench(true)
+{
+    [Params(1, 2, 10)]
+    public int Threads
+    {
+        get => MaxDop;
+        set => MaxDop = value;
+    }
+}
+public class IncrBenchReqResp() : IncrBench(false) { }
+
+public abstract class IncrBench(bool multiplexed) : IntegrationBase(multiplexed)
 {
     private const int OperationsPerInvoke = 128;
     private const int IncrOperationsPerInvoke = 126; // excludes DEL and GET
@@ -15,10 +26,7 @@ public class IncrBench : IntegrationBase
     public void SER_IncrSync()
     {
         SERedis.KeyDelete(SERedisKey);
-        for (int i = 0; i < IncrOperationsPerInvoke; i++)
-        {
-            SERedis.StringIncrement(SERedisKey);
-        }
+        Run(IncrOperationsPerInvoke, i => SERedis.StringIncrement(SERedisKey));
         int result = (int)SERedis.StringGet(SERedisKey);
         if (result != IncrOperationsPerInvoke) ThrowIncorrect(result);
     }
@@ -28,10 +36,7 @@ public class IncrBench : IntegrationBase
     public async Task SER_IncrAsync()
     {
         await SERedis.KeyDeleteAsync(SERedisKey);
-        for (int i = 0; i < IncrOperationsPerInvoke; i++)
-        {
-            await SERedis.StringIncrementAsync(SERedisKey);
-        }
+        await RunAsync(IncrOperationsPerInvoke, (i, ct) => new(SERedis.StringIncrementAsync(SERedisKey)));
         int result = (int)await SERedis.StringGetAsync(SERedisKey);
         if (result != IncrOperationsPerInvoke) ThrowIncorrect(result);
     }
@@ -41,10 +46,7 @@ public class IncrBench : IntegrationBase
     public void RESP_IncrSync()
     {
         Keys.DEL.Send(Respite, RespiteKey);
-        for (int i = 0; i < IncrOperationsPerInvoke; i++)
-        {
-            Strings.INCR.Send(Respite, RespiteKey);
-        }
+        Run(IncrOperationsPerInvoke, i => Strings.INCR.Send(Respite, RespiteKey));
         var result = GetInt32.Send(Respite, RespiteKey);
         if (result != IncrOperationsPerInvoke) ThrowIncorrect(result);
     }
@@ -54,10 +56,7 @@ public class IncrBench : IntegrationBase
     public async Task RESP_IncrAsync()
     {
         await Keys.DEL.SendAsync(Respite, RespiteKey);
-        for (int i = 0; i < IncrOperationsPerInvoke; i++)
-        {
-            await Strings.INCR.SendAsync(Respite, RespiteKey);
-        }
+        await RunAsync(IncrOperationsPerInvoke, async (i, ct) => await Strings.INCR.SendAsync(Respite, RespiteKey));
         var result = await GetInt32.SendAsync(Respite, RespiteKey);
         if (result != IncrOperationsPerInvoke) ThrowIncorrect(result);
     }

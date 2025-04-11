@@ -1,14 +1,11 @@
 ﻿using System.Buffers;
 using System.Buffers.Text;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 
-using static RESPite.Constants;
 using static RESPite.Resp.RespConstants;
 
 namespace RESPite.Resp.Writers;
@@ -19,9 +16,10 @@ namespace RESPite.Resp.Writers;
 public ref struct RespWriter
 {
     private readonly IBufferWriter<byte>? _target;
+    [SuppressMessage("Style", "IDE0032:Use auto property", Justification = "Clarity")]
     private int _index;
 
-    internal int IndexInCurrentBuffer => _index;
+    internal readonly int IndexInCurrentBuffer => _index;
 
 #if NET7_0_OR_GREATER
     private ref byte StartOfBuffer;
@@ -58,7 +56,7 @@ public ref struct RespWriter
     private readonly ReadOnlySpan<byte> WrittenLocalBuffer => _buffer.Slice(0, _index);
 #endif
 
-    internal readonly string DebugBuffer() => UTF8.GetString(WrittenLocalBuffer);
+    internal readonly string DebugBuffer() => RespConstants.UTF8.GetString(WrittenLocalBuffer);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void WriteCrLfUnsafe()
@@ -81,7 +79,7 @@ public ref struct RespWriter
         }
     }
 
-    private int Available
+    private readonly int Available
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get => BufferLength - _index;
@@ -418,11 +416,11 @@ public ref struct RespWriter
         }
         else
         {
-            var byteCount = UTF8.GetByteCount(value);
+            var byteCount = RespConstants.UTF8.GetByteCount(value);
             WritePrefixedInteger(RespPrefix.BulkString, byteCount);
             if (Available >= byteCount)
             {
-                var actual = UTF8.GetBytes(value.AsSpan(), Tail);
+                var actual = RespConstants.UTF8.GetBytes(value.AsSpan(), Tail);
                 Debug.Assert(actual == byteCount);
                 _index += actual;
             }
@@ -513,7 +511,7 @@ public ref struct RespWriter
             // any trailing data?
             FlushAndGetBuffer(Math.Min(remaining, MAX_BUFFER_HINT));
             enc.Convert(value, Tail, true, out charsUsed, out bytesUsed, out completed);
-            Debug.Assert(charsUsed == 0);
+            Debug.Assert(charsUsed == 0 && completed);
             _index += bytesUsed;
             remaining -= bytesUsed;
         }

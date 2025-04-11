@@ -123,22 +123,26 @@ internal static class RespClient
             {
                 WriteNull();
             }
-            else if (reader.ChildCount == 0)
-            {
-                WriteLine("(empty)", ConsoleColor.Green, ConsoleColor.DarkGray);
-            }
             else
             {
-                var count = reader.ChildCount;
-                WriteLine($"{count}", ConsoleColor.Green, ConsoleColor.DarkGray);
-                indent++;
-                for (int i = 0; i < count; i++)
+                var count = reader.AggregateLength();
+                if (count == 0)
                 {
-                    if (reader.TryReadNext())
-                    {
-                        WriteValue(ref reader, indent, i);
-                    }
+                    WriteLine("(empty)", ConsoleColor.Green, ConsoleColor.DarkGray);
                 }
+                else
+                {
+                    WriteLine($"{count}", ConsoleColor.Green, ConsoleColor.DarkGray);
+                }
+                // using iterator approach so that streaming is handled automatically
+                var iter = reader.AggregateChildren();
+                int i = 0;
+                while (iter.MoveNext())
+                {
+                    var child = iter.Current;
+                    WriteValue(ref child, indent, i);
+                }
+                iter.MovePast(out reader);
             }
         }
 
