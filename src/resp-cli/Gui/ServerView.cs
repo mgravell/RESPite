@@ -116,10 +116,10 @@ internal class ServerView : View
         }
     }
 
-    public ServerView(string host, int port, bool tls, bool handshake, CancellationToken endOfLife)
+    public ServerView(ConnectionOptionsBag options, CancellationToken endOfLife)
     {
         _performRowDelta = PerformRowDelta;
-        SetStatus($"{host}, port {port}{(tls ? " (TLS)" : "")}");
+        SetStatus($"{options.Host}, port {options.Port}{(options.Tls ? " (TLS)" : "")}");
         CanFocus = true;
         Width = Dim.Fill();
         Height = Dim.Fill();
@@ -147,7 +147,7 @@ internal class ServerView : View
                 log.InsertText(msg + Environment.NewLine);
                 log.ReadOnly = true;
             });
-            Transport = await Utils.ConnectAsync(host, port, tls, writeLog, frameScanner, FrameValidation.Enabled);
+            Transport = await Utils.ConnectAsync(options, frameScanner, FrameValidation.Enabled);
 
             if (Transport is not null)
             {
@@ -159,7 +159,7 @@ internal class ServerView : View
                     AddLogEntry("(Connect)", txt);
 
                     // common courtesy operations; non-destructive, purely metadata
-                    if (handshake)
+                    if (options.Handshake)
                     {
                         // identify ourselves to the server
                         try

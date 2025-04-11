@@ -1,4 +1,5 @@
-﻿using System.Buffers;
+﻿using System;
+using System.Buffers;
 using System.Diagnostics;
 
 namespace RESPite.Resp.Readers;
@@ -27,7 +28,33 @@ public static class RespReaderExtensions
     /// </summary>
     public static LeasedStrings ReadLeasedStrings(in this RespReader reader)
     {
-        throw new NotImplementedException();
+        Debug.Assert(reader.IsAggregate, "should have already checked for aggregate");
+        reader.DemandAggregate();
+        if (reader.IsNull) return default;
+
+        int count = 0, bytes = 0;
+        foreach (var child in reader.AggregateChildren())
+        {
+            count++;
+            bytes += child.ScalarLength();
+        }
+        if (count == 0) return LeasedStrings.Empty;
+
+        var builder = new LeasedStrings.Builder(count, bytes);
+        foreach (var child in reader.AggregateChildren())
+        {
+            if (child.IsNull)
+            {
+                builder.AddNull();
+            }
+            else
+            {
+                var len = child.ScalarLength();
+                var span = builder.Add(len);
+                child.CopyTo(span);
+            }
+        }
+        return builder.Create();
     }
 
     /// <summary>

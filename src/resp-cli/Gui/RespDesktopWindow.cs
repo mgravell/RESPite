@@ -23,7 +23,7 @@ internal sealed class RespDesktopWindow : Window
         base.Dispose(disposing);
     }
 
-    public RespDesktopWindow(string host, int port, bool tls, string? user, string? pass, bool resp3)
+    public RespDesktopWindow(ConnectionOptionsBag options)
     {
         Title = $"resp-cli desktop ({Application.QuitKey} to exit)";
 
@@ -83,7 +83,7 @@ internal sealed class RespDesktopWindow : Window
                 SetStatusText("");
             }
         };
-        connect = new RespConnectView(host, port, tls, resp3);
+        connect = new RespConnectView(options);
         var tab = new Tab
         {
             DisplayText = "⚡",
@@ -198,12 +198,13 @@ internal sealed class RespDesktopWindow : Window
     {
         Application.Invoke(() =>
         {
-            if (!connect.Validate(out var host, out var port))
+            var options = connect.Validate();
+            if (options is null)
             {
                 return;
             }
 
-            var view = new ServerView(host, port, connect.Tls, connect.Handshake, EndOfLife);
+            var view = new ServerView(options, EndOfLife);
             view.StatusChanged += SetStatusText;
             var tabNumber = servers.Tabs.Count;
             var tab = new Tab

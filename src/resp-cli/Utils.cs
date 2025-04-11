@@ -26,10 +26,7 @@ public static class Utils
     }
 
     internal static async Task<IRequestResponseTransport?> ConnectAsync(
-        string host,
-        int port,
-        bool tls,
-        Action<string>? log,
+        ConnectionOptionsBag options,
         IFrameScanner<ScanState>? frameScanner = null,
         FrameValidation validateOutbound = FrameValidation.Debug)
     {
@@ -37,26 +34,27 @@ public static class Utils
         Stream? conn = null;
         try
         {
-            var ep = BuildEndPoint(host, port);
+            var ep = BuildEndPoint(options.Host, options.Port);
             socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
             {
                 NoDelay = true,
             };
-            log?.Invoke($"Connecting to {host} on TCP port {port}...");
+            options.Log?.Invoke($"Connecting to {options.Port} on TCP port {options.Port}...");
             await socket.ConnectAsync(ep);
 
             conn = new NetworkStream(socket);
-            if (tls)
+            if (options.Tls)
             {
-                log?.Invoke("Establishing TLS...");
+                options.Log?.Invoke("Establishing TLS...");
                 var ssl = new SslStream(conn);
                 conn = ssl;
-                var options = new SslClientAuthenticationOptions
+                var sslOptions = new SslClientAuthenticationOptions
                 {
-                    RemoteCertificateValidationCallback = Utils.CertificateValidation(log),
-                    TargetHost = host,
+                    RemoteCertificateValidationCallback = options.GetRemoteCertificateValidationCallback(),
+                    LocalCertificateSelectionCallback = options.GetLocalCertificateSelectionCallback(),
+                    TargetHost = options.Host,
                 };
-                await ssl.AuthenticateAsClientAsync(options);
+                await ssl.AuthenticateAsClientAsync(sslOptions);
             }
 
             return conn.CreateTransport().RequestResponse(frameScanner ?? RespFrameScanner.Default, validateOutbound);
@@ -66,25 +64,25 @@ public static class Utils
             conn?.Dispose();
             socket?.Dispose();
 
-            log?.Invoke(ex.Message);
+            options.Log?.Invoke(ex.Message);
             return null;
         }
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "Clarity")]
-    internal static string GetHandshake(string? user, string? pass, bool resp3)
+    internal static string GetHandshake(ConnectionOptionsBag options)
     {
-        if (resp3)
+        if (options.Resp3)
         {
-            if (!string.IsNullOrWhiteSpace(pass))
+            if (!string.IsNullOrWhiteSpace(options.Password))
             {
-                if (string.IsNullOrWhiteSpace(user))
+                if (string.IsNullOrWhiteSpace(options.User))
                 {
-                    return $"HELLO 3 AUTH default {pass}";
+                    return $"HELLO 3 AUTH default {options.Password}";
                 }
                 else
                 {
-                    return $"HELLO 3 AUTH {user} {pass}";
+                    return $"HELLO 3 AUTH {options.User} {options.Password}";
                 }
             }
             else
@@ -92,15 +90,15 @@ public static class Utils
                 return "HELLO 3";
             }
         }
-        else if (!string.IsNullOrWhiteSpace(pass))
+        else if (!string.IsNullOrWhiteSpace(options.Password))
         {
-            if (string.IsNullOrWhiteSpace(user))
+            if (string.IsNullOrWhiteSpace(options.User))
             {
-                return $"AUTH {user} {pass}";
+                return $"AUTH {options.User} {options.Password}";
             }
             else
             {
-                return $"AUTH {pass}";
+                return $"AUTH {options.Password}";
             }
         }
         return "";
@@ -316,22 +314,4 @@ public static class Utils
 
         static void UnableToParse() => throw new FormatException("Unable to parse input");
     }
-
-    internal static RemoteCertificateValidationCallback CertificateValidation(Action<string>? log)
-        => (object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors) =>
-        {
-            if (certificate is X509Certificate2 cert2)
-            {
-                log?.Invoke($"Server certificate: {certificate.Subject} ({cert2.Thumbprint})");
-            }
-            else
-            {
-                log?.Invoke($"Server certificate: {certificate?.Subject}");
-            }
-            if (sslPolicyErrors != SslPolicyErrors.None)
-            {
-                log?.Invoke($"Ignoring certificate policy failure (ignoring): {sslPolicyErrors}");
-            }
-            return true;
-        };
 }

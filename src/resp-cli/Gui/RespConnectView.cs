@@ -6,34 +6,38 @@ namespace StackExchange.Redis.Gui;
 
 internal sealed class RespConnectView : View
 {
-    private readonly TextField hostField;
-    private readonly TextField portField;
-    private readonly CheckBox tlsCheck;
-    private readonly CheckBox resp3Check;
-    private readonly CheckBox handshakeCheck;
+    private readonly TextField hostField, portField, issuerCert, userCert, userKey, userName, password;
+    private readonly CheckBox tlsCheck, resp3Check, handshakeCheck;
 
-    public bool Tls => tlsCheck.CheckedState == CheckState.Checked;
-
-    public bool Handshake => handshakeCheck.CheckedState == CheckState.Checked;
-
-    public bool Validate([NotNullWhen(true)] out string? host, out int port)
+    public ConnectionOptionsBag? Validate()
     {
-        try
+        var host = hostField.Text.Trim();
+        if (!string.IsNullOrEmpty(host) && int.TryParse(portField.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port))
         {
-            host = hostField.Text;
-            return int.TryParse(portField.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out port);
+            try
+            {
+                return new()
+                {
+                    Host = host,
+                    Port = port,
+                    Resp3 = resp3Check.CheckedState == CheckState.Checked,
+                    Tls = tlsCheck.CheckedState == CheckState.Checked,
+                    CaCertPath = issuerCert.Text,
+                    UserCertPath = userCert.Text,
+                    UserKeyPath = userKey.Text,
+                    Handshake = handshakeCheck.CheckedState == CheckState.Checked,
+                };
+            }
+            catch
+            {
+            }
         }
-        catch
-        {
-            host = null;
-            port = 0;
-            return false;
-        }
+        return null;
     }
 
     public event Action? Connect;
 
-    public RespConnectView(string host, int port, bool tls, bool resp3)
+    public RespConnectView(ConnectionOptionsBag options)
     {
         Width = Dim.Fill();
         Height = Dim.Fill();
@@ -48,7 +52,7 @@ internal sealed class RespConnectView : View
             X = Pos.Right(lbl),
             Y = lbl.Y,
             Width = Dim.Fill(),
-            Text = host,
+            Text = options.Host,
         };
         Add(hostField);
 
@@ -62,7 +66,7 @@ internal sealed class RespConnectView : View
             X = Pos.Right(lbl),
             Y = lbl.Y,
             Width = Dim.Absolute(8),
-            Text = port.ToString(CultureInfo.InvariantCulture),
+            Text = options.Port.ToString(CultureInfo.InvariantCulture),
         };
         Add(portField);
 
@@ -75,35 +79,105 @@ internal sealed class RespConnectView : View
         {
             X = Pos.Right(lbl) + 1,
             Y = lbl.Y,
-            CheckedState = tls ? CheckState.Checked : CheckState.UnChecked,
+            CheckedState = options.Tls ? CheckState.Checked : CheckState.UnChecked,
         };
         Add(tlsCheck);
 
         lbl = Add(new Label
         {
-            Text = "RESP 3",
+            Text = "Issuer cert",
             Y = Pos.Bottom(tlsCheck),
+        });
+        issuerCert = new TextField
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            Text = options.CaCertPath ?? "",
+            Width = Dim.Fill(),
+        };
+        Add(issuerCert);
+
+        lbl = Add(new Label
+        {
+            Text = "User cert",
+            Y = Pos.Bottom(issuerCert),
+        });
+        userCert = new TextField
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            Text = options.UserCertPath ?? "",
+            Width = Dim.Fill(),
+        };
+        Add(userCert);
+
+        lbl = Add(new Label
+        {
+            Text = "User key",
+            Y = Pos.Bottom(userCert),
+        });
+        userKey = new TextField
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            Text = options.UserKeyPath ?? "",
+            Width = Dim.Fill(),
+        };
+        Add(userKey);
+
+        lbl = Add(new Label
+        {
+            Text = "RESP 3",
+            Y = Pos.Bottom(userKey),
         });
         resp3Check = new CheckBox
         {
             X = Pos.Right(lbl) + 1,
             Y = lbl.Y,
-            CheckedState = resp3 ? CheckState.Checked : CheckState.UnChecked,
+            CheckedState = options.Resp3 ? CheckState.Checked : CheckState.UnChecked,
         };
         Add(resp3Check);
 
         lbl = Add(new Label
         {
             Text = "Handshake",
-            Y = Pos.Bottom(tlsCheck),
+            Y = Pos.Bottom(resp3Check),
         });
         handshakeCheck = new CheckBox
         {
             X = Pos.Right(lbl) + 1,
             Y = lbl.Y,
-            CheckedState = CheckState.Checked,
+            CheckedState = options.Handshake ? CheckState.Checked : CheckState.UnChecked,
         };
         Add(handshakeCheck);
+
+        lbl = Add(new Label
+        {
+            Text = "User",
+            Y = Pos.Bottom(handshakeCheck),
+        });
+        userName = new TextField
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            Text = options.User ?? "",
+            Width = Dim.Fill(),
+        };
+        Add(userName);
+
+        lbl = Add(new Label
+        {
+            Text = "Password",
+            Y = Pos.Bottom(userName),
+        });
+        password = new TextField
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            Text = options.Password ?? "",
+            Width = Dim.Fill(),
+        };
+        Add(password);
 
         var btn = new Button
         {
