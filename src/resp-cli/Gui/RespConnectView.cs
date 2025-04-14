@@ -24,7 +24,7 @@ internal sealed class RespConnectView : View
                     Tls = tlsCheck.CheckedState == CheckState.Checked,
                     CaCertPath = issuerCert.Text,
                     UserCertPath = userCert.Text,
-                    UserKeyPath = userKey.Text,
+                    UserKeyPathOrPassword = userKey.Text,
                     Handshake = handshakeCheck.CheckedState == CheckState.Checked,
                     Sni = sni.Text,
                     TrustServerCert = trustServerCert.CheckedState == CheckState.Checked,
@@ -142,7 +142,7 @@ internal sealed class RespConnectView : View
         {
             X = Pos.Right(lbl) + 1,
             Y = lbl.Y,
-            Text = options.UserKeyPath ?? "",
+            Text = options.UserKeyPathOrPassword ?? "",
             Width = Dim.Fill(),
         };
         Add(userKey);

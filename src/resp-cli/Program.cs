@@ -50,7 +50,7 @@ Option<string?> certOption = new(
 
 Option<string?> keyOption = new(
     aliases: ["--key"],
-    description: "Private key file to authenticate with");
+    description: "Private key file to authenticate with (or password for PFX certs)");
 
 Option<bool> resp3Option = new(
     aliases: ["-3"],
@@ -108,7 +108,7 @@ rootCommand.SetHandler(async ic =>
         Resp3 = resp3Option.Parse(ic),
         CaCertPath = cacertOption.Parse(ic),
         UserCertPath = certOption.Parse(ic),
-        UserKeyPath = keyOption.Parse(ic),
+        UserKeyPathOrPassword = keyOption.Parse(ic),
         Sni = sniOption.Parse(ic),
         Log = ic.Console.WriteLine,
         TrustServerCert = trustOption.Parse(ic),
@@ -142,7 +142,7 @@ return await rootCommand.InvokeAsync(args);
 
 internal sealed class ConnectionOptionsBag
 {
-    public string? UserKeyPath { get; set; }
+    public string? UserKeyPathOrPassword { get; set; }
     public string? UserCertPath { get; set; }
     public string? CaCertPath { get; set; }
     public bool Resp3 { get; set; }
@@ -159,7 +159,7 @@ internal sealed class ConnectionOptionsBag
 
     public void Apply()
     {
-        if (!string.IsNullOrWhiteSpace(UserKeyPath))
+        if (!string.IsNullOrWhiteSpace(UserCertPath))
         {
             Tls = true; // user cert implies TLS
         }
@@ -279,10 +279,19 @@ internal sealed class ConnectionOptionsBag
     {
         if (string.IsNullOrWhiteSpace(UserCertPath)) return null;
 
-        // PEM handshakes not universally supported; prefer PFX
-        using var pem = X509Certificate2.CreateFromPemFile(UserCertPath, UserKeyPath);
+        string? key = string.IsNullOrWhiteSpace(UserKeyPathOrPassword) ? null : UserKeyPathOrPassword.Trim();
+        X509Certificate2 pfx;
 #pragma warning disable SYSLIB0057 // Type or member is obsolete
-        var pfx = new X509Certificate2(pem.Export(X509ContentType.Pfx));
+        if (string.Equals(Path.GetExtension(UserCertPath), ".pfx", StringComparison.InvariantCultureIgnoreCase))
+        {
+            pfx = new X509Certificate2(UserCertPath, key);
+        }
+        else
+        {
+            // PEM handshakes not universally supported; prefer PFX
+            using var pem = X509Certificate2.CreateFromPemFile(UserCertPath, key);
+            pfx = new X509Certificate2(pem.Export(X509ContentType.Pfx));
+        }
 #pragma warning restore SYSLIB0057 // Type or member is obsolete
         return (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) => pfx;
     }
