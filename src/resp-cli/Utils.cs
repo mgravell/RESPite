@@ -39,7 +39,7 @@ public static class Utils
             {
                 NoDelay = true,
             };
-            options.Log?.Invoke($"Connecting to {options.Port} on TCP port {options.Port}...");
+            options.Log?.Invoke($"Connecting to {options.Host} on TCP port {options.Port}...");
             await socket.ConnectAsync(ep);
 
             conn = new NetworkStream(socket);

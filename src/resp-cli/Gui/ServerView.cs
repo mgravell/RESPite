@@ -140,13 +140,14 @@ internal class ServerView : View
         Add(log);
         _ = Task.Run(async () =>
         {
-            Action<string> writeLog = msg => Application.Invoke(() =>
+            options.Log = msg => Application.Invoke(() =>
             {
                 log.MoveEnd();
                 log.ReadOnly = false;
                 log.InsertText(msg + Environment.NewLine);
                 log.ReadOnly = true;
             });
+
             Transport = await Utils.ConnectAsync(options, frameScanner, FrameValidation.Enabled);
 
             if (Transport is not null)
