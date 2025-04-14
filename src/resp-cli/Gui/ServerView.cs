@@ -159,6 +159,11 @@ internal class ServerView : View
                     CreateTable();
                     AddLogEntry("(Connect)", txt);
 
+                    if (options.Database.HasValue)
+                    {
+                        await Server.SELECT.Success().SendAsync(Transport, options.Database.Value, endOfLife);
+                    }
+
                     // common courtesy operations; non-destructive, purely metadata
                     if (options.Handshake)
                     {

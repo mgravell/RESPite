@@ -24,6 +24,11 @@ public static class Server
     public static readonly RespCommand<SimpleString, Empty> ECHO = new(Default, reader: PongEchoReader.Instance);
 
     /// <summary>
+    /// Changes database.
+    /// </summary>
+    public static readonly RespCommand<int, Empty> SELECT = new(Default);
+
+    /// <summary>
     /// Reads PONG responses.
     /// </summary>
     private sealed class PongEchoReader : IRespReader<Empty, Empty>, IRespReader<SimpleString, Empty>

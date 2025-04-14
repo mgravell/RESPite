@@ -57,7 +57,7 @@ internal static class RespClient
         Console.WriteLine();
     }
 
-    internal static async Task RunClient(IRequestResponseTransport transport, string? command)
+    internal static async Task RunClient(IRequestResponseTransport transport, string? command, int? db)
     {
         try
         {
@@ -80,7 +80,16 @@ internal static class RespClient
                     WriteResult(await transport.SendAsync(cmd, CommandWriter.AdHoc, LeasedRespResult.Reader));
                 }
 
-                command = ReadLine();
+                if (db.HasValue)
+                {
+                    WriteLine("Changing database...", null, null);
+                    command = $"select {db}";
+                    db = null;
+                }
+                else
+                {
+                    command = ReadLine();
+                }
             }
             while (true);
         }

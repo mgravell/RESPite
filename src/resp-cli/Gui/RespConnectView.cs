@@ -6,20 +6,20 @@ namespace StackExchange.Redis.Gui;
 
 internal sealed class RespConnectView : View
 {
-    private readonly TextField hostField, portField, issuerCert, userCert, userKey, userName, password, sni;
-    private readonly CheckBox tlsCheck, resp3Check, handshakeCheck;
+    private readonly TextField hostField, portField, issuerCert, userCert, userKey, userName, password, sni, database;
+    private readonly CheckBox tlsCheck, resp3Check, handshakeCheck, trustServerCert;
 
     public ConnectionOptionsBag? Validate()
     {
-        var host = hostField.Text.Trim();
-        if (!string.IsNullOrEmpty(host) && int.TryParse(portField.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port))
+        if (IsInt32(portField.Text, out var port))
         {
             try
             {
                 return new()
                 {
-                    Host = host,
+                    Host = hostField.Text.Trim(),
                     Port = port,
+                    Database = IsInt32(database.Text, out int db) ? db : default,
                     Resp3 = resp3Check.CheckedState == CheckState.Checked,
                     Tls = tlsCheck.CheckedState == CheckState.Checked,
                     CaCertPath = issuerCert.Text,
@@ -27,6 +27,7 @@ internal sealed class RespConnectView : View
                     UserKeyPath = userKey.Text,
                     Handshake = handshakeCheck.CheckedState == CheckState.Checked,
                     Sni = sni.Text,
+                    TrustServerCert = trustServerCert.CheckedState == CheckState.Checked,
                 };
             }
             catch
@@ -34,6 +35,12 @@ internal sealed class RespConnectView : View
             }
         }
         return null;
+
+        static bool IsInt32(string sValue, out int iValue)
+        {
+            iValue = default;
+            return !string.IsNullOrWhiteSpace(sValue) && int.TryParse(sValue.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out iValue);
+        }
     }
 
     public event Action? Connect;
@@ -73,7 +80,21 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "TLS",
+            Text = "Database ",
+            Y = Pos.Bottom(lbl),
+        });
+        database = new TextField
+        {
+            X = Pos.Right(lbl),
+            Y = lbl.Y,
+            Width = Dim.Absolute(8),
+            Text = options.Database.HasValue ? options.Database.Value.ToString(CultureInfo.InvariantCulture) : "",
+        };
+        Add(database);
+
+        lbl = Add(new Label
+        {
+            Text = "TLS ",
             Y = Pos.Bottom(lbl) + 1,
         });
         tlsCheck = new CheckBox
@@ -86,7 +107,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "Issuer cert",
+            Text = "Issuer cert ",
             Y = Pos.Bottom(lbl),
         });
         issuerCert = new TextField
@@ -100,7 +121,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "User cert",
+            Text = "User cert ",
             Y = Pos.Bottom(lbl),
         });
         userCert = new TextField
@@ -114,7 +135,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "User key",
+            Text = "User key ",
             Y = Pos.Bottom(lbl),
         });
         userKey = new TextField
@@ -128,7 +149,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "RESP 3",
+            Text = "RESP 3 ",
             Y = Pos.Bottom(lbl),
         });
         resp3Check = new CheckBox
@@ -141,7 +162,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "Handshake",
+            Text = "Handshake ",
             Y = Pos.Bottom(lbl),
         });
         handshakeCheck = new CheckBox
@@ -154,7 +175,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "User",
+            Text = "User ",
             Y = Pos.Bottom(lbl),
         });
         userName = new TextField
@@ -168,7 +189,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "Password",
+            Text = "Password ",
             Y = Pos.Bottom(lbl),
         });
         password = new TextField
@@ -182,7 +203,7 @@ internal sealed class RespConnectView : View
 
         lbl = Add(new Label
         {
-            Text = "SNI",
+            Text = "SNI ",
             Y = Pos.Bottom(lbl),
         });
         sni = new TextField
@@ -193,6 +214,19 @@ internal sealed class RespConnectView : View
             Width = Dim.Fill(),
         };
         Add(sni);
+
+        lbl = Add(new Label
+        {
+            Text = "Trust Server Certificate ",
+            Y = Pos.Bottom(lbl),
+        });
+        trustServerCert = new CheckBox
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            CheckedState = options.TrustServerCert ? CheckState.Checked : CheckState.UnChecked,
+        };
+        Add(trustServerCert);
 
         var btn = new Button
         {

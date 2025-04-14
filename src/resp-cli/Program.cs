@@ -31,7 +31,7 @@ Option<string?> userOption = new(
 
 Option<string?> passOption = new(
     aliases: ["--pass", "-a"],
-    description: "Password to use when connecting to the server (or RESPCLI_AUTH environment variable");
+    description: "Password to use when connecting to the server (or RESPCLI_AUTH environment variable)");
 
 Option<bool> tlsOption = new(
     aliases: ["--tls"],
@@ -59,9 +59,20 @@ Option<bool> resp3Option = new(
     Arity = ArgumentArity.Zero,
 };
 
+Option<bool> trustOption = new(
+    aliases: ["--trust"],
+    description: "Trust remote server certificate")
+{
+    Arity = ArgumentArity.Zero,
+};
+
 Option<string?> sniOption = new(
     aliases: ["--sni"],
     description: "Server name indication for TLS");
+
+Option<int?> dbOption = new(
+    aliases: ["-n"],
+    description: "Database number");
 
 RootCommand rootCommand = new(description: "Connects to a RESP server to issue ad-hoc commands.")
 {
@@ -76,6 +87,8 @@ RootCommand rootCommand = new(description: "Connects to a RESP server to issue a
     certOption,
     keyOption,
     sniOption,
+    trustOption,
+    dbOption,
 };
 
 rootCommand.SetHandler(async ic =>
@@ -98,6 +111,8 @@ rootCommand.SetHandler(async ic =>
         UserKeyPath = keyOption.Parse(ic),
         Sni = sniOption.Parse(ic),
         Log = ic.Console.WriteLine,
+        TrustServerCert = trustOption.Parse(ic),
+        Database = dbOption.Parse(ic),
     };
     options.Apply();
     try
@@ -112,7 +127,7 @@ rootCommand.SetHandler(async ic =>
             if (conn is not null)
             {
                 var handshake = Utils.GetHandshake(options);
-                await RespClient.RunClient(conn, handshake);
+                await RespClient.RunClient(conn, handshake, options.Database);
             }
         }
         ic.ExitCode = 0;
@@ -139,6 +154,8 @@ internal sealed class ConnectionOptionsBag
     public Action<string>? Log { get; set; }
     public bool Handshake { get; set; } = true;
     public string? Sni { get; set; }
+    public bool TrustServerCert { get; set; }
+    public int? Database { get; internal set; }
 
     public void Apply()
     {
@@ -150,16 +167,6 @@ internal sealed class ConnectionOptionsBag
 
     public RemoteCertificateValidationCallback GetRemoteCertificateValidationCallback()
     {
-#pragma warning disable SYSLIB0057 // Type or member is obsolete
-        return string.IsNullOrWhiteSpace(CaCertPath)
-            ? TrustAnyServer() : TrustIssuerCallback(new X509Certificate2(CaCertPath));
-#pragma warning restore SYSLIB0057 // Type or member is obsolete
-    }
-
-    private RemoteCertificateValidationCallback TrustIssuerCallback(X509Certificate2 issuer)
-    {
-        if (issuer == null) throw new ArgumentNullException(nameof(issuer));
-
         return (object _, X509Certificate? certificate, X509Chain? certificateChain, SslPolicyErrors sslPolicyError) =>
         {
             // If we're already valid, there's nothing further to check
@@ -168,15 +175,33 @@ internal sealed class ConnectionOptionsBag
                 return true;
             }
 
+            if (certificate is { })
+            {
+                Log?.Invoke($"Server certificate: {certificate.Subject}");
+                Log?.Invoke($"  expiration: {certificate.GetExpirationDateString()}");
+                if (certificate is X509Certificate2 cert2)
+                {
+                    Log?.Invoke($"  thumbprint: {cert2.Thumbprint}");
+                }
+            }
+
             // If we're not valid due to chain errors - check against the trusted issuer
             // Note that we're only proceeding at all here if the *only* issue is chain errors (not more flags in SslPolicyErrors)
             if (sslPolicyError == SslPolicyErrors.RemoteCertificateChainErrors
+                   && !string.IsNullOrWhiteSpace(CaCertPath)
                    && certificate is X509Certificate2 v2
-                   && CheckTrustedIssuer(v2, certificateChain, issuer))
+#pragma warning disable SYSLIB0057 // Type or member is obsolete
+                   && CheckTrustedIssuer(v2, certificateChain, new X509Certificate2(CaCertPath)))
+#pragma warning restore SYSLIB0057 // Type or member is obsolete
             {
                 return true;
             }
-            Log?.Invoke($"Server certificate policy failure: {sslPolicyError}");
+
+            if (TrustServerCert)
+            {
+                Log?.Invoke($"Trusting remote certificate despite policy failure: {sslPolicyError}");
+                return true;
+            }
 
             if ((sslPolicyError & SslPolicyErrors.RemoteCertificateNameMismatch) != 0)
             {
@@ -187,24 +212,12 @@ internal sealed class ConnectionOptionsBag
                     if (match.Success)
                     {
                         remote = match.Groups[1].Value;
-                        if (remote != Sni)
-                        {
-                            Log?.Invoke($"SNI mismatch ({certificate?.Subject})");
-                            if (remote == Host)
-                            {
-                                Log?.Invoke($"  try removing --sni {Sni}");
-                            }
-                            else
-                            {
-                                Log?.Invoke($"  try --sni {remote}");
-                            }
-                        }
+                        Log?.Invoke($"SNI mismatch; try --sni {remote}");
                     }
                 }
-
-                return false;
             }
 
+            Log?.Invoke($"Server certificate policy failure: {sslPolicyError}; use --trust to override");
             return false;
         };
     }
@@ -261,23 +274,7 @@ internal sealed class ConnectionOptionsBag
         // If we didn't find the trusted issuer in the chain at all - we do not trust the result.
         return false;
     }
-    private RemoteCertificateValidationCallback TrustAnyServer()
-        => (object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors) =>
-        {
-            if (certificate is X509Certificate2 cert2)
-            {
-                Log?.Invoke($"Server certificate: {certificate.Subject} ({cert2.Thumbprint})");
-            }
-            else
-            {
-                Log?.Invoke($"Server certificate: {certificate?.Subject}");
-            }
-            if (sslPolicyErrors != SslPolicyErrors.None)
-            {
-                Log?.Invoke($"Ignoring certificate policy failure: {sslPolicyErrors}");
-            }
-            return true;
-        };
+
     internal LocalCertificateSelectionCallback? GetLocalCertificateSelectionCallback()
     {
         if (string.IsNullOrWhiteSpace(UserCertPath)) return null;

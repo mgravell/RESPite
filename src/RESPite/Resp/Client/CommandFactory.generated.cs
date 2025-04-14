@@ -112,6 +112,42 @@ public partial class CommandFactory : IRespWriterFactory<string>
     }
 }
 
+public partial class CommandFactory : IRespWriterFactory<int>
+{
+    IRespWriter<int> IRespWriterFactory<int>.CreateWriter(string command) => Int32Writer.Factory.Create(command);
+
+    private sealed class Int32Writer(string command, ReadOnlySpan<byte> pinnedPrefix = default) : CommandWriter<int>(command, 1, pinnedPrefix)
+    {
+        public static class Factory
+        {
+            private static Int32Writer? __SELECT;
+
+            public static Int32Writer Create(string command) => command switch
+            {
+                "SELECT" => __SELECT ??= new(command, "*2\r\n$6\r\nSELECT\r\n"u8),
+                _ => new(command),
+            };
+        }
+
+        protected override IRespWriter<int> Create(string command) => Factory.Create(command);
+
+        public override void Write(in int request, ref RespWriter writer)
+        {
+            writer.WriteRaw(CommandAndArgCount);
+            writer.WriteBulkString(request);
+        }
+
+        public override void Write(in int request, IBufferWriter<byte> target)
+        {
+            RespWriter writer = new(target);
+            writer.WriteRaw(CommandAndArgCount);
+            writer.WriteBulkString(request);
+            writer.Flush();
+        }
+    }
+}
+
+
 
 public partial class CommandFactory : IRespWriterFactory<(SimpleString, SimpleString)>
 {
