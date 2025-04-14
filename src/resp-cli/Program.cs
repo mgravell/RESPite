@@ -5,6 +5,7 @@ using System.CommandLine.Parsing;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.RegularExpressions;
 using StackExchange.Redis;
 
 Option<string> hostOption = new(
@@ -41,15 +42,15 @@ Option<bool> tlsOption = new(
 
 Option<string?> cacertOption = new(
     aliases: ["--cacert"],
-    description: "Path to CA certificate");
+    description: "CA Certificate file to verify with");
 
 Option<string?> certOption = new(
     aliases: ["--cert"],
-    description: "Path to user certificate");
+    description: "Client certificate to authenticate with");
 
 Option<string?> keyOption = new(
     aliases: ["--key"],
-    description: "Path to user private key file");
+    description: "Private key file to authenticate with");
 
 Option<bool> resp3Option = new(
     aliases: ["-3"],
@@ -57,6 +58,10 @@ Option<bool> resp3Option = new(
 {
     Arity = ArgumentArity.Zero,
 };
+
+Option<string?> sniOption = new(
+    aliases: ["--sni"],
+    description: "Server name indication for TLS");
 
 RootCommand rootCommand = new(description: "Connects to a RESP server to issue ad-hoc commands.")
 {
@@ -70,6 +75,7 @@ RootCommand rootCommand = new(description: "Connects to a RESP server to issue a
     cacertOption,
     certOption,
     keyOption,
+    sniOption,
 };
 
 rootCommand.SetHandler(async ic =>
@@ -90,8 +96,10 @@ rootCommand.SetHandler(async ic =>
         CaCertPath = cacertOption.Parse(ic),
         UserCertPath = certOption.Parse(ic),
         UserKeyPath = keyOption.Parse(ic),
+        Sni = sniOption.Parse(ic),
         Log = ic.Console.WriteLine,
     };
+    options.Apply();
     try
     {
         if (guiOption.Parse(ic))
@@ -130,6 +138,15 @@ internal sealed class ConnectionOptionsBag
     public string Host { get; set; } = "127.0.0.1";
     public Action<string>? Log { get; set; }
     public bool Handshake { get; set; } = true;
+    public string? Sni { get; set; }
+
+    public void Apply()
+    {
+        if (!string.IsNullOrWhiteSpace(UserKeyPath))
+        {
+            Tls = true; // user cert implies TLS
+        }
+    }
 
     public RemoteCertificateValidationCallback GetRemoteCertificateValidationCallback()
     {
@@ -139,7 +156,7 @@ internal sealed class ConnectionOptionsBag
 #pragma warning restore SYSLIB0057 // Type or member is obsolete
     }
 
-    private static RemoteCertificateValidationCallback TrustIssuerCallback(X509Certificate2 issuer)
+    private RemoteCertificateValidationCallback TrustIssuerCallback(X509Certificate2 issuer)
     {
         if (issuer == null) throw new ArgumentNullException(nameof(issuer));
 
@@ -150,11 +167,45 @@ internal sealed class ConnectionOptionsBag
             {
                 return true;
             }
+
             // If we're not valid due to chain errors - check against the trusted issuer
             // Note that we're only proceeding at all here if the *only* issue is chain errors (not more flags in SslPolicyErrors)
-            return sslPolicyError == SslPolicyErrors.RemoteCertificateChainErrors
+            if (sslPolicyError == SslPolicyErrors.RemoteCertificateChainErrors
                    && certificate is X509Certificate2 v2
-                   && CheckTrustedIssuer(v2, certificateChain, issuer);
+                   && CheckTrustedIssuer(v2, certificateChain, issuer))
+            {
+                return true;
+            }
+            Log?.Invoke($"Server certificate policy failure: {sslPolicyError}");
+
+            if ((sslPolicyError & SslPolicyErrors.RemoteCertificateNameMismatch) != 0)
+            {
+                var remote = certificate?.Subject;
+                if (remote is not null && remote.StartsWith("CN="))
+                {
+                    var match = Regex.Match(remote, "^CN=([^,]+),");
+                    if (match.Success)
+                    {
+                        remote = match.Groups[1].Value;
+                        if (remote != Sni)
+                        {
+                            Log?.Invoke($"SNI mismatch ({certificate?.Subject})");
+                            if (remote == Host)
+                            {
+                                Log?.Invoke($"  try removing --sni {Sni}");
+                            }
+                            else
+                            {
+                                Log?.Invoke($"  try --sni {remote}");
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            return false;
         };
     }
 
@@ -223,7 +274,7 @@ internal sealed class ConnectionOptionsBag
             }
             if (sslPolicyErrors != SslPolicyErrors.None)
             {
-                Log?.Invoke($"Ignoring certificate policy failure (ignoring): {sslPolicyErrors}");
+                Log?.Invoke($"Ignoring certificate policy failure: {sslPolicyErrors}");
             }
             return true;
         };

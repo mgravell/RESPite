@@ -52,7 +52,7 @@ public static class Utils
                 {
                     RemoteCertificateValidationCallback = options.GetRemoteCertificateValidationCallback(),
                     LocalCertificateSelectionCallback = options.GetLocalCertificateSelectionCallback(),
-                    TargetHost = options.Host,
+                    TargetHost = string.IsNullOrWhiteSpace(options.Sni) ? options.Host : options.Sni,
                 };
                 await ssl.AuthenticateAsClientAsync(sslOptions);
             }
