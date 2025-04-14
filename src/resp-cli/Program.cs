@@ -3,6 +3,7 @@ using System.CommandLine.Invocation;
 using System.CommandLine.IO;
 using System.CommandLine.Parsing;
 using System.Net.Security;
+using System.Runtime.ConstrainedExecution;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
@@ -169,20 +170,17 @@ internal sealed class ConnectionOptionsBag
     {
         return (object _, X509Certificate? certificate, X509Chain? certificateChain, SslPolicyErrors sslPolicyError) =>
         {
+            if (certificate is X509Certificate2 cert2)
+            {
+                Log?.Invoke($"Server certificate: {cert2.GetNameInfo(X509NameType.SimpleName, false)}");
+                Log?.Invoke($"  thumbprint: {cert2.Thumbprint}");
+                Log?.Invoke($"  expiration: {cert2.GetExpirationDateString()}");
+            }
+
             // If we're already valid, there's nothing further to check
             if (sslPolicyError == SslPolicyErrors.None)
             {
                 return true;
-            }
-
-            if (certificate is { })
-            {
-                Log?.Invoke($"Server certificate: {certificate.Subject}");
-                Log?.Invoke($"  expiration: {certificate.GetExpirationDateString()}");
-                if (certificate is X509Certificate2 cert2)
-                {
-                    Log?.Invoke($"  thumbprint: {cert2.Thumbprint}");
-                }
             }
 
             // If we're not valid due to chain errors - check against the trusted issuer
@@ -205,15 +203,10 @@ internal sealed class ConnectionOptionsBag
 
             if ((sslPolicyError & SslPolicyErrors.RemoteCertificateNameMismatch) != 0)
             {
-                var remote = certificate?.Subject;
-                if (remote is not null && remote.StartsWith("CN="))
+                var remote = (certificate as X509Certificate2)?.GetNameInfo(X509NameType.SimpleName, false);
+                if (remote is not null)
                 {
-                    var match = Regex.Match(remote, "^CN=([^,]+),");
-                    if (match.Success)
-                    {
-                        remote = match.Groups[1].Value;
-                        Log?.Invoke($"SNI mismatch; try --sni {remote}");
-                    }
+                    Log?.Invoke($"SNI mismatch; try --sni {remote}");
                 }
             }
 
@@ -292,8 +285,19 @@ internal sealed class ConnectionOptionsBag
             using var pem = X509Certificate2.CreateFromPemFile(UserCertPath, key);
             pfx = new X509Certificate2(pem.Export(X509ContentType.Pfx));
         }
+        bool logged = false;
 #pragma warning restore SYSLIB0057 // Type or member is obsolete
-        return (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) => pfx;
+        return (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers) =>
+        {
+            if (!logged)
+            {
+                logged = true; // can get called multiple times
+                Log?.Invoke($"Client certificate: {pfx.GetNameInfo(X509NameType.SimpleName, false)}");
+                Log?.Invoke($"  thumbprint: {pfx.Thumbprint}");
+                Log?.Invoke($"  expiration: {pfx.GetExpirationDateString()}");
+            }
+            return pfx;
+        };
     }
 }
 

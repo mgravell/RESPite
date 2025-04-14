@@ -325,8 +325,12 @@ public static class TransportExtensions
                 // we can pass partial fragments to an incremental scanner, but we need the entire fragment
                 // for deframe; as such, "skip" is our progress into the current frame for an incremental scanner
                 var entireBuffer = transport.GetBuffer();
+
+                Debug.WriteLine($"parsing {entireBuffer.Length} bytes: {RespConstants.UTF8.GetString(entireBuffer)}");
+
                 var workingBuffer = scanInfo.BytesRead == 0 ? entireBuffer : entireBuffer.Slice(scanInfo.BytesRead);
                 var status = workingBuffer.IsEmpty ? OperationStatus.NeedMoreData : scanner.TryRead(ref scanState, in workingBuffer, ref scanInfo);
+                Debug.WriteLine($"  parsed: {status}, {scanInfo.BytesRead} bytes read");
                 switch (status)
                 {
                     case OperationStatus.InvalidData:
