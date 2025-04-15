@@ -57,7 +57,7 @@ public static class Utils
                 await ssl.AuthenticateAsClientAsync(sslOptions);
             }
 
-            return conn.CreateTransport().RequestResponse(frameScanner ?? RespFrameScanner.Default, validateOutbound);
+            return conn.CreateTransport(autoFlush: options.AutoFlush, debugLog: options.DebugLog).RequestResponse(frameScanner ?? RespFrameScanner.Default, validateOutbound, options.DebugLog);
         }
         catch (Exception ex)
         {

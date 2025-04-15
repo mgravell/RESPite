@@ -15,7 +15,7 @@ public interface IByteTransportBase
     /// <summary>
     /// Complete a read operation, optionally discarding some quantity of data.
     /// </summary>
-    public void Advance(long consumed);
+    void Advance(long consumed);
 }
 
 /// <summary>
@@ -41,6 +41,11 @@ public interface IAsyncByteTransport : IByteTransportBase, IAsyncDisposable
     /// Asynchronously write data.
     /// </summary>
     ValueTask WriteAsync(in ReadOnlySequence<byte> buffer, CancellationToken token = default);
+
+    /// <summary>
+    /// Asynchronously flush data.
+    /// </summary>
+    ValueTask FlushAsync(CancellationToken token = default);
 }
 
 /// <summary>
@@ -58,4 +63,9 @@ public interface ISyncByteTransport : IByteTransportBase, IDisposable
     /// Synchronously write data.
     /// </summary>
     void Write(in ReadOnlySequence<byte> buffer);
+
+    /// <summary>
+    /// Synchronously flush data.
+    /// </summary>
+    void Flush();
 }

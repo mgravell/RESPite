@@ -9,23 +9,24 @@ using RESPite.Resp;
 
 namespace RESPite.Transports.Internal;
 
-internal sealed class RequestResponseTransport<TState>(IByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound)
-        : RequestResponseBase<TState>(transport, scanner, validateOutbound), IRequestResponseTransport
+internal sealed class RequestResponseTransport<TState>(IByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, Action<string>? debugLog = null)
+        : RequestResponseBase<TState>(transport, scanner, validateOutbound, debugLog), IRequestResponseTransport
 {
 }
 
-internal sealed class SyncRequestResponseTransport<TState>(ISyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound)
-    : RequestResponseBase<TState>(transport, scanner, validateOutbound), ISyncRequestResponseTransport
+internal sealed class SyncRequestResponseTransport<TState>(ISyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, Action<string>? debugLog = null)
+    : RequestResponseBase<TState>(transport, scanner, validateOutbound, debugLog), ISyncRequestResponseTransport
 {
 }
 
-internal sealed class AsyncRequestResponseTransport<TState>(IAsyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound)
-    : RequestResponseBase<TState>(transport, scanner, validateOutbound), IAsyncRequestResponseTransport
+internal sealed class AsyncRequestResponseTransport<TState>(IAsyncByteTransport transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, Action<string>? debugLog = null)
+    : RequestResponseBase<TState>(transport, scanner, validateOutbound, debugLog), IAsyncRequestResponseTransport
 {
 }
 
 internal abstract class RequestResponseBase<TState> : IRequestResponseBase
 {
+    private readonly Action<string>? _debugLog;
     private readonly IByteTransportBase _transport;
     private readonly IFrameScanner<TState> _scanner;
     private readonly int _flags;
@@ -35,8 +36,9 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
 
     public ValueTask DisposeAsync() => _transport is IAsyncDisposable d ? d.DisposeAsync() : default;
 
-    public RequestResponseBase(IByteTransportBase transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound)
+    public RequestResponseBase(IByteTransportBase transport, IFrameScanner<TState> scanner, FrameValidation validateOutbound, Action<string>? debugLog)
     {
+        _debugLog = debugLog;
         _transport = transport;
         _scanner = scanner;
         if (transport is ISyncByteTransport) _flags |= SUPPORT_SYNC;
@@ -131,16 +133,17 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
         {
             if (content.IsEmpty)
             {
-                Debug.WriteLine($"{GetType().Name} sending empty frame to transport");
+                _debugLog?.Invoke($"[MsgValidate] sending empty frame to transport");
             }
             else
             {
-                Debug.WriteLine($"{GetType().Name} sending {content.Length} bytes to transport: {RespConstants.UTF8.GetString(content)}");
+                _debugLog?.Invoke($"[MsgValidate] sending {content.Length} bytes to transport");
             }
             AsValidator().Validate(in content);
         }
         catch (Exception ex)
         {
+            _debugLog?.Invoke($"[Validate] invalid frame detected: {ex.Message}");
             throw new InvalidOperationException($"Invalid outbound frame (${content.Length} bytes): {ex.Message}", ex);
         }
     }
@@ -153,44 +156,95 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
+        _debugLog?.Invoke($"[MsgSendAsync] writing {content.Length} bytes");
         var pendingWrite = transport.WriteAsync(in content, token);
         if (!pendingWrite.IsCompletedSuccessfully) return AwaitedWrite(this, pendingWrite, leased, reader, token);
 
         pendingWrite.GetAwaiter().GetResult(); // ensure observed
+        _debugLog?.Invoke($"[MsgSendAsync] write complete (sync)");
         leased.Release();
 
-        var pendingRead = transport.ReadOneAsync(_scanner, OutOfBandData, token);
-        if (!pendingRead.IsCompletedSuccessfully) return AwaitedRead(pendingRead, reader);
+        try
+        {
+            _debugLog?.Invoke($"[MsgReadAsync] reading (direct)...");
+            var pendingRead = transport.ReadOneAsync(_scanner, OutOfBandData, token);
+            if (!pendingRead.IsCompletedSuccessfully) return AwaitedRead(_debugLog, pendingRead, reader);
 
-        leased = pendingRead.GetAwaiter().GetResult();
-        content = leased.Content;
-        var response = reader.Read(in Empty.Value, in content);
-        leased.Release();
-        return new(response);
+            leased = pendingRead.GetAwaiter().GetResult();
+            content = leased.Content;
+            _debugLog?.Invoke($"[MsgReadAsync] read complete (sync); {content.Length} bytes; parsing...");
+            var response = reader.Read(in Empty.Value, in content);
+            _debugLog?.Invoke($"[MsgReadAsync] parsed");
+            leased.Release();
+            return new(response);
+        }
+        catch (Exception ex)
+        {
+            _debugLog?.Invoke($"[MsgReadAsync] read error: {ex.Message}");
+            throw;
+        }
 
 #if NET6_0_OR_GREATER
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
 #endif
         static async ValueTask<TResponse> AwaitedWrite(RequestResponseBase<TState> @this, ValueTask pendingWrite, RefCountedBuffer<byte> leased, IReader<Empty, TResponse> reader, CancellationToken token)
         {
-            await pendingWrite.ConfigureAwait(false);
+            if (@this._debugLog is null)
+            {
+                await pendingWrite.ConfigureAwait(false);
+            }
+            else
+            {
+                try
+                {
+                    await pendingWrite.ConfigureAwait(false);
+                    @this._debugLog?.Invoke($"[MsgSendAsync] write complete (async)");
+                }
+                catch (Exception ex)
+                {
+                    @this._debugLog?.Invoke($"[MsgSendAsync] write error: {ex.Message}");
+                    throw;
+                }
+            }
             leased.Release();
 
-            leased = await @this.AsAsyncPrechecked().ReadOneAsync(@this._scanner, @this.OutOfBandData, token).ConfigureAwait(false);
-            var response = reader.Read(in Empty.Value, leased.Content);
-            leased.Release();
-            return response;
+            try
+            {
+                @this._debugLog?.Invoke($"[MsgReadAsync] reading (indirect)...");
+                leased = await @this.AsAsyncPrechecked().ReadOneAsync(@this._scanner, @this.OutOfBandData, token).ConfigureAwait(false);
+                @this._debugLog?.Invoke($"[MsgReadAsync] read complete (sync); {leased.Content.Length} bytes; parsing...");
+
+                var response = reader.Read(in Empty.Value, leased.Content);
+                @this._debugLog?.Invoke($"[MsgReadAsync] parsed");
+                leased.Release();
+                return response;
+            }
+            catch (Exception ex)
+            {
+                @this._debugLog?.Invoke($"[MsgReadAsync] read error: {ex.Message}");
+                throw;
+            }
         }
 
 #if NET6_0_OR_GREATER
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
 #endif
-        static async ValueTask<TResponse> AwaitedRead(ValueTask<RefCountedBuffer<byte>> pendingRead, IReader<Empty, TResponse> reader)
+        static async ValueTask<TResponse> AwaitedRead(Action<string>? debugLog, ValueTask<RefCountedBuffer<byte>> pendingRead, IReader<Empty, TResponse> reader)
         {
-            var leased = await pendingRead.ConfigureAwait(false);
-            var response = reader.Read(in Empty.Value, leased.Content);
-            leased.Release();
-            return response;
+            try
+            {
+                var leased = await pendingRead.ConfigureAwait(false);
+                debugLog?.Invoke($"[MsgReadAsync] read complete (async); {leased.Content.Length} bytes; parsing...");
+                var response = reader.Read(in Empty.Value, leased.Content);
+                debugLog?.Invoke($"[MsgReadAsync] parsed");
+                leased.Release();
+                return response;
+            }
+            catch (Exception ex)
+            {
+                debugLog?.Invoke($"[MsgReadAsync] read error: {ex.Message}");
+                throw;
+            }
         }
     }
     public TResponse Send<TRequest, TResponse>(in TRequest request, IWriter<TRequest> writer, IReader<TRequest, TResponse> reader)
@@ -201,7 +255,25 @@ internal abstract class RequestResponseBase<TState> : IRequestResponseBase
 
         if (ScanOutbound) Validate(in content);
 
-        transport.Write(in content);
+        if (_debugLog is null)
+        {
+            transport.Write(in content);
+        }
+        else
+        {
+            _debugLog.Invoke($"[MsgSend] writing {content.Length} bytes (sync)");
+            try
+            {
+                transport.Write(in content);
+                _debugLog.Invoke($"[MsgSend] write complete");
+            }
+            catch (Exception ex)
+            {
+                _debugLog.Invoke($"[MsgSend] write error: {ex.Message}");
+                throw;
+            }
+        }
+
         leased.Release();
 
         leased = transport.ReadOne(_scanner, OutOfBandData, WithLifetime);

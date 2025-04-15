@@ -8,6 +8,7 @@ internal sealed class RespConnectView : View
 {
     private readonly TextField hostField, portField, issuerCert, userCert, userKey, userName, password, sni, database;
     private readonly CheckBox tlsCheck, resp3Check, handshakeCheck, trustServerCert;
+    private readonly Action<string>? debugLog;
 
     public ConnectionOptionsBag? Validate()
     {
@@ -28,6 +29,7 @@ internal sealed class RespConnectView : View
                     Handshake = handshakeCheck.CheckedState == CheckState.Checked,
                     Sni = sni.Text,
                     TrustServerCert = trustServerCert.CheckedState == CheckState.Checked,
+                    DebugLog = debugLog,
                 };
             }
             catch
@@ -47,6 +49,8 @@ internal sealed class RespConnectView : View
 
     public RespConnectView(ConnectionOptionsBag options)
     {
+        debugLog = options.DebugLog;
+
         Width = Dim.Fill();
         Height = Dim.Fill();
         CanFocus = true;

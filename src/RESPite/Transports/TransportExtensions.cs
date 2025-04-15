@@ -21,22 +21,22 @@ public static class TransportExtensions
     /// Builds a connection intended for simple request/response operation, without
     /// any concurrency or backlog of pending operations.
     /// </summary>
-    public static IRequestResponseTransport RequestResponse<TState>(this IByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug)
-        => new RequestResponseTransport<TState>(gateway, frameScanner, validateOutbound);
+    public static IRequestResponseTransport RequestResponse<TState>(this IByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug, Action<string>? debugLog = null)
+        => new RequestResponseTransport<TState>(gateway, frameScanner, validateOutbound, debugLog);
 
     /// <summary>
     /// Builds a connection intended for simple request/response operation, without
     /// any concurrency or backlog of pending operations.
     /// </summary>
-    public static IAsyncRequestResponseTransport RequestResponse<TState>(this IAsyncByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug)
-        => new AsyncRequestResponseTransport<TState>(gateway, frameScanner, validateOutbound);
+    public static IAsyncRequestResponseTransport RequestResponse<TState>(this IAsyncByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug, Action<string>? debugLog = null)
+        => new AsyncRequestResponseTransport<TState>(gateway, frameScanner, validateOutbound, debugLog);
 
     /// <summary>
     /// Builds a connection intended for simple request/response operation, without
     /// any concurrency or backlog of pending operations.
     /// </summary>
-    public static ISyncRequestResponseTransport RequestResponse<TState>(this ISyncByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug)
-        => new SyncRequestResponseTransport<TState>(gateway, frameScanner, validateOutbound);
+    public static ISyncRequestResponseTransport RequestResponse<TState>(this ISyncByteTransport gateway, IFrameScanner<TState> frameScanner, FrameValidation validateOutbound = FrameValidation.Debug, Action<string>? debugLog = null)
+        => new SyncRequestResponseTransport<TState>(gateway, frameScanner, validateOutbound, debugLog);
 
     /// <summary>
     /// Uses <see cref="Monitor"/> to synchronize access to the underlying transport.
@@ -398,8 +398,8 @@ public static class TransportExtensions
     /// <summary>
     /// Create a transport over a duplex stream.
     /// </summary>
-    public static IByteTransport CreateTransport(this Stream duplex, bool closeStream = true)
-        => new StreamTransport(duplex, closeStream);
+    public static IByteTransport CreateTransport(this Stream duplex, bool closeStream = true, bool autoFlush = false, Action<string>? debugLog = null)
+        => new StreamTransport(duplex, closeStream, autoFlush, debugLog);
 
     /// <summary>
     /// Create a transport over a pair of streams.

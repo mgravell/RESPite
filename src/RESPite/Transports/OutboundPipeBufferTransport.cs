@@ -135,4 +135,26 @@ internal sealed class OutboundPipeBufferTransport : IByteTransport
         if (result.IsCompleted) Throw();
         static void Throw() => throw new EndOfStreamException("The reader has completed; no response will be coming.");
     }
+
+    void ISyncByteTransport.Flush()
+    {
+        if (_tail is ISyncByteTransport sync)
+        {
+            sync.Flush();
+        }
+        else
+        {
+            var pending = _tail.FlushAsync();
+            if (pending.IsCompleted)
+            {
+                pending.GetAwaiter().GetResult();
+            }
+            else
+            {
+                var t = pending.AsTask();
+                t.Wait();
+            }
+        }
+    }
+    ValueTask IAsyncByteTransport.FlushAsync(CancellationToken token) => _tail.FlushAsync(token);
 }

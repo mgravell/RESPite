@@ -7,6 +7,7 @@ using System.Runtime.ConstrainedExecution;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
+using RESPite.Transports.Internal;
 using StackExchange.Redis;
 
 Option<string> hostOption = new(
@@ -75,6 +76,22 @@ Option<int?> dbOption = new(
     aliases: ["-n"],
     description: "Database number");
 
+Option<bool> debugOption = new(
+    aliases: ["--debug"],
+    description: "Enable debug output")
+{
+    Arity = ArgumentArity.Zero,
+    IsHidden = true,
+};
+
+Option<bool> flushOption = new(
+    aliases: ["--flush"],
+    description: "Enable auto flush")
+{
+    Arity = ArgumentArity.Zero,
+    IsHidden = true,
+};
+
 RootCommand rootCommand = new(description: "Connects to a RESP server to issue ad-hoc commands.")
 {
     hostOption,
@@ -90,6 +107,8 @@ RootCommand rootCommand = new(description: "Connects to a RESP server to issue a
     sniOption,
     trustOption,
     dbOption,
+    debugOption,
+    flushOption,
 };
 
 rootCommand.SetHandler(async ic =>
@@ -114,6 +133,8 @@ rootCommand.SetHandler(async ic =>
         Log = ic.Console.WriteLine,
         TrustServerCert = trustOption.Parse(ic),
         Database = dbOption.Parse(ic),
+        DebugLog = debugOption.Parse(ic) ? ic.Console.WriteLine : null,
+        AutoFlush = flushOption.Parse(ic),
     };
     options.Apply();
     try
@@ -156,7 +177,9 @@ internal sealed class ConnectionOptionsBag
     public bool Handshake { get; set; } = true;
     public string? Sni { get; set; }
     public bool TrustServerCert { get; set; }
-    public int? Database { get; internal set; }
+    public int? Database { get; set; }
+    public Action<string>? DebugLog { get; set; }
+    public bool AutoFlush { get; internal set; }
 
     public void Apply()
     {
