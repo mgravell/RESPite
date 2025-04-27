@@ -8,11 +8,30 @@ using System.Text;
 using RESPite.Resp;
 using RESPite.Resp.Readers;
 using RESPite.Transports;
+using Terminal.Gui;
 
 namespace StackExchange.Redis;
 
 public static class Utils
 {
+    public static void Append(this TextView log, string msg)
+    {
+        Application.Invoke(() =>
+        {
+            try
+            {
+                log.MoveEnd();
+                log.ReadOnly = false;
+                log.InsertText(msg + Environment.NewLine);
+                log.ReadOnly = true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex.Message);
+            }
+        });
+    }
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "TFMs")]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1845:Use span-based 'string.Concat'", Justification = "TFMs")]
     internal static string Truncate(string? value, int length)

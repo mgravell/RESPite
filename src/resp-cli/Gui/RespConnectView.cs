@@ -1,13 +1,12 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
+﻿using System.Globalization;
 using Terminal.Gui;
 
 namespace StackExchange.Redis.Gui;
 
-internal sealed class RespConnectView : View
+internal sealed class RespConnectView : TabBase
 {
-    private readonly TextField hostField, portField, issuerCert, userCert, userKey, userName, password, sni, database;
-    private readonly CheckBox tlsCheck, resp3Check, handshakeCheck, trustServerCert;
+    private readonly TextField hostField, portField, issuerCert, userCert, userKey, userName, password, sni, database, proxyPort;
+    private readonly CheckBox tlsCheck, resp3Check, handshakeCheck, trustServerCert, runProxyServer;
     private readonly Action<string>? debugLog;
 
     public ConnectionOptionsBag? Validate()
@@ -20,7 +19,7 @@ internal sealed class RespConnectView : View
                 {
                     Host = hostField.Text.Trim(),
                     Port = port,
-                    Database = IsInt32(database.Text, out int db) ? db : default,
+                    Database = IsInt32(database.Text, out int i32) ? i32 : default,
                     Resp3 = resp3Check.CheckedState == CheckState.Checked,
                     Tls = tlsCheck.CheckedState == CheckState.Checked,
                     CaCertPath = issuerCert.Text,
@@ -30,6 +29,8 @@ internal sealed class RespConnectView : View
                     Sni = sni.Text,
                     TrustServerCert = trustServerCert.CheckedState == CheckState.Checked,
                     DebugLog = debugLog,
+                    ProxyPort = IsInt32(proxyPort.Text, out i32) ? i32 : 6379,
+                    RunProxyServer = runProxyServer.CheckedState == CheckState.Checked,
                 };
             }
             catch
@@ -50,11 +51,7 @@ internal sealed class RespConnectView : View
     public RespConnectView(ConnectionOptionsBag options)
     {
         debugLog = options.DebugLog;
-
-        Width = Dim.Fill();
-        Height = Dim.Fill();
-        CanFocus = true;
-
+        SetStatus("Create a new RESP connection");
         var lbl = Add(new Label
         {
             Text = "Host ",
@@ -232,13 +229,44 @@ internal sealed class RespConnectView : View
         };
         Add(trustServerCert);
 
+        lbl = Add(new Label
+        {
+            Text = "Proxy port ",
+            Y = Pos.Bottom(lbl),
+        });
+        proxyPort = new TextField
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            Text = options.ProxyPort.ToString(),
+            Width = Dim.Fill(),
+        };
+        Add(proxyPort);
+
+        lbl = Add(new Label
+        {
+            Text = "Run proxy server ",
+            Y = Pos.Bottom(lbl),
+        });
+        runProxyServer = new CheckBox
+        {
+            X = Pos.Right(lbl) + 1,
+            Y = lbl.Y,
+            CheckedState = options.RunProxyServer ? CheckState.Checked : CheckState.UnChecked,
+        };
+        Add(runProxyServer);
+
         var btn = new Button
         {
             Y = Pos.Bottom(lbl) + 2,
-            Text = "connect",
+            Text = GetButtonLabel(runProxyServer.CheckedState),
             IsDefault = true,
         };
         Add(btn);
         btn.Accept += (s, e) => Connect?.Invoke();
+
+        runProxyServer.CheckedStateChanging += (_, e) => btn.Text = GetButtonLabel(e.NewValue);
     }
+
+    private static string GetButtonLabel(CheckState value) => value == CheckState.Checked ? "start proxy server" : "connect";
 }

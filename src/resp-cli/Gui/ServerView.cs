@@ -16,7 +16,7 @@ using Terminal.Gui;
 
 namespace StackExchange.Redis.Gui;
 
-internal class ServerView : View
+internal class ServerView : TabBase
 {
     private sealed class InterceptingScanner : IFrameScanner<ScanState>, IFrameValidator
     {
@@ -65,18 +65,6 @@ internal class ServerView : View
     private RespPayloadTableSource? data;
     private readonly CancellationToken endOfLife;
 
-    private string statusCaption;
-    public string StatusCaption => statusCaption;
-
-    public event Action<string>? StatusChanged;
-
-    [MemberNotNull(nameof(statusCaption))]
-    public void SetStatus(string status)
-    {
-        statusCaption = status;
-        StatusChanged?.Invoke(status);
-    }
-
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -120,9 +108,6 @@ internal class ServerView : View
     {
         _performRowDelta = PerformRowDelta;
         SetStatus($"{options.Host}, port {options.Port}{(options.Tls ? " (TLS)" : "")}");
-        CanFocus = true;
-        Width = Dim.Fill();
-        Height = Dim.Fill();
 
         this.endOfLife = endOfLife;
         var log = new TextView
@@ -140,13 +125,7 @@ internal class ServerView : View
         Add(log);
         _ = Task.Run(async () =>
         {
-            options.Log = msg => Application.Invoke(() =>
-            {
-                log.MoveEnd();
-                log.ReadOnly = false;
-                log.InsertText(msg + Environment.NewLine);
-                log.ReadOnly = true;
-            });
+            options.Log = msg => log.Append(msg);
 
             Transport = await Utils.ConnectAsync(options, frameScanner, FrameValidation.Enabled);
 
@@ -194,6 +173,12 @@ internal class ServerView : View
                 });
             }
         });
+    }
+
+    public ServerView(Stream client, CancellationToken endOfLife)
+    {
+        this.endOfLife = endOfLife;
+        throw new NotImplementedException();
     }
 
     private readonly ConcurrentQueue<RespPayload> _rowsToAdd = [];
@@ -361,7 +346,7 @@ internal class ServerView : View
                                 _ => typedNode.Prefix.ToString(),
                             };
                         }
-                        StatusChanged?.Invoke(status ?? "");
+                        OnStatusChanged(status);
                     };
                     respText.Text = response.ToString();
                 }
