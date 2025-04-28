@@ -432,4 +432,4 @@ $RECYCLE.BIN/
 !.vscode/launch.json
 !.vscode/extensions.json
 
-src/resp-cli/Properties/launchSettings.json
+**/Properties/launchSettings.json

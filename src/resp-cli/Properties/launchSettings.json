@@ -1,9 +1,0 @@
-{
-  "profiles": {
-    "resp-cli": {
-      "commandName": "Project",
-      "commandLineArgs": "--gui",
-      "nativeDebugging": true
-    }
-  }
-}
