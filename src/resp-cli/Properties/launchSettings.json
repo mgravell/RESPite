@@ -2,7 +2,7 @@
   "profiles": {
     "resp-cli": {
       "commandName": "Project",
-      "commandLineArgs": "--gui -h redis-19608.c100.us-east-1-4.ec2.cloud.redislabs.com -p 19608  --tls --cacert \"C:\\Code\\RedisKeys\\redis_ca.pem\" --cert \"C:\\Code\\RedisKeys\\redis-db-7497294.crt\" --key \"C:\\Code\\RedisKeys\\redis-db-7497294.key\" --proxy",
+      "commandLineArgs": "--gui",
       "nativeDebugging": true
     }
   }
