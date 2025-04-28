@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Collections.Concurrent;
+using System.CommandLine;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -46,7 +47,8 @@ internal class ServerView : TabBase
         {
             tailScanner.Trim(ref state, ref data, ref info);
 
-            (info.IsOutOfBand ? InboundOutOfBand : InboundResponse)?.Invoke(in data);
+            var evt = info.IsOutbound ? OutboundRequest : (info.IsOutOfBand ? InboundOutOfBand : InboundResponse);
+            evt?.Invoke(in data);
         }
         public void Validate(in ReadOnlySequence<byte> message)
         {
@@ -104,39 +106,57 @@ internal class ServerView : TabBase
         }
     }
 
-    public ServerView(ConnectionOptionsBag options, CancellationToken endOfLife)
+    private ServerView(CancellationToken endOfLife)
     {
         _performRowDelta = PerformRowDelta;
-        SetStatus($"{options.Host}, port {options.Port}{(options.Tls ? " (TLS)" : "")}");
-
         this.endOfLife = endOfLife;
+    }
+
+    private TextView CreateLog(ref ConnectionOptionsBag options)
+    {
+        SetStatus($"{options.Host}, port {options.Port}{(options.Tls ? " (TLS)" : "")}");
         var log = new TextView
         {
             Width = Dim.Fill(),
             Height = Dim.Fill(),
             ReadOnly = true,
         };
+        options = options.Clone();
+        options.Log = msg => log.Append(msg);
+        Add(log);
+        return log;
+    }
 
+    private void CompleteLog(TextView log)
+    {
+        var txt = log.Text;
+        Remove(log);
+        CreateTable();
+        AddLogEntry("(Connect)", txt);
+    }
+
+    private IFrameScanner<ScanState> CreateScanner()
+    {
         var frameScanner = new InterceptingScanner();
         frameScanner.OutboundRequest += OnOutboundRequest;
         frameScanner.InboundResponse += OnInboundResponse;
         frameScanner.InboundOutOfBand += OnInboundOutOfBand;
+        return frameScanner;
+    }
 
-        Add(log);
+    public ServerView(ConnectionOptionsBag options, CancellationToken endOfLife) : this(endOfLife)
+    {
+        var log = CreateLog(ref options);
+
         _ = Task.Run(async () =>
         {
-            options.Log = msg => log.Append(msg);
-
-            Transport = await Utils.ConnectAsync(options, frameScanner, FrameValidation.Enabled);
+            Transport = await Utils.ConnectAsync(options, CreateScanner(), FrameValidation.Enabled);
 
             if (Transport is not null)
             {
                 Application.Invoke(async () =>
                 {
-                    var txt = log.Text;
-                    Remove(log);
-                    CreateTable();
-                    AddLogEntry("(Connect)", txt);
+                    CompleteLog(log);
 
                     if (options.Database.HasValue)
                     {
@@ -175,10 +195,15 @@ internal class ServerView : TabBase
         });
     }
 
-    public ServerView(Stream client, CancellationToken endOfLife)
+    public ServerView(ConnectionOptionsBag options, Stream client, CancellationToken endOfLife) : this(endOfLife)
     {
-        this.endOfLife = endOfLife;
-        throw new NotImplementedException();
+        var log = CreateLog(ref options);
+
+        _ = Task.Run(async () =>
+        {
+            await Utils.ConnectAsync(options, CreateScanner(), FrameValidation.Enabled, client: client);
+            CompleteLog(log);
+        });
     }
 
     private readonly ConcurrentQueue<RespPayload> _rowsToAdd = [];

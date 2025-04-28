@@ -8,6 +8,7 @@ internal sealed class RespConnectView : TabBase
     private readonly TextField hostField, portField, issuerCert, userCert, userKey, userName, password, sni, database, proxyPort;
     private readonly CheckBox tlsCheck, resp3Check, handshakeCheck, trustServerCert, runProxyServer;
     private readonly Action<string>? debugLog;
+    private readonly bool debugProxyServer;
 
     public ConnectionOptionsBag? Validate()
     {
@@ -31,6 +32,7 @@ internal sealed class RespConnectView : TabBase
                     DebugLog = debugLog,
                     ProxyPort = IsInt32(proxyPort.Text, out i32) ? i32 : 6379,
                     RunProxyServer = runProxyServer.CheckedState == CheckState.Checked,
+                    DebugProxyServer = debugProxyServer,
                 };
             }
             catch
@@ -51,6 +53,7 @@ internal sealed class RespConnectView : TabBase
     public RespConnectView(ConnectionOptionsBag options)
     {
         debugLog = options.DebugLog;
+        debugProxyServer = options.DebugProxyServer;
         SetStatus("Create a new RESP connection");
         var lbl = Add(new Label
         {

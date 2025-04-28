@@ -149,7 +149,7 @@ internal abstract partial class MultiplexedTransportBase<TState> : IRequestRespo
             OnComplete();
             if (_transport is IFrameScannerLifetime<TState> lifetime)
             {
-                lifetime?.OnComplete(ref scanState);
+                lifetime.OnComplete(ref scanState);
             }
         }
     }

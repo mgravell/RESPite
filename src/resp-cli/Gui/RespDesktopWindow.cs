@@ -249,7 +249,8 @@ internal sealed class RespDesktopWindow : Window
             else if (options.RunProxyServer)
             {
                 var view = new ProxyView(options, EndOfLife);
-                view.ClientConnected += client => AddServerView(new ServerView(client, EndOfLife));
+                view.ClientConnected += client => AddServerView(new ServerView(options, client, EndOfLife));
+                view.AutoConnect += proxy => AddServerView(new ServerView(proxy, EndOfLife));
                 Add(view);
             }
             else
@@ -267,6 +268,6 @@ internal sealed class RespDesktopWindow : Window
             input.Text = command;
             input.SetFocus();
         };
-        Add(view);
+        Application.Invoke(() => Add(view));
     }
 }

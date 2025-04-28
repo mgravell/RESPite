@@ -36,6 +36,7 @@ internal class ProxyView : TabBase
         _ => endpoint.ToString() ?? "",
     };
 
+    public event Action<ConnectionOptionsBag>? AutoConnect;
     private async Task StartProxyServer()
     {
         try
@@ -47,10 +48,29 @@ internal class ProxyView : TabBase
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             socket.Bind(ep);
             socket.Listen(10);
+
+            bool selfConnect = options.DebugProxyServer;
             while (true)
             {
                 log.Append("Waiting for client...");
+
+                if (selfConnect)
+                {
+                    selfConnect = false;
+                    _ = Task.Run(() => AutoConnect?.Invoke(new ConnectionOptionsBag
+                    {
+                        Port = options.ProxyPort,
+                        Resp3 = options.Resp3,
+                        Database = options.Database,
+                        User = options.User,
+                        Password = options.Password,
+                        Handshake = options.Handshake,
+                    }));
+                }
+
                 var client = await socket.AcceptAsync(endOfLife);
+                log.Append($"Accepted client: {Format(client.RemoteEndPoint)}");
+                client.NoDelay = true;
                 var evt = ClientConnected;
                 if (evt == null)
                 {
