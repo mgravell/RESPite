@@ -4,14 +4,11 @@ using System.IO.Pipelines;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using System.Xml;
 using RESPite.Resp;
 using RESPite.Resp.Readers;
 using RESPite.Transports;
 using Terminal.Gui;
-using static Terminal.Gui.SpinnerStyle;
 
 namespace StackExchange.Redis;
 
@@ -108,11 +105,11 @@ public static class Utils
         // client-to-server
         var outbound = new System.IO.Pipelines.Pipe();
         _ = Task.Run(() => client.CopyToAsync(outbound.Writer, endOfLife));
-        _ = Task.Run(() => ReadAllAsync(outbound.Reader, client, scanner, true, endOfLife));
+        _ = Task.Run(() => ReadAllAsync(outbound.Reader, server, scanner, true, endOfLife));
 
         var inbound = new System.IO.Pipelines.Pipe();
         _ = Task.Run(() => server.CopyToAsync(inbound.Writer, endOfLife));
-        _ = Task.Run(() => ReadAllAsync(inbound.Reader, server, scanner, false, endOfLife));
+        _ = Task.Run(() => ReadAllAsync(inbound.Reader, client, scanner, false, endOfLife));
     }
 
     private static async Task ReadAllAsync(PipeReader source, Stream destination, IFrameScanner<ScanState> scanner, bool outbound, CancellationToken endOfLife)
@@ -137,10 +134,6 @@ public static class Utils
                     var workingBuffer = scanInfo.BytesRead == 0 ? entireBuffer : entireBuffer.Slice(scanInfo.BytesRead);
                     var status = workingBuffer.IsEmpty ? OperationStatus.NeedMoreData : scanner.TryRead(ref scanState, in workingBuffer, ref scanInfo);
 
-                    if (!outbound)
-                    {
-                        Debug.WriteLine("heh?");
-                    }
                     switch (status)
                     {
                         case OperationStatus.InvalidData:
@@ -158,12 +151,6 @@ public static class Utils
                             long bytesRead = scanInfo.BytesRead; // snapshot for our final advance
                             workingBuffer = entireBuffer.Slice(0, bytesRead); // includes head and trail data
                             scanner.Trim(ref scanState, ref workingBuffer, ref scanInfo);
-
-                            if (!outbound)
-                            {
-                                Debug.WriteLine($"{(outbound ? "out" : "in")}: {scanInfo.BytesRead} bytes");
-                                Debug.WriteLine(Encoding.UTF8.GetString(workingBuffer));
-                            }
 
                             if (workingBuffer.IsSingleSegment)
                             {

@@ -19,6 +19,7 @@ namespace StackExchange.Redis.Gui;
 
 internal class ServerView : TabBase
 {
+    private bool IsProxy { get; }
     private sealed class InterceptingScanner : IFrameScanner<ScanState>, IFrameValidator
     {
         private readonly IFrameScanner<ScanState> tailScanner;
@@ -80,6 +81,12 @@ internal class ServerView : TabBase
     {
         try
         {
+            if (IsProxy)
+            {
+                SetStatus("Proxied connection, unable to send command");
+                return false;
+            }
+
             if (Transport is not { } transport || data is null)
             {
                 SetStatus("Not connected, unable to send command");
@@ -106,15 +113,16 @@ internal class ServerView : TabBase
         }
     }
 
-    private ServerView(CancellationToken endOfLife)
+    private ServerView(bool isProxy, CancellationToken endOfLife)
     {
+        IsProxy = isProxy;
         _performRowDelta = PerformRowDelta;
         this.endOfLife = endOfLife;
     }
 
     private TextView CreateLog(ref ConnectionOptionsBag options)
     {
-        SetStatus($"{options.Host}, port {options.Port}{(options.Tls ? " (TLS)" : "")}");
+        SetStatus($"{options.Host}, port {options.Port}{(options.Tls ? " (TLS)" : "")}{(IsProxy ? " (proxy)" : "")}");
         var log = new TextView
         {
             Width = Dim.Fill(),
@@ -144,7 +152,7 @@ internal class ServerView : TabBase
         return frameScanner;
     }
 
-    public ServerView(ConnectionOptionsBag options, CancellationToken endOfLife) : this(endOfLife)
+    public ServerView(ConnectionOptionsBag options, CancellationToken endOfLife) : this(false, endOfLife)
     {
         var log = CreateLog(ref options);
 
@@ -195,7 +203,7 @@ internal class ServerView : TabBase
         });
     }
 
-    public ServerView(ConnectionOptionsBag options, Stream client, CancellationToken endOfLife) : this(endOfLife)
+    public ServerView(ConnectionOptionsBag options, Stream client, CancellationToken endOfLife) : this(true, endOfLife)
     {
         var log = CreateLog(ref options);
 
