@@ -80,6 +80,28 @@ public readonly struct SimpleStrings : IEnumerable<SimpleString>, IEnumerable
     IEnumerator<SimpleString> IEnumerable<SimpleString>.GetEnumerator() => GetEnumerator();
 
     /// <summary>
+    /// Gets an element by index.
+    /// </summary>
+    public SimpleString this[int index]
+    {
+        get
+        {
+            if (index >= 0 && index < Count)
+            {
+                int count = 0;
+                foreach (var item in this)
+                {
+                    if (count++ == index)
+                    {
+                        return item;
+                    }
+                }
+            }
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+    }
+
+    /// <summary>
     /// Allows efficient iteration of the strings that make up this content.
     /// </summary>
     public struct Enumerator : IEnumerator, IEnumerator<SimpleString>

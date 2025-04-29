@@ -1,23 +1,27 @@
-﻿using System.CommandLine;
+﻿using System.Collections.Immutable;
+using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.IO;
 using System.CommandLine.Parsing;
 using System.Net.Security;
-using System.Runtime.ConstrainedExecution;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using System.Text.RegularExpressions;
-using RESPite.Transports.Internal;
 using StackExchange.Redis;
 
 Option<string> hostOption = new(
     aliases: ["--host", "-h"],
-    description: "Server hostname");
+    description: "Server hostname")
+{
+    ArgumentHelpName = "hostname",
+};
 hostOption.SetDefaultValue("127.0.0.1");
 
 Option<int> portOption = new(
     aliases: ["--port", "-p"],
-    description: "Server port");
+    description: "Server port")
+{
+    ArgumentHelpName = "port",
+};
 portOption.SetDefaultValue(6379);
 
 Option<bool> guiOption = new(
@@ -29,11 +33,17 @@ Option<bool> guiOption = new(
 
 Option<string?> userOption = new(
     aliases: ["--user"],
-    description: "Username (requires --pass)");
+    description: "Username (requires --pass)")
+{
+    ArgumentHelpName = "username",
+};
 
 Option<string?> passOption = new(
     aliases: ["--pass", "-a"],
-    description: "Password to use when connecting to the server (or RESPCLI_AUTH environment variable)");
+    description: "Password to use when connecting to the server (or RESPCLI_AUTH environment variable)")
+{
+    ArgumentHelpName = "password",
+};
 
 Option<bool> tlsOption = new(
     aliases: ["--tls"],
@@ -44,15 +54,24 @@ Option<bool> tlsOption = new(
 
 Option<string?> cacertOption = new(
     aliases: ["--cacert"],
-    description: "CA Certificate file to verify with");
+    description: "CA Certificate file to verify with")
+{
+    ArgumentHelpName = "file",
+};
 
 Option<string?> certOption = new(
     aliases: ["--cert"],
-    description: "Client certificate to authenticate with");
+    description: "Client certificate to authenticate with")
+{
+    ArgumentHelpName = "file",
+};
 
 Option<string?> keyOption = new(
     aliases: ["--key"],
-    description: "Private key file to authenticate with (or password for PFX certs)");
+    description: "Private key file to authenticate with (or password for PFX certs)")
+{
+    ArgumentHelpName = "file",
+};
 
 Option<bool> resp3Option = new(
     aliases: ["-3"],
@@ -61,20 +80,26 @@ Option<bool> resp3Option = new(
     Arity = ArgumentArity.Zero,
 };
 
-Option<bool> trustOption = new(
-    aliases: ["--trust"],
-    description: "Trust remote server certificate")
+Option<bool> insecureOption = new(
+    aliases: ["--insecure", "--trust"],
+    description: "Allow insecure TLS connection by skipping cert validation")
 {
     Arity = ArgumentArity.Zero,
 };
 
 Option<string?> sniOption = new(
     aliases: ["--sni"],
-    description: "Server name indication for TLS");
+    description: "Server name indication for TLS")
+{
+    ArgumentHelpName = "host",
+};
 
 Option<int?> dbOption = new(
     aliases: ["-n"],
-    description: "Database number");
+    description: "Database number")
+{
+    ArgumentHelpName = "db",
+};
 
 Option<bool> debugOption = new(
     aliases: ["--debug"],
@@ -94,7 +119,10 @@ Option<bool> flushOption = new(
 
 Option<int> proxyPortOption = new(
     aliases: ["--proxyPort", "-pp"],
-    description: "Local debugging proxy port");
+    description: "Local debugging proxy port")
+{
+    ArgumentHelpName = "port",
+};
 proxyPortOption.SetDefaultValue(6379);
 
 Option<bool> runProxyServerOption = new(
@@ -112,13 +140,31 @@ Option<bool> debugProxyServerOption = new(
     IsHidden = true,
 };
 
+Option<int> repeatOption = new(
+    aliases: ["-r"],
+    description: "Execute specified command N times")
+{
+    ArgumentHelpName = "repeat",
+};
+repeatOption.SetDefaultValue(1);
+
+Option<double> intervalOption = new(
+    aliases: ["-i"],
+    description: "When -r is used, waits <interval> seconds per command")
+{
+    ArgumentHelpName = "interval",
+};
+intervalOption.SetDefaultValue(0D);
+
+repeatOption.SetDefaultValue(1);
+
 Argument<string> cmdArg = new(
-    name: "cmd")
+    name: "cmd", description: "RESP command to execute")
 {
     Arity = ArgumentArity.ZeroOrOne,
 };
 Argument<string[]> argsArg = new(
-    name: "arg");
+    name: "arg", description: "RESP command argument(s)");
 
 RootCommand rootCommand = new(description: "Connects to a RESP server to issue ad-hoc commands.")
 {
@@ -133,7 +179,7 @@ RootCommand rootCommand = new(description: "Connects to a RESP server to issue a
     certOption,
     keyOption,
     sniOption,
-    trustOption,
+    insecureOption,
     dbOption,
     debugOption,
     flushOption,
@@ -142,6 +188,8 @@ RootCommand rootCommand = new(description: "Connects to a RESP server to issue a
     debugProxyServerOption,
     cmdArg,
     argsArg,
+    repeatOption,
+    intervalOption,
 };
 
 rootCommand.SetHandler(async ic =>
@@ -164,15 +212,19 @@ rootCommand.SetHandler(async ic =>
         UserKeyPathOrPassword = keyOption.Parse(ic),
         Sni = sniOption.Parse(ic),
         Log = ic.Console.WriteLine,
-        TrustServerCert = trustOption.Parse(ic),
+        TrustServerCert = insecureOption.Parse(ic),
         Database = dbOption.Parse(ic),
         DebugLog = debugOption.Parse(ic) ? ic.Console.WriteLine : null,
         AutoFlush = flushOption.Parse(ic),
         ProxyPort = proxyPortOption.Parse(ic),
         RunProxyServer = runProxyServerOption.Parse(ic),
         DebugProxyServer = debugProxyServerOption.Parse(ic),
+        Repeat = repeatOption.Parse(ic),
+        Interval = intervalOption.Parse(ic),
+        Command = GetCommand(cmdArg.Parse(ic), argsArg.Parse(ic)),
     };
     options.Apply();
+
     try
     {
         if (guiOption.Parse(ic))
@@ -185,7 +237,7 @@ rootCommand.SetHandler(async ic =>
             if (conn is not null)
             {
                 var handshake = Utils.GetHandshake(options);
-                await RespClient.RunClient(conn, handshake, options.Database);
+                await RespClient.RunClient(conn, handshake, options.Command, options.Repeat, options.Interval, options.Database);
             }
         }
         ic.ExitCode = 0;
@@ -196,6 +248,21 @@ rootCommand.SetHandler(async ic =>
         ic.ExitCode = -1;
     }
 });
+
+ImmutableArray<string> GetCommand(string cmd, string[] args)
+{
+    if (string.IsNullOrWhiteSpace(cmd))
+    {
+        return [];
+    }
+    cmd = cmd.Trim();
+    if (args is null || args.Length == 0)
+    {
+        return [cmd];
+    }
+    return [cmd, .. args];
+}
+
 return await rootCommand.InvokeAsync(args);
 
 internal sealed class ConnectionOptionsBag : ICloneable
@@ -219,6 +286,9 @@ internal sealed class ConnectionOptionsBag : ICloneable
     public int ProxyPort { get; set; } = 6379;
     public bool RunProxyServer { get; set; }
     public bool DebugProxyServer { get; set; }
+    public int Repeat { get; set; } = 1;
+    public double Interval { get; set; }
+    public ImmutableArray<string> Command { get; set; } = ImmutableArray<string>.Empty;
 
     public void Apply()
     {
@@ -384,11 +454,20 @@ internal sealed class ConnectionOptionsBag : ICloneable
         User = User,
         UserCertPath = UserCertPath,
         UserKeyPathOrPassword = UserKeyPathOrPassword,
+        Interval = Interval,
+        Repeat = Repeat,
+        Command = Command,
     };
 }
 
 internal static class OptionExtensions
 {
+    public static T Parse<T>(this Argument<T> argument, InvocationContext context)
+    {
+        var val = context.ParseResult.FindResultFor(argument)?.GetValueOrDefault();
+        return val is null ? default! : (T)val;
+    }
+
     public static T Parse<T>(this Option<T> option, InvocationContext context)
     {
         var val = context.ParseResult.FindResultFor(option)?.GetValueOrDefault();

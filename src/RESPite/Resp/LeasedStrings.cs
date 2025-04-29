@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 
 namespace RESPite.Resp;
 
@@ -65,6 +66,89 @@ public readonly struct LeasedStrings : IDisposable, IEnumerable<SimpleString>, I
     {
         _chunk = new(buffer, byteCount);
         Count = elementCount;
+    }
+
+    /// <summary>
+    /// Create a new instance, copying data from an existing collection.
+    /// </summary>
+    public LeasedStrings(IReadOnlyCollection<string> values)
+    {
+        int count;
+        long bytes = 0;
+        if (values is null)
+        {
+            this = default;
+            return;
+        }
+        if ((count = values.Count) == 0)
+        {
+            this = Empty;
+            return;
+        }
+
+        if (values is List<string> list)
+        {
+            foreach (var value in list)
+            {
+                bytes += Encoding.UTF8.GetByteCount(value);
+            }
+            Builder builder = new(count, checked((int)bytes));
+            try
+            {
+                foreach (var value in list)
+                {
+                    builder.Add(value);
+                }
+                this = builder.Create();
+            }
+            catch
+            {
+                builder.Dispose();
+                throw;
+            }
+        }
+        else if (values is string[] arr)
+        {
+            foreach (var value in arr)
+            {
+                bytes += Encoding.UTF8.GetByteCount(value);
+            }
+            Builder builder = new(count, checked((int)bytes));
+            try
+            {
+                foreach (var value in arr)
+                {
+                    builder.Add(value);
+                }
+                this = builder.Create();
+            }
+            catch
+            {
+                builder.Dispose();
+                throw;
+            }
+        }
+        else
+        {
+            foreach (var value in values)
+            {
+                bytes += Encoding.UTF8.GetByteCount(value);
+            }
+            Builder builder = new(count, checked((int)bytes));
+            try
+            {
+                foreach (var value in values)
+                {
+                    builder.Add(value);
+                }
+                this = builder.Create();
+            }
+            catch
+            {
+                builder.Dispose();
+                throw;
+            }
+        }
     }
 
     /// <summary>

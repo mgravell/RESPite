@@ -1,4 +1,6 @@
-﻿using RESPite.Resp;
+﻿using System.Collections.Immutable;
+using System.Globalization;
+using RESPite.Resp;
 using RESPite.Resp.Readers;
 using RESPite.Resp.Writers;
 using RESPite.Transports;
@@ -57,41 +59,71 @@ internal static class RespClient
         Console.WriteLine();
     }
 
-    internal static async Task RunClient(IRequestResponseTransport transport, string? command, int? db)
+    internal static async Task RunClient(IRequestResponseTransport transport, ImmutableArray<string> handshake, ImmutableArray<string> command, int repeat, double interval, int? db)
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(command))
+            while (true)
             {
-                WriteLine("Authenticating...", null, null);
-            }
-            do
-            {
-                if (command is null) break; // EOF
-
-                List<SimpleString> strings = new List<SimpleString>();
-                foreach (var value in Utils.Tokenize(command))
+                LeasedStrings cmd;
+                string? hint = null;
+                if (!handshake.IsDefaultOrEmpty)
                 {
-                    strings.Add(value);
+                    cmd = new(handshake);
+                    if (string.Equals("HELLO", handshake[0], StringComparison.OrdinalIgnoreCase)
+                        && handshake.Length == 2)
+                    {
+                        hint = $"{handshake[0]} {handshake[1]}"; // safe and meaningful to include
+                    }
+                    else
+                    {
+                        hint = $"{handshake[0]}...";
+                    }
+                    handshake = [];
                 }
-                using LeasedStrings cmd = new(strings);
-                if (!cmd.IsEmpty)
+                else if (db.HasValue)
                 {
-                    WriteResult(await transport.SendAsync(cmd, CommandWriter.AdHoc, LeasedRespResult.Reader));
-                }
-
-                if (db.HasValue)
-                {
-                    WriteLine("Changing database...", null, null);
-                    command = $"select {db}";
+                    cmd = new(["SELECT", db.GetValueOrDefault().ToString(CultureInfo.InvariantCulture)]);
+                    hint = $"SELECT {db}";
                     db = null;
+                }
+                else if (!command.IsDefaultOrEmpty)
+                {
+                    if (repeat <= 0)
+                    {
+                        cmd = default;
+                    }
+                    else
+                    {
+                        cmd = new(command);
+                        hint = command.Length == 1 ? command[0] : $"{command[0]}...";
+                        repeat--;
+                        if (repeat != 0 && interval > 0)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(interval));
+                        }
+                    }
                 }
                 else
                 {
-                    command = ReadLine();
+                    var line = ReadLine();
+                    cmd = line is null ? default : new(Utils.Tokenize(line).ToImmutableArray());
                 }
+
+                if (cmd.IsNull)
+                {
+                    break; // EOF
+                }
+                if (!cmd.IsEmpty)
+                {
+                    if (!string.IsNullOrWhiteSpace(hint))
+                    {
+                        WriteLine(hint, null, null);
+                    }
+                    WriteResult(await transport.SendAsync(cmd, CommandWriter.AdHoc, LeasedRespResult.Reader));
+                }
+                cmd.Dispose();
             }
-            while (true);
         }
         catch (Exception ex)
         {

@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net;
@@ -188,7 +189,7 @@ public static class Utils
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "Clarity")]
-    internal static string GetHandshake(ConnectionOptionsBag options)
+    internal static ImmutableArray<string> GetHandshake(ConnectionOptionsBag options)
     {
         if (options.Resp3)
         {
@@ -196,30 +197,30 @@ public static class Utils
             {
                 if (string.IsNullOrWhiteSpace(options.User))
                 {
-                    return $"HELLO 3 AUTH default {options.Password}";
+                    return ["HELLO", "3", "AUTH", "default", options.Password];
                 }
                 else
                 {
-                    return $"HELLO 3 AUTH {options.User} {options.Password}";
+                    return ["HELLO", "3", "AUTH", options.User, options.Password];
                 }
             }
             else
             {
-                return "HELLO 3";
+                return ["HELLO", "3"];
             }
         }
         else if (!string.IsNullOrWhiteSpace(options.Password))
         {
             if (string.IsNullOrWhiteSpace(options.User))
             {
-                return $"AUTH {options.User} {options.Password}";
+                return ["AUTH", options.Password];
             }
             else
             {
-                return $"AUTH {options.Password}";
+                return ["AUTH", options.User, options.Password];
             }
         }
-        return "";
+        return [];
     }
 
     internal static string GetSimpleText(in ReadOnlySequence<byte> content, AggregateMode childMode = AggregateMode.Full, int sizeHint = int.MaxValue)
