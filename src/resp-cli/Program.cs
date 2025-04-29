@@ -92,6 +92,34 @@ Option<bool> flushOption = new(
     IsHidden = true,
 };
 
+Option<int> proxyPortOption = new(
+    aliases: ["--proxyPort", "-pp"],
+    description: "Local debugging proxy port");
+proxyPortOption.SetDefaultValue(6379);
+
+Option<bool> runProxyServerOption = new(
+    aliases: ["--proxy"],
+    description: "Enable local debugging proxy")
+{
+    Arity = ArgumentArity.Zero,
+};
+
+Option<bool> debugProxyServerOption = new(
+    aliases: ["--debugProxy"],
+    description: "Self-connect to debugging proxy")
+{
+    Arity = ArgumentArity.Zero,
+    IsHidden = true,
+};
+
+Argument<string> cmdArg = new(
+    name: "cmd")
+{
+    Arity = ArgumentArity.ZeroOrOne,
+};
+Argument<string[]> argsArg = new(
+    name: "arg");
+
 RootCommand rootCommand = new(description: "Connects to a RESP server to issue ad-hoc commands.")
 {
     hostOption,
@@ -109,6 +137,11 @@ RootCommand rootCommand = new(description: "Connects to a RESP server to issue a
     dbOption,
     debugOption,
     flushOption,
+    proxyPortOption,
+    runProxyServerOption,
+    debugProxyServerOption,
+    cmdArg,
+    argsArg,
 };
 
 rootCommand.SetHandler(async ic =>
@@ -135,6 +168,9 @@ rootCommand.SetHandler(async ic =>
         Database = dbOption.Parse(ic),
         DebugLog = debugOption.Parse(ic) ? ic.Console.WriteLine : null,
         AutoFlush = flushOption.Parse(ic),
+        ProxyPort = proxyPortOption.Parse(ic),
+        RunProxyServer = runProxyServerOption.Parse(ic),
+        DebugProxyServer = debugProxyServerOption.Parse(ic),
     };
     options.Apply();
     try
@@ -162,7 +198,7 @@ rootCommand.SetHandler(async ic =>
 });
 return await rootCommand.InvokeAsync(args);
 
-internal sealed class ConnectionOptionsBag
+internal sealed class ConnectionOptionsBag : ICloneable
 {
     public string? UserKeyPathOrPassword { get; set; }
     public string? UserCertPath { get; set; }
@@ -179,7 +215,10 @@ internal sealed class ConnectionOptionsBag
     public bool TrustServerCert { get; set; }
     public int? Database { get; set; }
     public Action<string>? DebugLog { get; set; }
-    public bool AutoFlush { get; internal set; }
+    public bool AutoFlush { get; set; }
+    public int ProxyPort { get; set; } = 6379;
+    public bool RunProxyServer { get; set; }
+    public bool DebugProxyServer { get; set; }
 
     public void Apply()
     {
@@ -322,6 +361,30 @@ internal sealed class ConnectionOptionsBag
             return pfx;
         };
     }
+
+    object ICloneable.Clone() => Clone();
+    internal ConnectionOptionsBag Clone() => new()
+    {
+        AutoFlush = AutoFlush,
+        CaCertPath = CaCertPath,
+        Database = Database,
+        DebugLog = DebugLog,
+        DebugProxyServer = DebugProxyServer,
+        Handshake = Handshake,
+        Host = Host,
+        Log = Log,
+        Password = Password,
+        Port = Port,
+        ProxyPort = ProxyPort,
+        Resp3 = Resp3,
+        RunProxyServer = RunProxyServer,
+        Sni = Sni,
+        Tls = Tls,
+        TrustServerCert = TrustServerCert,
+        User = User,
+        UserCertPath = UserCertPath,
+        UserKeyPathOrPassword = UserKeyPathOrPassword,
+    };
 }
 
 internal static class OptionExtensions

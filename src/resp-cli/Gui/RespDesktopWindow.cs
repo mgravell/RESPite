@@ -70,13 +70,9 @@ internal sealed class RespDesktopWindow : Window
         servers.ApplyStyleChanges();
         servers.SelectedTabChanged += (s, e) =>
         {
-            if (servers.SelectedTab?.View is ServerView { } selected)
+            if (servers.SelectedTab?.View is TabBase { } selected)
             {
                 SetStatusText(selected.StatusCaption);
-            }
-            else if (servers.SelectedTab?.View is RespConnectView)
-            {
-                SetStatusText("Create a new RESP connection");
             }
             else
             {
@@ -117,7 +113,6 @@ internal sealed class RespDesktopWindow : Window
 
         Add(lbl, input, servers, statusBar, tool);
     }
-
     public void SetStatusText(string text) => statusBar.Text = text;
 
     private void ShowTools()
@@ -194,59 +189,85 @@ internal sealed class RespDesktopWindow : Window
         return true;
     }
 
+    private void Add(TabBase view)
+    {
+        if (view is null)
+        {
+            return;
+        }
+
+        var tabNumber = servers.Tabs.Count;
+        var tab = new Tab
+        {
+            DisplayText = $" {tabNumber} ",
+            View = view,
+        };
+
+        var key = tabNumber switch
+        {
+            1 => Key.F1,
+            2 => Key.F2,
+            3 => Key.F3,
+            4 => Key.F4,
+            5 => Key.F5,
+            6 => Key.F6,
+            7 => Key.F7,
+            8 => Key.F8,
+            9 => Key.F9,
+            10 => Key.F10,
+            11 => Key.F11,
+            12 => Key.F12,
+            _ => null,
+        };
+
+        if (key is not null)
+        {
+            Add(new Shortcut
+            {
+                Key = key,
+                Action = () => servers.SelectedTab = tab,
+                Visible = false,
+            });
+            if (view is TabBase tabView)
+            {
+                tabView.SetStatus($"({key}) " + tabView.StatusCaption);
+            }
+        }
+        servers.AddTab(tab, true);
+    }
+
     public void AddServer()
     {
         Application.Invoke(() =>
         {
             var options = connect.Validate();
+
             if (options is null)
             {
-                return;
+                // options are invalid
             }
-
-            var view = new ServerView(options, EndOfLife);
-            view.StatusChanged += SetStatusText;
-            var tabNumber = servers.Tabs.Count;
-            var tab = new Tab
+            else if (options.RunProxyServer)
             {
-                DisplayText = $" {tabNumber} ",
-                View = view,
-            };
-
-            view.RepeatCommand += command =>
-            {
-                input.Text = command;
-                input.SetFocus();
-            };
-
-            var key = tabNumber switch
-            {
-                1 => Key.F1,
-                2 => Key.F2,
-                3 => Key.F3,
-                4 => Key.F4,
-                5 => Key.F5,
-                6 => Key.F6,
-                7 => Key.F7,
-                8 => Key.F8,
-                9 => Key.F9,
-                10 => Key.F10,
-                11 => Key.F11,
-                12 => Key.F12,
-                _ => null,
-            };
-
-            if (key is not null)
-            {
-                Add(new Shortcut
-                {
-                    Key = key,
-                    Action = () => servers.SelectedTab = tab,
-                    Visible = false,
-                });
-                view.SetStatus($"({key}) " + view.StatusCaption);
+                var view = new ProxyView(options, EndOfLife);
+                view.ClientConnected += client => AddServerView(new ServerView(options, client, EndOfLife));
+                view.AutoConnect += proxy => AddServerView(new ServerView(proxy, EndOfLife));
+                Add(view);
             }
-            servers.AddTab(tab, true);
+            else
+            {
+                AddServerView(new ServerView(options, EndOfLife));
+            }
         });
+    }
+    private void AddServerView(ServerView view)
+    {
+        view.StatusChanged += SetStatusText;
+
+        view.RepeatCommand += command =>
+        {
+            input.Text = command;
+            input.SetFocus();
+        };
+        Application.Invoke(() => Add(view));
     }
 }

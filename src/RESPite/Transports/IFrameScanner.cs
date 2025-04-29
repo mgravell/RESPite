@@ -65,6 +65,16 @@ public interface IFrameScannerLifetime<TState> : IFrameScanner<TState>
 public struct FrameScanInfo
 {
     /// <summary>
+    /// Initialize an instance.
+    /// </summary>
+    public FrameScanInfo(bool isOutbound) => IsOutbound = isOutbound;
+
+    /// <summary>
+    /// Indicates whether the data operation is outbound.
+    /// </summary>
+    public bool IsOutbound { get; }
+
+    /// <summary>
     /// The amount of data, in bytes, to read before attempting to read the next frame.
     /// </summary>
     public int ReadHint { get; set; }
