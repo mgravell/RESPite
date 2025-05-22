@@ -180,10 +180,12 @@ internal static class RespClient
                 int i = 0;
                 while (iter.MoveNext())
                 {
-                    var child = iter.Current;
+                    ref RespReader child = ref iter.Value;
+                    child.MoveNext();
                     WriteValue(ref child, indent, i);
+                    child.DemandEnd();
+                    iter.MovePast(out reader);
                 }
-                iter.MovePast(out reader);
             }
         }
 
