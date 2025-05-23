@@ -184,8 +184,9 @@ internal static class RespClient
                     child.MoveNext();
                     WriteValue(ref child, indent, i);
                     child.DemandEnd();
-                    iter.MovePast(out reader);
+                    i++;
                 }
+                iter.MovePast(out reader);
             }
         }
 
