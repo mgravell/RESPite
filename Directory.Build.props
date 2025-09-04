@@ -20,7 +20,7 @@
     <DefaultLanguage>en-US</DefaultLanguage>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <PublicSign Condition=" '$(OS)' != 'Windows_NT' ">true</PublicSign>
+    <!--<PublicSign Condition=" '$(OS)' != 'Windows_NT' ">true</PublicSign>-->
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
