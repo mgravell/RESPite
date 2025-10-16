@@ -124,24 +124,18 @@ public abstract class CommandWriter
     /// <summary>
     /// Allows custom commands to be issued (including the command itself).
     /// </summary>
-    public static IRespWriter<LeasedStrings> AdHoc => AdHocCommandWriter.Instance;
+    public static IRespWriter<ReadOnlyMemory<byte>> Raw => RawCommandWriter.Instance;
 
-    private sealed class AdHocCommandWriter : CommandWriter<LeasedStrings>
+    private sealed class RawCommandWriter : CommandWriter<ReadOnlyMemory<byte>>
     {
-        private AdHocCommandWriter() : base("ad-hoc", -1)
+        private RawCommandWriter() : base("raw", -1)
         {
         }
-        public static readonly AdHocCommandWriter Instance = new();
+        public static readonly RawCommandWriter Instance = new();
 
-        protected override IRespWriter<LeasedStrings> Create(string command) => this;
-        public override void Write(in LeasedStrings request, ref RespWriter writer)
-        {
-            writer.WriteArray(request.Count);
-            foreach (var value in request)
-            {
-                writer.WriteBulkString(value);
-            }
-        }
+        protected override IRespWriter<ReadOnlyMemory<byte>> Create(string command) => this;
+        public override void Write(in ReadOnlyMemory<byte> request, ref RespWriter writer)
+            => writer.WriteRaw(request.Span);
     }
 }
 

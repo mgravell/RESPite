@@ -1,5 +1,5 @@
 ﻿using System.Collections.Immutable;
-using System.Globalization;
+using RESPite;
 using RESPite.Resp;
 using RESPite.Resp.Readers;
 using RESPite.Resp.Writers;
@@ -65,11 +65,11 @@ internal static class RespClient
         {
             while (true)
             {
-                LeasedStrings cmd;
+                Lease<byte> cmd;
                 string? hint = null;
                 if (!handshake.IsDefaultOrEmpty)
                 {
-                    cmd = new(handshake);
+                    cmd = CommandParser.ParseResp(handshake.AsSpan());
                     if (string.Equals("HELLO", handshake[0], StringComparison.OrdinalIgnoreCase)
                         && handshake.Length == 2)
                     {
@@ -83,7 +83,8 @@ internal static class RespClient
                 }
                 else if (db.HasValue)
                 {
-                    cmd = new(["SELECT", db.GetValueOrDefault().ToString(CultureInfo.InvariantCulture)]);
+                    hint = $"SELECT {db}";
+                    cmd = CommandParser.ParseResp(hint);
                     hint = $"SELECT {db}";
                     db = null;
                 }
@@ -95,7 +96,7 @@ internal static class RespClient
                     }
                     else
                     {
-                        cmd = new(command);
+                        cmd = CommandParser.ParseResp(string.Join(' ', command));
                         hint = command.Length == 1 ? command[0] : $"{command[0]}...";
                         repeat--;
                         if (repeat != 0 && interval > 0)
@@ -107,7 +108,7 @@ internal static class RespClient
                 else
                 {
                     var line = ReadLine();
-                    cmd = line is null ? default : new(Utils.Tokenize(line).ToImmutableArray());
+                    cmd = line is null ? default : CommandParser.ParseResp(line);
                 }
 
                 if (cmd.IsNull)
@@ -120,7 +121,7 @@ internal static class RespClient
                     {
                         WriteLine(hint, null, null);
                     }
-                    WriteResult(await transport.SendAsync(cmd, CommandWriter.AdHoc, LeasedRespResult.Reader));
+                    WriteResult(await transport.SendAsync(cmd.Memory, CommandWriter.Raw, LeasedRespResult.Reader));
                 }
                 cmd.Dispose();
             }
@@ -182,7 +183,7 @@ internal static class RespClient
                 {
                     ref RespReader child = ref iter.Value;
                     child.MoveNext();
-                    WriteValue(ref child, indent, i);
+                    WriteValue(ref child, indent + 1, i);
                     child.DemandEnd();
                     i++;
                 }
@@ -192,7 +193,7 @@ internal static class RespClient
 
         static void Indent(int indent)
         {
-            while (indent-- > 0) Write(" ", null, null);
+            while (indent-- > 0) Write("  ", null, null);
         }
 
         static void WriteHeader(RespPrefix prefix, int indent, int index)
@@ -214,7 +215,7 @@ internal static class RespClient
             }
             else
             {
-                WriteLine(reader.ReadString() ?? "", foreground, background);
+                WriteLine(CommandParser.ReadEscaped(ref reader), foreground, background);
             }
         }
 

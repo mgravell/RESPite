@@ -93,15 +93,8 @@ internal class ServerView : TabBase
                 return false;
             }
 
-            List<SimpleString> strings = new List<SimpleString>();
-            foreach (var value in Utils.Tokenize(command))
-            {
-                strings.Add(value);
-            }
-            using LeasedStrings cmd = new(strings);
-            if (cmd.IsEmpty) return false;
-
-            var result = await transport.SendAsync(cmd, CommandWriter.AdHoc, LeasedRespResult.Reader, endOfLife).AsTask();
+            var cmd = CommandParser.ParseResp(command);
+            var result = await transport.SendAsync(cmd.Memory, CommandWriter.Raw, LeasedRespResult.Reader, endOfLife).AsTask();
             SetStatus($"Sent command: {command}");
             callback?.Invoke(result);
             return true;
