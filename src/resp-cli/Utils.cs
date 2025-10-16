@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
+using RESPite;
 using RESPite.Resp;
 using RESPite.Resp.Readers;
 using RESPite.Resp.Writers;
@@ -269,12 +270,9 @@ public static class Utils
             var sb = new StringBuilder(cmd);
             for (int i = 1; i < len; i++)
             {
-                reader.MoveNext(RespPrefix.BulkString);
-                reader.DemandNotNull();
-                string orig = reader.ReadString()!;
-                var s = Escape(reader.ReadString());
-                if (orig.Contains(' ') || orig.Contains('\"')) s = "\"" + s + "\"";
-                sb.Append(' ').Append(s);
+                reader.MoveNext();
+                sb.Append(' ');
+                CommandParser.AppendEscaped(ref reader, sb);
             }
             cmd = sb.ToString();
         }

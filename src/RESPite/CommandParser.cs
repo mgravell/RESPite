@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.Text;
 using RESPite.Resp;
+using RESPite.Resp.Readers;
 using RESPite.Resp.Writers;
 
 namespace RESPite;
@@ -72,6 +73,95 @@ public class CommandParser
             _buffer = [];
             return tmp;
         }
+    }
+
+    /// <summary>
+    /// Read a value as a CLI string.
+    /// </summary>
+    public static string ReadEscaped(ref RespReader reader)
+    {
+        reader.DemandScalar();
+        reader.DemandNotNull();
+        var bLen = reader.ScalarLength();
+        if (bLen == 0) return "\"\"";
+        var sb = new StringBuilder(bLen);
+        AppendEscaped(ref reader, sb);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Append a value as a CLI string.
+    /// </summary>
+    public static void AppendEscaped(ref RespReader reader, StringBuilder sb)
+    {
+        reader.DemandScalar();
+        reader.DemandNotNull();
+        var bLen = reader.ScalarLength();
+        if (bLen == 0)
+        {
+            sb.Append("\"\"");
+            return;
+        }
+        byte[]? lease = null;
+        var span = (bLen <= 128 ? stackalloc byte[128] : (lease = ArrayPool<byte>.Shared.Rent(bLen))).Slice(0, bLen);
+        reader.CopyTo(span);
+        bool quoteEscape = false;
+        foreach (var b in span)
+        {
+            if (b <= ' ' | b >= 127)
+            {
+                quoteEscape = true;
+                break;
+            }
+        }
+        if (quoteEscape)
+        {
+            sb.Append("\"");
+            foreach (var b in span)
+            {
+                if (b < ' ' | b >= 127 | b == '"' | b == '\\')
+                {
+                    switch (b)
+                    {
+                        case (byte)'\\': sb.Append("\\\\"); break;
+                        case (byte)'"': sb.Append("\\\""); break;
+                        case (byte)'\n': sb.Append("\\n"); break;
+                        case (byte)'\r': sb.Append("\\r"); break;
+                        case (byte)'\t': sb.Append("\\t"); break;
+                        case (byte)'\b': sb.Append("\\b"); break;
+                        case (byte)'\a': sb.Append("\\a"); break;
+                        default: sb.Append("\\x").Append(b.ToString("X2")); break;
+                    }
+                }
+                else
+                {
+                    sb.Append((char)b);
+                }
+            }
+            sb.Append('"');
+        }
+        else
+        {
+            sb.Append(reader.ReadString()!);
+        }
+    }
+
+    /// <summary>
+    /// Format the given pre-parsed tokens into RESP.
+    /// </summary>
+    public static Lease<byte> ParseResp(ReadOnlySpan<string> tokens)
+    {
+        using var buffer = new ArrayPoolWriter();
+        RespWriter writer = new(buffer);
+        writer.WriteArray(tokens.Length);
+        foreach (var token in tokens)
+        {
+            writer.WriteBulkString(token);
+        }
+        writer.Flush();
+
+        var arr = buffer.Detach(out int committed);
+        return new Lease<byte>(arr, committed);
     }
 
     /// <summary>
