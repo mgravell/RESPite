@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Text;
 using RESPite.Resp;
 using RESPite.Resp.Readers;
+using RESPite.Resp.Writers;
 using RESPite.Transports;
 using Terminal.Gui;
 

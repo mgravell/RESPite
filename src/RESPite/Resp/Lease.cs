@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -17,8 +18,11 @@ public readonly struct Lease<T> : IDisposable
     /// </summary>
     public Lease(int length) => _lease = length == 0 ? LeaseCore.Empty : new LeaseCore(length);
 
-    // trusted .ctor using existing array
-    internal Lease(T[] value, int count)
+    /// <summary>
+    /// Create a new <see cref="Lease{T}"/> value using the existing array which *must* come from the default array-pool.
+    /// </summary>
+    [Browsable(false), EditorBrowsable(EditorBrowsableState.Never)]
+    public Lease(T[] value, int count)
     {
         if (count == 0)
         {
@@ -40,6 +44,16 @@ public readonly struct Lease<T> : IDisposable
     /// Gets the memory associated with this lease.
     /// </summary>
     public Memory<T> Memory => _lease is null ? default : _lease.Memory;
+
+    /// <summary>
+    /// Gets the span associated with this lease.
+    /// </summary>
+    public Span<T> Span => _lease is null ? default : _lease.GetSpan();
+
+    /// <summary>
+    /// Gets the array-segment associated with this lease.
+    /// </summary>
+    public ArraySegment<T> ArraySegment => _lease is null ? default : _lease.ArraySegment;
 
     /// <summary>
     /// Gets the number of elements in this lease.
@@ -86,10 +100,10 @@ public readonly struct Lease<T> : IDisposable
 
         public override Span<T> GetSpan()
         {
-            return _arr is { } arr ? new(arr, 0, Length) : ThrowDisposed();
+            return _arr is { } arr ? new(arr, 0, Length) : ThrowDisposedLocal();
 
             [MethodImpl(MethodImplOptions.NoInlining), DoesNotReturn]
-            static Span<T> ThrowDisposed()
+            static Span<T> ThrowDisposedLocal()
             {
                 ThrowDisposed();
                 return default;
@@ -102,6 +116,15 @@ public readonly struct Lease<T> : IDisposable
             {
                 if (_arr is null) ThrowDisposed();
                 return CreateMemory(Length);
+            }
+        }
+
+        public ArraySegment<T> ArraySegment
+        {
+            get
+            {
+                if (_arr is null) ThrowDisposed();
+                return new(_arr, 0, Length);
             }
         }
 
