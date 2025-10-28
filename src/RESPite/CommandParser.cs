@@ -78,21 +78,21 @@ public class CommandParser
     /// <summary>
     /// Read a value as a CLI string.
     /// </summary>
-    public static string ReadEscaped(ref RespReader reader)
+    public static string ReadEscaped(ref RespReader reader, bool escapeCrlf)
     {
         reader.DemandScalar();
         reader.DemandNotNull();
         var bLen = reader.ScalarLength();
         if (bLen == 0) return "\"\"";
         var sb = new StringBuilder(bLen);
-        AppendEscaped(ref reader, sb);
+        AppendEscaped(ref reader, sb, escapeCrlf);
         return sb.ToString();
     }
 
     /// <summary>
     /// Append a value as a CLI string.
     /// </summary>
-    public static void AppendEscaped(ref RespReader reader, StringBuilder sb)
+    public static void AppendEscaped(ref RespReader reader, StringBuilder sb, bool escapeCrlf)
     {
         reader.DemandScalar();
         reader.DemandNotNull();
@@ -125,8 +125,9 @@ public class CommandParser
                     {
                         case (byte)'\\': sb.Append("\\\\"); break;
                         case (byte)'"': sb.Append("\\\""); break;
-                        case (byte)'\n': sb.Append("\\n"); break;
-                        case (byte)'\r': sb.Append("\\r"); break;
+                        case (byte)'\n' when escapeCrlf: sb.Append("\\n"); break;
+                        case (byte)'\r' when escapeCrlf: sb.Append("\\r"); break;
+                        case (byte)'\r' or (byte)'\n': sb.Append((char)b); break; // not escaped
                         case (byte)'\t': sb.Append("\\t"); break;
                         case (byte)'\b': sb.Append("\\b"); break;
                         case (byte)'\a': sb.Append("\\a"); break;

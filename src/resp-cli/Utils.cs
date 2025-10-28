@@ -272,7 +272,7 @@ public static class Utils
             {
                 reader.MoveNext();
                 sb.Append(' ');
-                CommandParser.AppendEscaped(ref reader, sb);
+                CommandParser.AppendEscaped(ref reader, sb, true);
             }
             cmd = sb.ToString();
         }
