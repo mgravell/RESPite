@@ -167,7 +167,7 @@ internal static class RespClient
                 }
 
                 // using iterator approach so that streaming is handled automatically
-                int i = 1;
+                int i = 0;
                 var iter = reader.AggregateChildren();
                 if ((prefix is RespPrefix.Map or RespPrefix.Attribute) && WriteAsScalarMap(iter))
                 {
@@ -231,12 +231,20 @@ internal static class RespClient
             Indent(indent);
             if (index >= 0)
             {
-                Write($"[{index}]", ConsoleColor.White, ConsoleColor.DarkBlue);
+                if (headerKey.Prefix is RespPrefix.None)
+                {
+                    Write($"[{index + 1}]", ConsoleColor.White, ConsoleColor.DarkBlue);
+                }
+                else
+                {
+                    var pairIndex = index * 2;
+                    Write($"[{pairIndex + 1}/{pairIndex + 2}]", ConsoleColor.White, ConsoleColor.DarkBlue);
+                }
+                Write(" ", null, null);
             }
 
             if (headerKey.Prefix is not RespPrefix.None)
             {
-                Write(" ", null, null);
                 Write(((char)headerKey.Prefix).ToString(), ConsoleColor.White, ConsoleColor.DarkBlue);
                 Write(" ", null, null);
                 if (headerKey.IsNull)
