@@ -118,14 +118,13 @@ internal static class RespClient
             // and exit, no idea what happened
         }
 
-        static ref RespReader NoKey() => ref Unsafe.NullRef<RespReader>();
-
         static void WriteResult(LeasedRespResult result)
         {
             var reader = new RespReader(result.Span);
             if (reader.TryReadNext())
             {
-                WriteValue(ref NoKey(), ref reader, 0, -1);
+                RespReader dummyKey = default;
+                WriteValue(ref dummyKey, ref reader, 0, -1);
             }
         }
 
@@ -189,11 +188,12 @@ internal static class RespClient
                 }
                 else
                 {
+                    RespReader dummyKey = default;
                     while (iter.MoveNext())
                     {
                         ref RespReader child = ref iter.Value;
                         child.MoveNext();
-                        WriteValue(ref NoKey(), ref child, indent + 1, i);
+                        WriteValue(ref dummyKey, ref child, indent + 1, i);
                         child.DemandEnd();
                         i++;
                     }
@@ -234,7 +234,7 @@ internal static class RespClient
                 Write($"[{index}]", ConsoleColor.White, ConsoleColor.DarkBlue);
             }
 
-            if (!Unsafe.IsNullRef(ref headerKey))
+            if (headerKey.Prefix is not RespPrefix.None)
             {
                 Write(" ", null, null);
                 Write(((char)headerKey.Prefix).ToString(), ConsoleColor.White, ConsoleColor.DarkBlue);
