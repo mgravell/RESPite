@@ -34,6 +34,7 @@ public class ReaderBench
 
     private const int OperationsPerInvoke = 1024;
 
+    /*
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public void ReadUnoptimized()
     {
@@ -65,6 +66,7 @@ public class ReaderBench
         }
         if (reader.BytesConsumed != buffer.Length) ThrowTooMuch();
     }
+    */
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ThrowTooMuch() => throw new InvalidOperationException("Unhandled trailing data");
